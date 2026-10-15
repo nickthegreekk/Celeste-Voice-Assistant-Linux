@@ -115,6 +115,8 @@ Once M0 has created the build:
 Commit as you go, before you report. Another committer works in this repository from outside it, so an untracked half-finished file left lying in the tree can be swept into an unrelated commit by a git add run elsewhere. A clean tree and an honest attribution are worth more than saving one commit.
 Never leave a module in a non-compiling state. If an experiment fails, revert it before moving on, in its own commit, rather than leaving a red build while you go and read an API - a broken build hides the next real error.
 
+**One exception, earned by the M1 service cluster (2026-10-15).** Where mutual references make a set of files compilable only together - the four AssistantService files reference each other cyclically, and the six COPY files are extension functions on the class they extend - that set lands as **one** commit, with the tree green immediately before and after it. Two conditions: the commit body declares the exception and enumerates what landed, and the tests that arrive with it are the review, because a seven-thousand-line diff is not reviewable by anyone. Name in the body which behaviour each new test proves, not just how many passed.
+
 - One concern per commit. Prefix with the milestone: `M0:`, `M1:`, … `M7:`.
 - Subject in the imperative, ≤ 72 characters. The **body explains why**, not what — this project's
   upstream house style is a long, reasoning-dense commit message, and matching it is deliberate:

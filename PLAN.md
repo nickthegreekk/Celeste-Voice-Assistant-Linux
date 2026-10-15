@@ -404,6 +404,13 @@ prints the resolved paths and audio devices, `tools/sync-from-android.sh`, `docs
 
 [2026-10-15: `AppEnv` is designed HERE, not in M0.5. M0.5 resolved the XDG paths in `:platform` and the selftest exercised them; the interface itself is derived by reading what the ported files actually ask of `Context` — paths, the logger the `android.util.Log` shim routes into, the process launcher from D6, device info — rather than by guessing a shape a milestone early. Promoting the resolved-paths holder into `:core` is the mechanical first step, and `AppEnv` takes it as a parameter, so `:core` never sees a `:platform` type.]
 [Revised mid-M1, 2026-10-15: M1.1-M1.3 were all foundation - AppEnv, AppLogger, SettingsStore, ImageCodec - and no ported :core file had landed yet. That is the same boundary-discovery pattern M0 showed, so M1 is re-estimated at 12-15 days. Do NOT re-baseline M2-M7 from it: these foundations are inherited by every later milestone, and only M2 audio seams are comparable new-code work.]
+[One-commit cluster, 2026-10-15: the four service files (`AssistantService`, `Chat`, `Audio`, `Gateway`) plus the six
+m1 COPY files cannot be split — nothing in that set compiles alone — so they land together at roughly 7,000 lines
+under the exception in AGENTS.md §7. Two things must be true at the end of it: both `BORROWED FROM M1` declarations
+are gone (`GatewayUrl.kt` and `ImageGenConstants.kt` deleted, which the compiler insists on anyway since upstream
+declares the same symbols in the same package — the deletion must be deliberate, not incidental), and the only
+`Stub*` classes left in `:platform` are ones M2 will genuinely replace.]
+
 [M1 boundary revised again, 2026-10-15: `AssistantServiceAudio.kt` (1,379 lines) moves into M1. Of its 24 top-level functions the six m1 COPY files call exactly one, but `AssistantService.kt` needs seven and `AssistantServiceChat.kt` seven more - the chat flow ends by calling `playResponse` and its finally calls `abandonAssistantFocus`, so chat and voice are not separable here. Porting it in M1 with `Stub*` platform implementations is the same work M2 would have done, moves earlier; it edits `AssistantService.kt` and `Chat.kt` once instead of twice, and keeps the twelve-COPY-files-compiling invariant at M1 rather than pushing it to M2. M1 acceptance stays text-only - nothing is claimed about voice until M2. Shift: M1 to about 15-20 days, M2 down to 3-6, total unchanged.]
 servers, providers, chat orchestration, main window, settings/persona screens, image-gen config
 screens. Port the JVM tests.
