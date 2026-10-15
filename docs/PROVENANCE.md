@@ -223,17 +223,21 @@ from `diff -u <upstream> <ported>`; a byte-identical file is marked as such and 
 
 | File | Upstream | Ported | Removed | Added | Net |
 |---|---:|---:|---:|---:|---:|
-| `AssistantService.kt` | 3,372 | 3,114 | 789 | 531 | −258 |
-| `AssistantServiceChat.kt` | 2,952 | 3,008 | 123 | 179 | **+56** |
-| `AssistantServiceAudio.kt` | 1,380 | 849 | 1,072 | 541 | −531 |
-| `AssistantServiceGateway.kt` | 656 | 700 | 35 | 79 | +44 |
-| `AssistantServiceContext.kt` | 485 | 504 | 25 | 44 | +19 |
-| `SettingsManager.kt` | 1,357 | 1,292 | 330 | 265 | −65 |
-| `SpontaneousNotifications.kt` | 178 | 92 | 142 | 56 | −86 |
-| `VADAudioRecorder.kt` | 323 | 266 | 137 | 80 | −57 |
-| `VADDetector.kt` | 113 | 155 | 18 | 59 | +42 |
-| 11 byte-identical files | 9,431 | 9,431 | 0 | 0 | 0 |
-| **Total (22 files)** | **16,247** | **15,411** | **2,671** | **1,834** | **−836** |
+| `AssistantService.kt` | 3,371 | 3,113 | 789 | 531 | −258 |
+| `AssistantServiceChat.kt` | 2,951 | 3,007 | 123 | 179 | **+56** |
+| `AssistantServiceAudio.kt` | 1,379 | 848 | 1,072 | 541 | −531 |
+| `AssistantServiceGateway.kt` | 655 | 699 | 35 | 79 | +44 |
+| `AssistantServiceContext.kt` | 484 | 503 | 25 | 44 | +19 |
+| `SettingsManager.kt` | 1,356 | 1,291 | 330 | 265 | −65 |
+| `SpontaneousNotifications.kt` | 177 | 91 | 142 | 56 | −86 |
+| `VADAudioRecorder.kt` | 322 | 265 | 137 | 80 | −57 |
+| `VADDetector.kt` | 112 | 154 | 18 | 59 | +42 |
+| 11 byte-identical files | 9,419 | 9,419 | 0 | 0 | 0 |
+| **Total (22 files)** | **16,225** | **15,389** | **2,671** | **1,834** | **−836** |
+
+Counts are `wc -l`'s — the number of newlines, so a file whose last line has no terminator is
+not credited with one. `removed` and `added` came from the same diff, so the totals are internally
+consistent even where a file's own count looks a line short of what an editor shows.
 
 **`AssistantServiceChat.kt` grew, and that is the honest outcome rather than a miss.** Its Android
 surface was small — one `Uri` parameter list, eleven `BuildConfig.DEBUG` reads, two Base64 calls —

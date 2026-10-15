@@ -63,7 +63,7 @@ long an OS toast lingers, and a desktop snackbar's dwell is the UI's business. â
 
 `tools/sync-from-android.sh --seed <name>` places one PORT+ file as a verbatim starting copy, so the port is
 reviewable as an unedited `diff -u` against upstream instead of being retyped from reading. `AssistantService.kt`
-is 3,372 lines and its port reads 789 removed / 531 added; retyping would have discarded that diff and put
+is 3,371 lines and its port reads 789 removed / 531 added; retyping would have discarded that diff and put
 transcription errors into a file only the compiler partly checks. Two constraints make it safe: `PORT_SOURCES`
 must stay disjoint from `COPY_SOURCES` (a file that is byte-identical forever must never be seedable), and the
 seeded content is a working-tree step, never a commit â€” the port replaces it before the cluster commit lands, so
