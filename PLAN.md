@@ -148,6 +148,27 @@ The bundled `arm64-v8a/libespeak-ng.so`, `src/main/cpp/` (its CMake build and JN
 34 MB of piper/espeak assets do **not** come across: on Linux eSpeak-NG is a distro package and
 piper/Kokoro lives on the gateway.
 
+### 5a. Seam 8 is not in v1 (2026-10-15)
+
+Credentials — provider API keys, server passwords and gateway credentials — live in the settings
+file at `~/.config/celeste-linux/settings.json`, mode 0600. AGENTS.md §5 already permits the settings
+file, D7 named the 0600 file as its fallback, and requiring a Secret Service daemon would be worse on
+a bare X11 session where gnome-keyring or kwallet may not even be running. On a single-user desktop
+this gives the same protection against other local users that libsecret would; what it gives up is
+encryption at rest against root or a leaked backup.
+
+**The condition that made this acceptable is the warning D7 asked for: the settings UI must say where
+credentials are stored.** libsecret comes back only if something needs a secret that must not sit in
+a file the user can read.
+
+### 5b. Seam 15: the image codec (2026-10-15)
+
+Upstream decodes and re-encodes persona artwork with Android `BitmapFactory` and `Bitmap.compress`;
+on Linux that is `javax.imageio`, which costs no new dependency. It is a seam rather than an inlined
+detail because more than one call site needs it — settings artwork import now, chat image attachments
+later — and because the constants are behaviour: JPEG quality 88, and ICON_MAX_DIM 512,
+BACKGROUND_MAX_DIM 1080, MESSAGE_IMAGE_MAX_DIM 1024.
+
 ## 6. Audio subsystem (the one genuinely new component)
 
 **Capture** — keep the behaviour, replace the device access. `VADAudioRecorder` is rewritten around
