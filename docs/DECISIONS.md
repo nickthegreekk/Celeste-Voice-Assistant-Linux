@@ -13,6 +13,15 @@ not stop for it. Stop only for the four cases listed in AGENTS.md §10.
 
 ---
 
+## 2026-10-15 — A grep is evidence of text, not of behaviour
+
+Three times a grep-derived claim went into the plan and the compiler disproved it. Three COPY files call
+`android.util.Log` fully qualified and were recorded as pure until they would not compile; `Models.kt`'s Compose use
+looked like an annotation and turned out to be the persisted colour schema; and `SpontaneousDeliveryWorker.kt`'s
+references "are all comments" until a byte-identical COPY file called into it three times. Greps remain the right tool
+for finding things and for the debt ledger, where the text is the artefact. They are not evidence about what compiles
+or what a call means, so a claim of that shape is confirmed by building before it is written down as a rule.
+
 ## 2026-10-15 — Seam 9 lands real in M1, not as a stub
 
 A byte-identical COPY file calls `cancelSpontaneousNotification` at `AssistantServiceSpontaneous.kt:442`, and

@@ -143,7 +143,7 @@ implementation in `platform/`; `core` never imports from `platform`.
 | 7 | `SettingsStore` | `EncryptedSharedPreferences` | JSON file in `~/.config/celeste-linux/` |
 | 8 | `SecretStore` | AES/GCM via Android Keystore | **Not in v1** — credentials live in the settings file at mode 0600, see §5a |
 | 9 | `Notifier` | `NotificationManager` + channels | `notify-send`, tracking the notification id so a cancel is possible. **Lands real in M1**, not as a stub, because a byte-identical COPY file calls `cancelSpontaneousNotification`; M4 adds the Open action and the click routing rather than replacing it |
-| 10 | `Scheduler` | `WorkManager` (self-rescheduling, reboot-safe) | coroutine timer inside the service core, driven by the already pure `SpontaneousScheduler`; optional systemd user timer |
+| 10 | `Scheduler` | `WorkManager` (self-rescheduling, reboot-safe) | coroutine timer inside the service core, driven by the already pure `SpontaneousScheduler`; optional systemd user timer. **Lands in M1 as an interface plus `StubScheduler`**, since a byte-identical COPY file calls `armSpontaneousWork`, `disarmSpontaneousWork` and `isSpontaneouslyArmed` three times each; M4 replaces the stub |
 | 11 | `Tray` | Quick-settings tile | AWT `SystemTray` menu (Listen now, Mute mic, Open, Quit) |
 | 12 | `Hotkey` | None (proximity "wave to interrupt") | WM/desktop hotkey to `celeste-linux --listen` (documented per desktop); optional XDG GlobalShortcuts portal |
 | 13 | `FileDialogs` | SAF `ActivityResult` pickers | AWT `FileDialog` / chooser |
@@ -205,7 +205,7 @@ grep -rnE '^[[:space:]]*(internal )?class Stub' platform/src/main           # se
 
 Prose may use those words freely - what matters is that only a marker starts a line that way. Run all three before a
 checkpoint rather than at the end, and expect: zero BORROWED once m1 lands, zero DEFERRED until `AssistantService.kt`'s two
-shortcut deletions are marked and then exactly two, and exactly the four Stub classes M2 replaces — seams 1, 2, 3 and 6, the set whose callers landed in M1 — and nothing else.
+shortcut deletions are marked and then exactly two, and a `Stub*` for every seam whose callers landed in M1 while its implementation belongs to a later milestone. Each stub names its milestone, so the set is checked by reading the names rather than by counting: it has already grown from three to five as callers landed (1, 2, 3 and 6 for M2, 10 for M4).
 
 ### 5a. Seam 8 is not in v1 (2026-10-15)
 
@@ -395,6 +395,14 @@ the import is actually visible, and record which way it went.
 the shim and `GatewayUrl.kt`. M1 gains the six m1 files (2,388 lines) unchanged, since they arrive
 with the service they extend.
 
+**Seeding a PORT+ file (2026-10-15).** `tools/sync-from-android.sh --seed <name>` places one PORT+ file as a verbatim
+starting copy, so the port is reviewable as an unedited `diff -u` against upstream — `AssistantService.kt` currently
+reads 755 lines removed and 495 added — rather than retyped, which would discard that diff and put transcription errors
+into 3,371 lines that only the compiler partly checks. Two constraints: `PORT_SOURCES` must stay disjoint from
+`COPY_SOURCES`, because a file that is byte-identical forever must never be seedable; and the seeded content is a
+working-tree step, never a commit, so `:core` never holds the Android original — the port replaces it before the
+cluster commit lands.
+
 ## 8. Feature parity matrix
 
 | Feature (upstream README) | Milestone | Notes |
@@ -458,7 +466,7 @@ prints the resolved paths and audio devices, `tools/sync-from-android.sh`, `docs
 (1,379 to ~600), `Gateway.kt` (655), `Context.kt` (484), plus `VADAudioRecorder.kt` (322, NEW) and `VADDetector.kt` (112)
 pulled in by real call sites in the service, `EspeakEngine.kt` (131 to ~80, its asset copier deleted since no Android
 assets come across), and the six m1 COPY files byte-identical. `SpontaneousDeliveryWorker.kt` is NOT in the cluster:
-every reference to it is a comment, so M1's UI really is separable and Compose stays out of the service closure.
+the worker *file* stays out of the cluster, but the scheduler capability it wraps does not: `AssistantServiceSpontaneous.kt`, byte-identical, calls `isSpontaneouslyArmed`, `armSpontaneousWork` and `disarmSpontaneousWork` three times each, so seam 10's interface and a `StubScheduler` land in M1 — see the seam-10 row in §5.
 Consequence: M2's remaining scope is the seam implementations and the hands-free loop, nothing else.]
 
 [One-commit cluster, 2026-10-15: the four service files (`AssistantService`, `Chat`, `Audio`, `Gateway`) plus the six
