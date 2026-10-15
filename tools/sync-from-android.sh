@@ -186,8 +186,8 @@ case "$MODE" in
       cat <<'NEXT'
 m0 still needs, hand-written rather than copied (PLAN.md §7a):
   core/src/main/kotlin/android/util/Log.kt          the Log shim — the only android.* package here
-  core/src/main/kotlin/.../GatewayUrl.kt            normalizeGatewayUrl, one line of real logic
-  Models.kt                                         ADAPT; needs the shim first
+  core/src/main/kotlin/.../BorrowedFromM1.kt      normalizeGatewayUrl + the shared negative prompt; both deleted in M1
+  Models.kt                                         COPY; needs ui-graphics pinned in :core (PLAN.md §7a)
 NEXT
     fi
     if [ "$GROUP" = "m1" ]; then

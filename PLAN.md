@@ -193,7 +193,7 @@ edits, **PORT+** = real work but the logic survives, **NEW** = new implementatio
 | `AssistantServiceAudio.kt` | 1379 | PORT+ | Seams 1/2/3/6; keeps queueing, cancel-previous, one-playback guard |
 | `SettingsManager.kt` | 1356 | PORT+ | Encrypted prefs/Keystore to seams 7/8; keeps corruption recovery, migration, backup read/write |
 | `RoomScreens.kt` | 996 | ADAPT | Compose only |
-| `Models.kt` | 984 | ADAPT | Data classes + compose imports |
+| `Models.kt` | 984 | **COPY** | Data classes + the persisted colour schema; takes `ui-graphics` in `:core` (§7a) |
 | `ChatComponents.kt` | 887 | ADAPT | Share sheet to `--send-text`/clipboard; Coil file models unchanged |
 | `ModelCatalog.kt` | 708 | **COPY** | Pure |
 | `SkillScreens.kt` | 696 | ADAPT | Compose only |
@@ -281,6 +281,8 @@ one definition, and the removal is an ADAPT recorded in `docs/PROVENANCE.md`.
 `androidx.compose.runtime:runtime` to `:core`: one dependency buys a permanent no-diff. Decide when
 the import is actually visible, and record which way it went.
 
+
+[Amended 2026-10-15, both points raised by the agent and both upheld.] **Models.kt is COPY, not ADAPT.** Its Compose dependency is not an annotation: `androidx.compose.ui.graphics.Color` is part of the *persisted* settings schema (`object ColorSerializer` at line 13 persisting `value.toArgb()`, `@Serializable` fields at 134/140/248, about 35 ARGB literal sites). `:core` therefore takes `org.jetbrains.compose.ui:ui-graphics`, pinned to exactly the version `:desktop` resolves, because a version skew there would put two different `Color` classes on the classpath. That dependency is worth its cost: the alternative, a project-owned colour type, is a permanent diff against the most upstream-volatile file in the app, and a hand-rolled `Color` risks silently different persisted values, which would break importing an Android backup, a stated feature. A comment in the `:core` build file must say why the dependency is there, so nobody tidies it away. **`ComfyWorkflow.kt` stays in m0, with one borrowed declaration.** Its only m0-to-m1 reference is `IMAGE_GEN_NEGATIVE_PROMPT` (the default for `ComfyPromptValues.negative`), defined at `AssistantServiceImageGen.kt:78`. Moving the file to m1 would exile the best-tested logic in M0 (`ComfyPromptFillingTest`, `ComfyWorkflowValidationTest`); editing the file would be a permanent diff. So the constant is borrowed the same way `normalizeGatewayUrl` is: both live in one file, `BorrowedFromM1.kt`, whose header states the rule - every declaration there is defined upstream in a m1 file and is duplicated only so the m0 files compile; when the upstream file arrives, that declaration is deleted in the same commit and recorded in `docs/PROVENANCE.md`. Nothing else is ever added there.
 **Consequence for §10.** M0's upstream file set is the six m0 files (2,046 lines) plus `Models.kt`,
 the shim and `GatewayUrl.kt`. M1 gains the six m1 files (2,388 lines) unchanged, since they arrive
 with the service they extend.
