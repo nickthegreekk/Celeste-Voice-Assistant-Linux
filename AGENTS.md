@@ -54,6 +54,7 @@ filesystem layout, the answer is a new interface in `:core` and its implementati
 
 **[2026-10-15, PLAN.md §7a.]** The verdicts stand, but every COPY file also has an *arrival milestone* (`m0`/`m1`) — take a file only when its dependencies are ported. And `android.util.Log` is handled by a shim at `core/src/main/kotlin/android/util/Log.kt`, the only file under an `android.*` package: **never "fix" a fully-qualified `android.*` call inside a COPY file** — extend the shim, or stop and ask.
 [Same date: a declaration borrowed from a m1 file lives in its own file, with a header carrying the exact line `BORROWED FROM M1` and the name of the upstream file that will absorb it. `grep -rl BORROWED FROM M1 core/` is the M1 checklist, and a borrowed declaration is never left behind.]
+[Tests follow the same discipline: a pure upstream test moves through `tools/sync-from-android.sh` byte-identical (it is on the `TEST_SOURCES` list), and a test that needs retargeting is adapted on purpose and recorded in `docs/TEST-MAP.md` — never quietly edited in place.]
 
 [PLAN.md](PLAN.md) §7 classifies every upstream file as **COPY**, **ADAPT**, **PORT+** or **NEW**.
 That classification is part of the specification:

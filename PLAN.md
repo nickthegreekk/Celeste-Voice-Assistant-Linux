@@ -287,6 +287,8 @@ the import is actually visible, and record which way it went.
 [Revised the same day: the borrowed declarations live in separate files named for what they hold — `GatewayUrl.kt` and `ImageGenConstants.kt` — not in one file called `BorrowedFromM1.kt`. The safety property is kept by a marker rather than by a file name: every such file carries the exact line `BORROWED FROM M1` in its header and names the upstream file that will absorb it, so the M1 checklist is one command, `grep -rl BORROWED FROM M1 core/`, and it works however many of them appear.]
 
 [m0 arithmetic, 2026-10-15: `Models.kt` is COPY, so m0 is **seven** upstream files and **3,030** lines — `tools/sync-from-android.sh --group m0` copies all seven — plus two hand-written files, `android/util/Log.kt` and `BorrowedFromM1.kt`.]
+
+[Tests arrive the same way: `TEST_SOURCES` in the sync script copies pure upstream JVM tests byte-identical into `core/src/test/kotlin/`, under the same groups and the same `--check` coverage. A test needing retargeting stays off that list: adapted on purpose, recorded in `docs/TEST-MAP.md`. M0.4 starts with `ComfyWorkflowValidationTest.kt`, `ComfyPromptFillingTest.kt` and `ComfyFixtures.kt`. — and this is the pattern for all 45 upstream JVM test files.]
 **Consequence for §10.** M0's upstream file set is the six m0 files (2,046 lines) plus `Models.kt`,
 the shim and `GatewayUrl.kt`. M1 gains the six m1 files (2,388 lines) unchanged, since they arrive
 with the service they extend.

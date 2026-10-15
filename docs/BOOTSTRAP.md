@@ -142,6 +142,8 @@ referenced). Every file you bring across gets a `docs/PROVENANCE.md` line.
 which files were pulled in and why.
 
 **M0.4 — the ported JVM tests.** Copy the upstream JVM tests that cover the ported logic (start with
+
+[Corrected 2026-10-15: tests arrive through the same sanctioned path now — `tools/sync-from-android.sh --group m0` copies `ComfyWorkflowValidationTest.kt`, `ComfyPromptFillingTest.kt` and `ComfyFixtures.kt` byte-identical into `core/src/test/kotlin/`, and `--check` covers them. All three are pure `org.junit` (one also uses kotlinx-serialization), so the two known differences described below do not arise for them: `isReturnDefaultValues` and the `org.json` shim belong to the other, Android-coupled tests, which are adapted on purpose and recorded in `docs/TEST-MAP.md`.]
 the ComfyUI/workflow-token, timestamp, scheduler and resolution tests), retargeting anything
 Android-specific. Two known differences: upstream sets `unitTests.isReturnDefaultValues = true` and
 shims `org.json` for tests — neither applies to a JVM project, so use the real dependency. Every
