@@ -248,6 +248,19 @@ Prose may use those words freely - what matters is that only a marker starts a l
 checkpoint rather than at the end, and expect: zero BORROWED once m1 lands, zero DEFERRED until `AssistantService.kt`'s two
 shortcut deletions are marked and then exactly two, and a `Stub*` for every seam whose callers landed in M1 while its implementation belongs to a later milestone. Each stub names its milestone, so the set is checked by reading the names rather than by counting: it has already grown from three to five as callers landed (1, 2, 3 and 6 for M2, 10 for M4).
 
+**The shared-block rule, one layer up (2026-10-15).** The UI asks the question the service asked: M1's screens call about
+twenty things that live in files whose *features* belong to M3-M5 — `ModelRowBody`, `FavoriteStar`, `EmptyNote`,
+`LoadingRow`, `StaleNote`, `personaBackdropPath`, `readComfyWorkflowText`, `imageWorkflowDisplayName`. They come in with
+M1, because a shared building block arrives with its **first caller**, exactly as a seam does. Only whole features are
+cut — the Rooms panel, Skill settings, the spontaneous section, the image viewer, the tile — each with a
+`DEFERRED TO M<n>` marker at its call site, so the markers are the list of feature gaps and nothing has a hole in it.
+Cutting the edges literally instead would leave both holes and shared widget definitions reimplemented inline at the
+call sites, which is how two copies of a widget begin to drift. Two details: where a small file is mostly the shared
+leaf, take the file whole (`ImageWorkflowImport.kt`, 63 lines) rather than a fragment; and where a large file is taken
+in part (`ModelScreens.kt` 467, `RoomScreens.kt` 996), say so in §7's row and in PROVENANCE — "partially ported in M1"
+is a state worth stating rather than implying. Each marker names the milestone that restores it, and §10's M3-M5 lines
+gain those feature names in the same commit, so the receiving milestone reads its own to-do list.
+
 ### 5a. Seam 8 is not in v1 (2026-10-15)
 
 Credentials — provider API keys, server passwords and gateway credentials — live in the settings
