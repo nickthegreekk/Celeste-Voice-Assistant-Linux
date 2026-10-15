@@ -175,3 +175,24 @@ persona and provider model, the chat orchestration, the main window and the sett
 acceptance criterion is a real conversation with Ollama and one cloud provider, surviving a restart,
 with an imported Android backup visible. Work it the same way: one commit per concern, plan section
 in the commit body, `./gradlew build` before the milestone commit.
+## 8. When something is wrong
+
+Nothing here is unrecoverable, and every failure class has one command.
+
+- **A bad commit**: `git revert <sha>`. The log explains why that commit existed, so the fix is usually to revert
+  and redo deliberately rather than to patch around it.
+- **A COPY file edited by accident**: `tools/sync-from-android.sh --group m0` (or `m1`) puts the byte-identical
+  content back. `--check` says which file drifted.
+- **The upstream tree touched by accident**: `git -C ../VoiceAssistant status --porcelain` shows it and
+  `git -C ../VoiceAssistant checkout -- <file>` restores it. That repository has its own history, so
+  nothing there can be lost that git cannot restore — and the sync script refuses a destination inside it for
+  exactly this reason.
+- **A decision that turned out wrong**: add a decision entry that supersedes the old one, edit the rule in
+  PLAN.md, then change the code. The cost is the code, not the archaeology — which is what `docs/DECISIONS.md`
+  buys.
+- **Silent wrongness** — the one class no command undoes. It is found by exercising the thing: the milestone's
+  acceptance criterion, or a real run of the app. That is why every milestone has one.
+
+Worst realistic outcome of a bad decision: a wasted day, not a broken project. The upstream Android app is a
+separate, untouched repository, so the phone app keeps working whatever happens here.
+
