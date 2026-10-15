@@ -416,6 +416,7 @@ A first usable milestone is **M2**: roughly **15–23 days**.
 | No Secret Service daemon on the box | Credentials cannot be stored | 0600 file fallback, warned about in the UI |
 | systemd user unit without linger | Daemon dies at logout | Document `loginctl enable-linger`; the unit is optional |
 | Phone and desktop settings diverge | Confusion | Documented; the backup file is the only bridge |
+| Gradle 9.8.1 warns the build uses features removed in Gradle 10 | The build breaks on a future Gradle upgrade, possibly mid-milestone | The wrapper is pinned, so nothing moves by accident; deal with it deliberately at M6 packaging, not in the middle of porting |
 
 ## 13. Upstream sync policy
 
