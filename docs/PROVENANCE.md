@@ -106,7 +106,8 @@ in this table that is not written down here is one nobody can review.
 | File | Verdict | Upstream | What changed |
 |---|---|---|---|
 | `SettingsManager.kt` | PORT+ | `app/src/main/java/com/nikosm/voiceassistant/SettingsManager.kt` | Seams 7 and 15; `Context`→`AppEnv`; `Uri`→`Path`; `android.util.Base64`→`java.util.Base64`; `createEncryptedPrefsWithRecovery` removed. Detail below. |
-| `AssistantServiceAudio.kt` | PORT+ | `app/src/main/java/com/nikosm/voiceassistant/AssistantServiceAudio.kt` | Landing in stages (PLAN.md §10). So far: `cleanTextForTts`'s astral-emoji class rewritten for the JVM regex engine. Detail below. |
+| `AssistantServiceAudio.kt` | PORT+ | `app/src/main/java/com/nikosm/voiceassistant/AssistantServiceAudio.kt` | Landing in stages (PLAN.md §10). So far: `cleanTextForTts`'s astral-emoji class rewritten for the JVM regex engine, and the chunked sequencing extracted to `TtsChunkSequencer.kt`. Detail below. |
+| `TtsChunkSequencer.kt` | **NEW** | policy extracted from `AssistantServiceAudio.kt` | Chunk order, the one-at-a-time rule, the cancel-previous guard and the progress arithmetic — lifted out of upstream's `playChunkedTtsGateway`/`startChunkPlayback` so they can be tested at all. Detail below. |
 
 ### `AssistantServiceAudio.kt`
 
@@ -135,6 +136,29 @@ the class is unchanged, because those are single code units and behave identical
 `AssistantServiceAudioTest` pins the three emoji shapes (face, symbol, flag), and also pins that
 ordinary prose and Greek text survive untouched — a class widened too far is a worse bug than the
 one it fixes.
+
+**The chunked sequencing is extracted, not copied, and the reason is that upstream's shape is
+untestable.** `playChunkedTtsGateway` and `startChunkPlayback` are ~370 lines that reach their
+branches only through a live service and a real `MediaPlayer`: three-deep `postDelayed` polling,
+`currentPlayer === mp` identity comparisons in every callback, state flips interleaved with the
+sequencing. **Upstream has no test for any of it**, and could not have one. PLAN.md §6 requires the
+opposite on this side — the sequencing, the cancel-previous guard and the progress arithmetic must
+be provable with no audio hardware and no M2 implementation — so the policy moves to
+`TtsChunkSequencer.kt` and is driven entirely through the `AudioPlayback` seam, which
+`FakeAudioPlayback` implements.
+
+The rule this produced is recorded in PLAN.md §5 and is general: **a PORT+ file that fuses platform
+callbacks with policy gives the policy up to a NEW class in `:core`, and the file keeps the shape
+its platform forces.** What stays in `AssistantServiceAudio.kt` is what the platform genuinely
+forces — the parts that talk to the audio stack — and what stays in the service is what belongs to
+the service: state transitions, `voiceDuration` publication, and the TTS generation counter.
+
+The extraction kept three things that a rewrite would have lost, each noted in the source: synthesis
+runs *concurrently* with playback rather than before it (the first-audio latency PLAN.md §6 cares
+about), the duration estimate is refined on every chunk rather than measured once, and the 64-bit
+product in that estimate is deliberate — `cumulativeDurationMs * fullTextLen` overflows 32-bit
+around 5.6k characters, and the wrapped negative value froze the fraction at 0 and published a
+negative duration, killing the highlight and the reveal together.
 
 ### `SettingsManager.kt`
 
