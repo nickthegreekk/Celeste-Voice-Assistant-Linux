@@ -180,12 +180,12 @@ this rule, which is that a symbol a byte-identical COPY file calls must exist fo
 
 **Markers are lines, not phrases (2026-10-15).** Earned the first time a comment *mentioned* the convention: prose containing
 the marker phrase made a grep count a mention as a marker, which would have failed a checkpoint on a file with nothing
-borrowed in it. So every marker is a standalone line comment of the form `// MARKER: text`, or ` * MARKER: text` inside a block comment, and all three checks are
+borrowed in it. So every marker is a standalone line comment the phrase at the start of a comment line's content, colon optional, with the detail on the following lines - `// BORROWED FROM M1`, or ` * BORROWED FROM M1` inside a block comment, and all three checks are
 anchored:
 
 ```
-grep -rnE '^[[:space:]]*(//|\*)?[[:space:]]*BORROWED FROM M1:' core/ platform/    # declarations borrowed from a m1 file
-grep -rnE '^[[:space:]]*(//|\*)?[[:space:]]*DEFERRED TO M[0-9]:' core/ platform/  # upstream calls deleted on purpose
+grep -rnE '^[[:space:]]*(//|\*)?[[:space:]]*BORROWED FROM M1\b' core/ platform/    # declarations borrowed from a m1 file
+grep -rnE '^[[:space:]]*(//|\*)?[[:space:]]*DEFERRED TO M[0-9]\b' core/ platform/  # upstream calls deleted on purpose
 grep -rnE '^[[:space:]]*(internal )?class Stub' platform/src/main           # seam implementations a milestone replaces
 ```
 
