@@ -19,6 +19,11 @@ dependencies {
     api(project(":core"))
     implementation(libs.kotlinx.coroutines.core)
 
+    // Declared here rather than inherited from :core, even though :core already has it: the
+    // settings store parses and writes JSON itself, and `:core` keeps it as an `implementation`
+    // dependency precisely so that it does not leak outward. A module that uses a library says so.
+    implementation(libs.kotlinx.serialization.json)
+
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)
 }
