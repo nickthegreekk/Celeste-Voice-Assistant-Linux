@@ -40,7 +40,6 @@ UPSTREAM_SRC="$UPSTREAM_APP/java/com/nikosm/voiceassistant"
 DEST_SRC="$REPO_ROOT/core/src/main/kotlin/com/nikosm/voiceassistant"
 UPSTREAM_TEST="$UPSTREAM/app/src/test/java/com/nikosm/voiceassistant"
 DEST_TEST="$REPO_ROOT/core/src/test/kotlin/com/nikosm/voiceassistant"
-DEST_TEST="$REPO_ROOT/core/src/test/kotlin/com/nikosm/voiceassistant"
 
 # Upstream test trees, searched in order. A name found in more than one is resolved by this
 # order, and --list prints the path it picked so a wrong pick is visible rather than silent.
@@ -74,16 +73,6 @@ TEST_SOURCES=(
   "m0|ComfyFixtures.kt"
 )
 
-# GROUP|upstream-name   — the JVM tests, copied verbatim into :core's test source set.
-#
-# ComfyFixtures.kt is not a test class but has to travel with the two that are: it is the shared
-# fixture they build their captured workflows from, and both reference it.
-TEST_SOURCES=(
-  "m0|ComfyFixtures.kt"
-  "m0|ComfyPromptFillingTest.kt"
-  "m0|ComfyWorkflowValidationTest.kt"
-)
-
 # GROUP|label|source|destination
 COPY_DATA=(
   "m0|LICENSE|$UPSTREAM/LICENSE|$REPO_ROOT/LICENSE"
@@ -97,7 +86,7 @@ case "${1:-}" in
   --group)    MODE="copy"; GROUP="${2:-}"; [ -n "$GROUP" ] || { echo "--group needs m0 or m1" >&2; exit 2; } ;;
   --check)    MODE="check" ;;
   --list)     MODE="list" ;;
-  -h|--help)  sed -n '2,34p' "$0"; exit 0 ;;
+  -h|--help)  sed -n '2,32p' "$0"; exit 0 ;;
   *)          echo "usage: $0 --group m0|m1 | --check | --list" >&2; exit 2 ;;
 esac
 

@@ -71,6 +71,29 @@ set of extension functions on `AssistantService` and cannot compile until `Assis
 3,030 + 2,388 = 5,418 across thirteen source files, which is PLAN.md §7's 4,434 plus `Models.kt`,
 which §7 counted separately as ADAPT.
 
+## Test sources — group m0, taken
+
+Destination: `core/src/test/kotlin/com/nikosm/voiceassistant/`. Upstream:
+`app/src/test/java/com/nikosm/voiceassistant/`. Same package, same names, same byte-identity rule as
+the main sources — `--check` covers them too.
+
+| File | Lines | Upstream commit | Notes |
+|---|---:|---|---|
+| `ComfyPromptFillingTest.kt` | 221 | `fe584ad0` | 10 tests |
+| `ComfyWorkflowValidationTest.kt` | 114 | `fe584ad0` | 13 tests |
+| `ComfyFixtures.kt` | 83 | `fe584ad0` | not a test class — the shared fixture both tests build their captured workflows from, so it travels with them |
+| **Total** | **418** | | 23 tests, all green as of M0.4 |
+
+None of the three needed retargeting: JUnit 4 and `kotlinx-serialization-json` only, no Android, no
+`org.json`, no `Robolectric`. The two Android workarounds BOOTSTRAP.md M0.4 warned about —
+`unitTests.isReturnDefaultValues` and the `org.json` test shim — exist upstream to prop up *other*
+tests and arise nowhere here.
+
+**A test that needs retargeting is not a copy.** The `AndroidJUnit4`, `WorkManager`,
+`TestWorkerBuilder`, permission and Compose-device tests are adapted on purpose, stay out of
+`TEST_SOURCES`, and get a line in `docs/TEST-MAP.md` instead. That is the COPY demotion rule
+(AGENTS.md §3) pointed at tests, and it is why this list will never be all 45 upstream test files.
+
 ## Hand-written files in `core/`
 
 Not from upstream, so they have no upstream commit — but two of them exist only because an upstream
@@ -130,7 +153,7 @@ is deleted from `core/` in the same commit.
 ## Checking for drift
 
 ```sh
-tools/sync-from-android.sh --check      # exit 1 and a diff if any taken COPY file has moved
+tools/sync-from-android.sh --check      # exit 1 and a diff if any taken file has moved — main and test
 grep -rl "BORROWED FROM M1" core/       # the M1 checklist: every borrowed declaration
 tools/check-upstream.sh                 # planned: what changed upstream since the pin above
 ```
