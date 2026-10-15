@@ -468,7 +468,7 @@ real figures belong here: `AssistantService.kt` 3,371 → **3,113** (789 removed
 is the more useful correction: its Android surface turned out to be one `Uri` parameter list, eleven
 `BuildConfig.DEBUG` reads and two Base64 calls, so there was little to delete, while every deleted
 call needed a comment saying what had replaced it. A port that shrinks every file is a port that
-deleted the comments explaining it. Per-file removals and additions for all 22 files, plus a
+deleted the comments explaining it. Per-file removals and additions for all 26 files, plus a
 deleted-thing-by-deleted-thing table, are in docs/PROVENANCE.md.
 
 [Cluster inventory, 2026-10-15: about 8,000 lines - `AssistantService.kt` (3,371 to ~2,850), `Chat.kt` (2,951), `Audio.kt`

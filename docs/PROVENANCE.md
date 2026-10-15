@@ -217,27 +217,61 @@ what a backup contains, which is the one thing this port must not do.
 
 ### The M1 service cluster — the ledger
 
-The whole commit, measured against upstream, file by file. `removed` and `added` are line counts
-from `diff -u <upstream> <ported>`; a byte-identical file is marked as such and is what
-`tools/sync-from-android.sh --check` guards.
+The whole commit, measured against upstream, file by file. **Generated, not transcribed**:
+
+```sh
+tools/ledger.sh --check      # prints this table, exit 1 if it does not reconcile
+```
+
+`removed` and `added` are `diff -u <upstream> <ported>`'s +/- line counts minus the file header;
+the line counts are `wc -l`'s, the number of newlines. Both conventions are the ones a reader can
+reproduce by hand, which is the only thing that makes a table checkable.
+
+| Group | Files | Upstream | Ported | Removed | Added | Net |
+|---|---:|---:|---:|---:|---:|---:|
+| Ported (`PORT+`/`ADAPT`/`NEW`) | 9 | 10,807 | 9,970 | 2,670 | 1,833 | **−837** |
+| Byte-identical COPY, main | 13 | 5,418 | 5,418 | 0 | 0 | 0 |
+| Byte-identical COPY, test | 4 | 545 | 545 | 0 | 0 | 0 |
+| **Total** | **26** | **16,770** | **15,933** | **2,670** | **1,833** | **−837** |
+
+The nine ported files, largest first:
 
 | File | Upstream | Ported | Removed | Added | Net |
 |---|---:|---:|---:|---:|---:|
 | `AssistantService.kt` | 3,371 | 3,113 | 789 | 531 | −258 |
-| `AssistantServiceChat.kt` | 2,951 | 3,007 | 123 | 179 | **+56** |
 | `AssistantServiceAudio.kt` | 1,379 | 848 | 1,072 | 541 | −531 |
+| `AssistantServiceChat.kt` | 2,951 | 3,007 | 123 | 179 | **+56** |
 | `AssistantServiceGateway.kt` | 655 | 699 | 35 | 79 | +44 |
 | `AssistantServiceContext.kt` | 484 | 503 | 25 | 44 | +19 |
 | `SettingsManager.kt` | 1,356 | 1,291 | 330 | 265 | −65 |
 | `SpontaneousNotifications.kt` | 177 | 91 | 142 | 56 | −86 |
 | `VADAudioRecorder.kt` | 322 | 265 | 137 | 80 | −57 |
-| `VADDetector.kt` | 112 | 154 | 18 | 59 | +42 |
-| 11 byte-identical files | 9,419 | 9,419 | 0 | 0 | 0 |
-| **Total (22 files)** | **16,225** | **15,389** | **2,671** | **1,834** | **−836** |
+| `VADDetector.kt` | 112 | 153 | 17 | 58 | +41 |
+| **Subtotal** | **10,807** | **9,970** | **2,670** | **1,833** | **−837** |
 
-Counts are `wc -l`'s — the number of newlines, so a file whose last line has no terminator is
-not credited with one. `removed` and `added` came from the same diff, so the totals are internally
-consistent even where a file's own count looks a line short of what an editor shows.
+**This table had to be generated, and the reason is worth keeping.** The first version was written
+by hand from a computation that double-counted the thirteen byte-identical files — they are `:core`
+files with upstream counterparts *and* they are COPY files, so a list of "every ported file" puts
+them in both groups. A subtotal came out 4,001 lines high. Nothing looked wrong: every individual
+row was correct, the arithmetic per row was right, and the total was simply the sum of a set that
+had been formed the wrong way. An audit that does not reconcile is worse than no audit, because it
+gets read as though it did. `tools/ledger.sh` now asserts four things and fails loudly on any of
+them: each row satisfies `ported − upstream == added − removed`; the three groups sum to the total;
+every file on a copy list has `removed == added == 0`; and the file lists come from
+`tools/sync-from-android.sh` rather than being restated here, so a file added to a list cannot go
+missing from the table.
+
+Three findings came out of writing it, each of which was a real error and none of which was visible
+by reading:
+
+- **The `changed` group included the copies.** Fixed in the script; the same mistake as the
+  hand-written version, made a second time.
+- **`grep -c '^-[^-]'` is not "the removed lines".** It drops any line whose *content* begins with a
+  dash, and this port deleted a lot of `// ---- section ----` banners — 38 in
+  `AssistantServiceAudio.kt` alone. The count is now `^-` minus the one `---` header.
+- **`VADDetector.kt` had a trailing newline upstream does not have.** Mine added one, which made
+  `wc -l` disagree with the diff by one line for that file alone. The newline is gone, so the port
+  matches upstream's byte shape at the end of the file as well as at the start.
 
 **`AssistantServiceChat.kt` grew, and that is the honest outcome rather than a miss.** Its Android
 surface was small — one `Uri` parameter list, eleven `BuildConfig.DEBUG` reads, two Base64 calls —
@@ -253,7 +287,7 @@ diff -u ../VoiceAssistant/app/src/main/java/com/nikosm/voiceassistant/AssistantS
 
 ### What each deleted thing became
 
-The audit of the 2,671 removed lines. Everything here is a **decision** unless marked otherwise, and
+The audit of the 2,670 removed lines. Everything here is a **decision** unless marked otherwise, and
 a decision carries no `DEFERRED TO M<n>` marker — nothing later restores it.
 
 | Deleted | Lines | What replaced it, or why nothing does |
