@@ -83,7 +83,7 @@ $0.15/M cache-miss input, $0.003/M cache-hit input — peak hours double everyth
 
 What that means in practice:
 
-- **Do not re-explore the tree.** The map is PLAN.md §7. Read the plan section, then the one file.
+- **The map is PLAN.md §7; the source is the source.** Read the plan section for which file and which group, then read the upstream file itself before porting it - a paragraph about a file is not the file.
 - **Do not rewrite PLAN.md or AGENTS.md mid-session if you can append instead.** They are the
   cached prefix; rewriting them invalidates the cache for the rest of the session.
 - **Do not paste whole files back into the conversation** to show a change. Edit in place.
