@@ -1,7 +1,7 @@
 package com.nikosm.voiceassistant
 
 import com.nikosm.voiceassistant.linux.AudioDeviceProbe
-import com.nikosm.voiceassistant.linux.XdgPaths
+import com.nikosm.voiceassistant.linux.LinuxAppEnv
 import java.io.IOException
 import java.nio.file.Files
 import java.nio.file.Path
@@ -37,7 +37,10 @@ fun main(args: Array<String>) {
 private const val PIN_RESOURCE = "upstream-commit.txt"
 
 private fun selfTest(): Int {
-    val paths = XdgPaths.resolve()
+    // The environment the rest of the process would run on, with its logger installed first —
+    // so anything logged from here on lands where it will land in a real session, rather than in
+    // a default that only `--selftest` ever sees.
+    val appEnv = LinuxAppEnv.resolve().installLogging()
 
     println("celeste-linux self-test")
     println()
@@ -45,16 +48,21 @@ private fun selfTest(): Int {
     println("  ${upstreamPin()}")
     println()
     println("XDG paths")
-    println("  config : ${paths.configDir}")
-    println("  data   : ${paths.dataDir}")
-    println("  state  : ${paths.stateDir}")
-    println("  cache  : ${paths.cacheDir}")
+    println("  config : ${appEnv.configDir}")
+    println("  data   : ${appEnv.dataDir}")
+    println("  state  : ${appEnv.stateDir}")
+    println("  cache  : ${appEnv.cacheDir}")
+    println()
+    // Printed rather than assumed because it is a privacy switch, not a verbosity one: it gates
+    // logging of prompts, model output and message history (AppEnv.debugLogging). A run that
+    // believes it is quiet and is not is the failure this line exists to make visible.
+    println("debug logging: ${if (appEnv.debugLogging) "ON — conversation content will be logged" else "off"}")
     println()
     println("audio devices")
     println("  ${AudioDeviceProbe.describe()}")
     println()
 
-    return reportSettingsDir(paths.configDir)
+    return reportSettingsDir(appEnv.configDir)
 }
 
 /**
