@@ -53,6 +53,7 @@ filesystem layout, the answer is a new interface in `:core` and its implementati
 ## 3. File verdicts are binding
 
 **[2026-10-15, PLAN.md §7a.]** The verdicts stand, but every COPY file also has an *arrival milestone* (`m0`/`m1`) — take a file only when its dependencies are ported. And `android.util.Log` is handled by a shim at `core/src/main/kotlin/android/util/Log.kt`, the only file under an `android.*` package: **never "fix" a fully-qualified `android.*` call inside a COPY file** — extend the shim, or stop and ask.
+[Same date: a declaration borrowed from a m1 file lives in its own file, with a header carrying the exact line `BORROWED FROM M1` and the name of the upstream file that will absorb it. `grep -rl BORROWED FROM M1 core/` is the M1 checklist, and a borrowed declaration is never left behind.]
 
 [PLAN.md](PLAN.md) §7 classifies every upstream file as **COPY**, **ADAPT**, **PORT+** or **NEW**.
 That classification is part of the specification:
@@ -109,6 +110,8 @@ Once M0 has created the build:
   network access. Use the fakes described in PLAN.md §11.
 
 ## 7. Commits
+
+Commit as you go, before you report. Another committer works in this repository from outside it, so an untracked half-finished file left lying in the tree can be swept into an unrelated commit by a git add run elsewhere. A clean tree and an honest attribution are worth more than saving one commit.
 
 - One concern per commit. Prefix with the milestone: `M0:`, `M1:`, … `M7:`.
 - Subject in the imperative, ≤ 72 characters. The **body explains why**, not what — this project's
