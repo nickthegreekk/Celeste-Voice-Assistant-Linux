@@ -1,0 +1,378 @@
+# Port plan — Celeste for Linux
+
+How the Android app at `../VoiceAssistant` becomes a native Arch/Debian desktop
+application. Written against the actual source (150 `.kt` files, 28,986 lines of `app/src/main`,
+8,066 lines of JVM tests, 20,889 lines of instrumented tests) after reading the manifest, the
+gradle files, the service, the audio path and the VAD recorder. Numbers quoted below are measured,
+not estimated.
+
+The upstream tree is **read-only**. Nothing in this project writes to it.
+
+---
+
+## 1. Goal and definition of done
+
+A single JVM application, `celeste-linux`, that on a stock Arch or Debian desktop with PipeWire:
+
+1. Captures speech from the chosen input device and detects utterance boundaries on-device with
+   Silero VAD, exactly as the phone does (16 kHz mono PCM16, 512-frame chunks, 3-chunk pre-roll,
+   ~2 s of silence to end an utterance).
+2. Sends the utterance to the Voice Gateway's `/transcribe`, gets a reply from the configured
+   provider, and speaks it through one of three routes (gateway `/synthesize`, system
+   speech-dispatcher, local eSpeak-NG).
+3. Keeps the personas, servers, providers, skills, image-generation entries, models, rooms and
+   history that the phone app has, and imports its backup file.
+4. Generates images through ComfyUI and A1111 with the same workflow-token semantics
+   (`%PROMPT%` / `%NEGATIVE%` / `%SEED%`, per-character workflow binding).
+5. Schedules spontaneous messages while the app or the user service is running.
+6. Installs and runs on Arch and Debian from a package, with no system JDK requirement and no
+   emulation layer.
+
+Done means: the hands-free round trip works with headphones, the ported test suites pass on both
+distros, and both packages install and uninstall cleanly in a container.
+
+## 2. Out of scope for v1
+
+- Emulation, Waydroid, containers holding an APK. (Explicitly rejected.)
+- macOS/Windows builds. The seams are written so they could be added, but nothing is spent on them.
+- Multi-user, per-user audio routing, and running the daemon for more than one logged-in session.
+- Keeping the phone app and the desktop app in sync (no shared server, no account, no relay).
+  Out of scope and worth saying out loud: the two are separate installations that happen to
+  share a backup file format.
+- The Android-only affordances listed in §9 (quick-settings tile, proximity barge-in, phone-call
+  guard, launcher shortcuts) — each gets a desktop equivalent or is dropped.
+
+## 3. Architectural decisions
+
+**D1 — One JVM process, not two.** Android needs a `Service` beside an `Activity` because the OS may
+kill the activity; a desktop app does not. The service core and the UI live in one process and
+communicate through the same `StateFlow`s they already use, which removes the binder, the
+foreground-service dance, and any IPC design work. `--headless` runs the core with no window, for
+the systemd launcher.
+
+**D2 — Compose Multiplatform, not a new UI.** 20,585 lines across 23 files are Compose. The desktop
+target hosts them; the edits are import substitutions and the interaction sites named in §7.
+
+**D3 — Keep the Kotlin package and file names.** Copied files stay at
+`com.nikosm.voiceassistant`, same names, so an upstream change can be copied in and reviewed as a
+small diff. Renaming would be cosmetic and would destroy that.
+
+**D4 — The copied files stay `internal`.** The app uses `internal` visibility heavily, so all
+shared files must live in **one** Gradle module (`:core`), not several.
+
+**D5 — Android's `Context` becomes one small interface.** An `AppEnv` object (paths, logger,
+process launcher, device info) replaces `Context` and `Log`. This is the single most mechanical
+change in the codebase and it touches a few hundred call sites.
+
+**D6 — Helper processes for audio, behind an interface.** `pw-record`/`parec`/`arecord` for capture
+and `pw-play`/`paplay`/`aplay` for playback, wrapped so a JNA binding to `libpipewire` can replace
+them later without touching callers. Rationale in §6.
+
+**D7 — Secrets in libsecret, settings in a JSON file.** The Android app's
+`EncryptedSharedPreferences` + Android Keystore is replaced by (a) a plain JSON settings file in
+`~/.config`, and (b) `secret-tool` in libsecret for credentials, with a 0600 file fallback that the
+settings UI warns about. The existing corruption-recovery and migration logic in `SettingsManager`
+is kept — it is hard-won and platform-independent in spirit.
+
+**D8 — No acoustic echo cancellation, by decision.** Headphones or push-to-talk. If it is ever
+wanted, it is a PipeWire `module-echo-cancel` sink selected as the input device — no application
+code.
+
+**D9 — Notifications are DBus, not a bespoke surface.** `org.freedesktop.Notifications` with a
+single "Open" action; `notify-send` is the implementation, because it is present on both targets and
+avoids a DBus binding dependency.
+
+**D10 — XDG paths everywhere.** Table in [README.md](README.md).
+
+**D11 — The Gradle project is a plain JVM project plus the Compose plugin.** No Kotlin Multiplatform
+targets are needed while Linux is the only target; a JVM project is simpler and keeps the Android
+and desktop builds independent. If another desktop OS is ever wanted, that is a targets addition,
+not a redesign.
+
+## 4. Layout
+
+```
+VoiceAssistant-Linux/
+├── README.md
+├── PLAN.md                     (this file)
+├── LICENSE                     copied verbatim from upstream (GPL-3.0)
+├── settings.gradle.kts
+├── gradle/libs.versions.toml
+├── core/                       shared, ported from upstream, one module (D4)
+│   └── src/main/kotlin/com/nikosm/voiceassistant/…
+│   └── src/test/kotlin/…       the ported JVM tests
+├── platform/                   Linux implementations of the seams (§5)
+│   └── src/main/kotlin/com/nikosm/voiceassistant/linux/…
+├── desktop/                    Compose UI, window, tray, packaging config
+│   └── src/main/kotlin/com/nikosm/voiceassistant/…
+│   └── src/test/kotlin/…       Compose desktop UI tests
+├── packaging/
+│   ├── arch/PKGBUILD
+│   ├── debian/…                debian/ control, rules, changelog
+│   └── systemd/celeste-linux.service   user unit
+├── tools/
+│   ├── sync-from-android.sh    copies upstream files into core/ (never edits upstream)
+│   └── check-upstream.sh       diffs copied files against upstream HEAD
+├── docs/
+│   ├── PROVENANCE.md           file → upstream commit hash
+│   ├── TEST-MAP.md             which instrumented test becomes what
+│   └── DEVICES.md              input/sink selection, PipeWire notes
+└── assets/
+    └── silero_vad.onnx         copied from upstream (MIT)
+```
+
+## 5. The platform seams
+
+Fourteen places where Android provided the platform. Each is an interface in `core/` with a Linux
+implementation in `platform/`; `core` never imports from `platform`.
+
+| # | Seam | Android today | Linux implementation |
+|---|---|---|---|
+| 1 | `AudioCapture` | `AudioRecord` + `AcousticEchoCanceler` | `pw-record` → `parec` → `arecord`, raw s16le mono 16 kHz on stdout |
+| 2 | `AudioPlayback` | `AudioTrack` + marker listener + `AudioFocusRequest` | `pw-play` → `paplay` → `aplay`; "finished" = process exit |
+| 3 | `AudioDevices` | `AudioManager`, earpiece/Bluetooth routing | `wpctl status` / `pactl list` parse; `--target` on capture and playback |
+| 4 | `Vad` | ONNX Runtime Android (`ai.onnxruntime.*`) | ONNX Runtime JVM linux-x64 — same classes, same `silero_vad.onnx` |
+| 5 | `SpeechToText` | HTTP `POST /transcribe` | unchanged (already HTTP) |
+| 6 | `TextToSpeech` | Android `TextToSpeech`, bundled eSpeak JNI, gateway HTTP | `spd-say` (speech-dispatcher), `espeak-ng` CLI or JNA to the distro `libespeak_ng.so`, gateway HTTP unchanged |
+| 7 | `SettingsStore` | `EncryptedSharedPreferences` | JSON file in `~/.config/celeste-linux/` |
+| 8 | `SecretStore` | AES/GCM via Android Keystore | `secret-tool` (libsecret), 0600 file fallback |
+| 9 | `Notifier` | `NotificationManager` + channels | `notify-send` with an "Open" action |
+| 10 | `Scheduler` | `WorkManager` (self-rescheduling, reboot-safe) | coroutine timer inside the service core, driven by the already pure `SpontaneousScheduler`; optional systemd user timer |
+| 11 | `Tray` | Quick-settings tile | AWT `SystemTray` menu (Listen now, Mute mic, Open, Quit) |
+| 12 | `Hotkey` | None (proximity "wave to interrupt") | WM/desktop hotkey to `celeste-linux --listen` (documented per desktop); optional XDG GlobalShortcuts portal |
+| 13 | `FileDialogs` | SAF `ActivityResult` pickers | AWT `FileDialog` / chooser |
+| 14 | `CertTrust` | `networkSecurityConfig` + TOFU prompt | OkHttp `X509TrustManager` + TOFU store file in `~/.local/share/celeste-linux/` |
+
+The bundled `arm64-v8a/libespeak-ng.so`, `src/main/cpp/` (its CMake build and JNI shim) and the
+34 MB of piper/espeak assets do **not** come across: on Linux eSpeak-NG is a distro package and
+piper/Kokoro lives on the gateway.
+
+## 6. Audio subsystem (the one genuinely new component)
+
+**Capture** — keep the behaviour, replace the device access. `VADAudioRecorder` is rewritten around
+a subprocess that emits raw PCM, but every constant and every invariant it encodes is preserved,
+because each one was tuned against real speech:
+
+- 16 kHz, mono, s16le, 512-frame (32 ms) chunks.
+- Silero VAD per chunk through ONNX Runtime; speech if `prob > 0.5` for 3 consecutive chunks.
+- 3-chunk pre-roll ring buffer, prepended on trigger — the comment in the source is explicit that
+  dropping it clipped short words ("Hi", "Go") badly enough to confuse STT. Keep it.
+- Speech end after 60 silent chunks (~2 s), then write a WAV (the existing header writer, kept).
+- A single lock around the sample buffers, never held across file I/O or a suspension point.
+- Pause while the reply is spoken, resume on the service's signal or the hotkey — the phone already
+  behaves this way, and on a desktop it is also what keeps the microphone from hearing the speakers.
+
+**Playback** — a `pw-play` process per utterance, one at a time, with the same
+"current playback" guard the Android code uses around `currentAudioTrack`, so a second utterance
+cancels the first. "Audio focus" becomes: stop our own playback, and optionally pause other media
+players over MPRIS (`playerctl pause`) if the user enables it. This is weaker than Android's focus
+guarantee and is documented as such in the settings UI rather than pretended away.
+
+**Why subprocesses rather than JNI.** They work identically on both distros and on both PipeWire and
+a PulseAudio-alias setup, they need no native build in the project, and they make device selection a
+single `--target` argument. The cost is a process spawn per utterance (~10 ms) and a copy. If that
+ever shows up in the latency budget, the seam is narrow enough to swap for a JNA binding to
+`libpipewire`.
+
+**Latency budget to verify in M2:** capture start to first chunk < 50 ms; utterance end to WAV on
+disk < 100 ms; WAV to `/transcribe` to reply to first audio out is dominated by the gateway and the
+model.
+
+## 7. File-by-file migration map
+
+All 46 files of `app/src/main`, by measured size. **COPY** = ported verbatim, **ADAPT** = mechanical
+edits, **PORT+** = real work but the logic survives, **NEW** = new implementation.
+
+| File | Lines | Verdict | What happens |
+|---|---:|---|---|
+| `AssistantService.kt` | 3371 | PORT+ | Drops `: Service()`; `onStartCommand`/`onDestroy`/`startForeground` become `start()`/`shutdown()`; the foreground notification becomes tray state + `Notifier` |
+| `AssistantServiceChat.kt` | 2951 | ADAPT | `Context` to `AppEnv`, `Log` to logger; turn orchestration untouched |
+| `SettingsScreens.kt` | 2423 | ADAPT | `Toast` to snackbar; pickers to `FileDialogs`; clipboard to AWT |
+| `MainVoiceScreen.kt` | 2097 | ADAPT | Runtime permissions to `AudioDevices` picker; insets/edge-to-edge to window chrome |
+| `PersonaEditor.kt` | 1579 | ADAPT | Image pick (SAF) to file dialog; the pin/workflow picker stays |
+| `AssistantServiceAudio.kt` | 1379 | PORT+ | Seams 1/2/3/6; keeps queueing, cancel-previous, one-playback guard |
+| `SettingsManager.kt` | 1356 | PORT+ | Encrypted prefs/Keystore to seams 7/8; keeps corruption recovery, migration, backup read/write |
+| `RoomScreens.kt` | 996 | ADAPT | Compose only |
+| `Models.kt` | 984 | ADAPT | Data classes + compose imports |
+| `ChatComponents.kt` | 887 | ADAPT | Share sheet to `--send-text`/clipboard; Coil file models unchanged |
+| `ModelCatalog.kt` | 708 | **COPY** | Pure |
+| `SkillScreens.kt` | 696 | ADAPT | Compose only |
+| `AssistantServiceRoomTurns.kt` | 671 | **COPY** | Pure |
+| `AssistantServiceGateway.kt` | 655 | ADAPT | TOFU cert store to a file (seam 14) |
+| `AssistantServiceSpontaneous.kt` | 648 | **COPY** | Pure |
+| `CelestialHud.kt` | 620 | ADAPT | Compose drawing; becomes the voice screen's state indicator |
+| `AssistantServiceContext.kt` | 484 | ADAPT | `Context` to `AppEnv` |
+| `SpontaneousDeliveryWorker.kt` | 483 | PORT+ | `Worker` becomes a coroutine in the service core (seam 10); the body is already pure |
+| `ModelScreens.kt` | 467 | ADAPT | Compose only |
+| `MainActivity.kt` | 434 | PORT+ | Becomes the window + composition root; deep-link extras become CLI flags |
+| `SpontaneousScheduler.kt` | 434 | **COPY** | Pure — this is why scheduling is nearly free |
+| `SpontaneousScreens.kt` | 393 | ADAPT | Compose only |
+| `AssistantServiceImageGen.kt` | 370 | **COPY** | Pure |
+| `ComfyJobs.kt` | 343 | **COPY** | Pure |
+| `VADAudioRecorder.kt` | 322 | NEW | Subprocess capture; constants and pre-roll preserved (§6) |
+| `AssistantServiceComfy.kt` | 317 | **COPY** | Pure |
+| `AssistantServiceRooms.kt` | 284 | **COPY** | Pure |
+| `ModelPicker.kt` | 281 | ADAPT | Compose only |
+| `ComfyWorkflow.kt` | 260 | **COPY** | Pure — token substitution semantics must not drift |
+| `UIComponents.kt` | 248 | ADAPT | Compose only |
+| `PersonaShortcuts.kt` | 238 | NEW | One `.desktop` entry per persona (replaces launcher shortcuts) |
+| `WelcomeScreen.kt` | 206 | ADAPT | Compose only |
+| `FullScreenImageViewer.kt` | 183 | ADAPT | Compose only |
+| `SpontaneousNotifications.kt` | 177 | NEW | `Notifier` (seam 9) |
+| `MessageTimestamps.kt` | 162 | **COPY** | Pure |
+| `ServerIdentity.kt` | 139 | **COPY** | Pure |
+| `EspeakEngine.kt` | 131 | ADAPT | JNA to the distro `libespeak-ng.so`, or the `espeak-ng` CLI |
+| `VADDetector.kt` | 112 | ADAPT | Same ONNX API, JVM artifact |
+| `SharedContent.kt` | 105 | NEW | `--send-text` / `--send-file` + `SendTo` entries |
+| `TurnSink.kt` | 98 | **COPY** | Pure |
+| `CelesteTileService.kt` | 79 | NEW | Tray item (seam 11) |
+| `ImageWorkflowImport.kt` | 63 | ADAPT | File dialog instead of SAF |
+
+Totals: **12 files / 4,434 lines copied verbatim**, 26 files adapted, 8 files rewritten.
+
+## 8. Feature parity matrix
+
+| Feature (upstream README) | Milestone | Notes |
+|---|---|---|
+| Hands-free voice with on-device VAD | M2 | The heart of the port |
+| Whisper STT + Kokoro TTS via Voice Gateway | M2 | HTTP, unchanged |
+| Per-persona TTS choice (gateway / system / local) | M2 | `spd-say`, `espeak-ng`, gateway |
+| On-device script-based TTS language routing | M2 | Pure Kotlin, copies over |
+| Push-to-talk + hotkey | M2 | New; replaces proximity barge-in |
+| Providers: Ollama, Anthropic, OpenAI, DeepSeek, Google, OpenAI-compatible | M1 | HTTP, unchanged |
+| Personas, persona artwork, per-persona servers/pins | M1 | Coil 3 is multiplatform |
+| Conversation history, usage tracking, thinking mode | M1/M5 | Unchanged |
+| Translator mode (16 languages) | M5 | Persona + gateway models, unchanged |
+| RAG, SearXNG web search, file attachments | M5 | HTTP, unchanged |
+| Image generation: ComfyUI + A1111, workflow tokens | M3 | Pure logic copies over |
+| Per-character workflow binding (persona to template id) | M3 | Unchanged |
+| Image viewer with pinch-zoom/pan | M3 | Pointer gestures instead of touch |
+| Skills and skill triggers | M5 | Unchanged |
+| Rooms (multi-persona group chat) | M4 | Unchanged |
+| Spontaneous messages | M4 | Scheduler is pure; the driver is new |
+| Export / import backup (incl. Android file) | M3 | Import path already exists |
+| Encrypted settings | M1 | libsecret instead of Keystore |
+| Certificate pinning / TOFU for self-signed certs | M1 | Same policy, file-backed store |
+| Update check against GitHub Releases | — | **Dropped in v1** (no releases to check yet) |
+| Quick-settings tile | M4 | Tray item |
+| Per-persona launcher shortcut | M4 | `.desktop` entry per persona |
+| Share target (text/image into the composer) | M3 | `SendTo` + CLI flags |
+| Proximity barge-in, phone-call guard | — | **Dropped**: no phone calls on a desktop |
+
+## 9. Desktop substitutions (documented deviations)
+
+| Android behaviour | Linux behaviour | Why |
+|---|---|---|
+| `AcousticEchoCanceler` on the mic session | Headphones or push-to-talk; optionally a PipeWire echo-cancel sink | No OS counterpart; decision recorded in README |
+| Transient audio focus with retry-on-DELAYED | Stop our own playback; optional `playerctl pause` | No focus stack on PipeWire |
+| Earpiece/Bluetooth route toggle | `wpctl` sink selection, remembered per persona | Different model, same intent |
+| Foreground service + persistent notification | Tray icon while listening; systemd user unit for autostart | Desktop concept |
+| `WorkManager` (survives reboot, batched) | In-process timer, exact; systemd timer if the app must wake a sleeping session | A desktop may be off too, and this is honest about it |
+| Runtime permission prompts | Device picker in settings; mic access is granted by the session | No permission model for a normal user app |
+| Android Keystore | libsecret / 0600 fallback | Available on both distros |
+
+## 10. Milestones
+
+Estimates are focused working days for one developer at this code's quality bar (dense comments,
+tests for behaviour). They assume the seams in §5 are respected and the copied files stay copied.
+
+**M0 — Skeleton and build (2–3 d).** Gradle project, Compose Desktop plugin, JDK 21 toolchain,
+`:core` with the 12 copied files compiling and its tests running, a headless `--selftest` that
+prints the resolved paths and audio devices, `tools/sync-from-android.sh`, `docs/PROVENANCE.md`,
+`.gitignore`, `git init`.
+*Accept:* `./gradlew :core:test` passes the copied suites on Arch; the same in a Debian container.
+
+**M1 — Text app (8–12 d).** `AppEnv`, seams 7/8/13/14, the settings blob and its recovery, personas,
+servers, providers, chat orchestration, main window, settings/persona screens, image-gen config
+screens. Port the JVM tests.
+*Accept:* a real conversation with Ollama and with one cloud provider end to end; settings survive a
+restart; an Android backup file imports and shows its personas.
+
+**M2 — Voice (5–8 d).** Seams 1–6 and 12: capture, VAD, WAV, `/transcribe`, three TTS routes, the
+hands-free loop, push-to-talk hotkey, source/sink selection, mute, cancel-playback.
+*Accept:* ten consecutive hands-free exchanges with headphones, no manual input, no dropped
+utterance, and the latency budget in §6 met.
+
+**M3 — Images and files (3–4 d).** ComfyUI + A1111, workflow library and per-character binding,
+image viewer, attachments, backup export/import round trip.
+*Accept:* an image generated from a persona against the real ComfyUI on buildhost and rendered in the
+chat; the same workflow tokens (`%PROMPT%`, `%NEGATIVE%`, `%SEED%`) behave as on Android.
+
+**M4 — Rooms, spontaneous, daemon (4–6 d).** Room screens, spontaneous scheduler in the core, tray,
+notifications, systemd user unit, autostart `.desktop`, per-persona `.desktop` entries.
+*Accept:* a spontaneous message arrives as a desktop notification while only the tray process runs;
+the unit starts at login and stops cleanly.
+
+**M5 — The rest (3–4 d).** Translator mode, skills, RAG, web search, usage, thinking mode.
+*Accept:* a spoken translation round trip; RAG and web search answers.
+
+**M6 — Packaging (3–5 d).** `PKGBUILD`, `debian/`, jpackage app image with a bundled runtime,
+desktop entries, icons, user unit, README install section.
+*Accept:* install, run and uninstall in a clean Arch container and in a Debian 13 container.
+
+**M7 — Hardening (5–8 d).** Remaining test porting, desktop UI tests, a fake gateway for the voice
+loop, a soak test for start/stop/restart leaks, error paths (gateway down, no mic, no Secret
+Service, ComfyUI restarted mid-job), `docs/TEST-MAP.md`.
+*Accept:* the soak test runs an hour of start/stop cycles with no leaked processes or file handles.
+
+**Total: 33–50 focused days** (about 4–8 weeks full time, 3–5 months at evenings and weekends).
+A first usable milestone is **M2**: roughly **15–23 days**.
+
+## 11. Test strategy
+
+- **Port the 45 JVM test files (8,066 lines) in M0/M1.** They are the executable specification for
+  the token substitution, the resolution/precedence rules, the settings recovery and the
+  timestamps. They must pass before any UI work starts.
+- **The 59 instrumented files (20,889 lines) are triaged in `docs/TEST-MAP.md`:** Compose UI tests
+  move to the desktop `runComposeUiTest` runner; `AndroidJUnit4`/`WorkManager`/
+  `TestWorkerBuilder`/shortcut/permission tests are rewritten against the seams or deleted with a
+  written reason.
+- **New tests:** a fake Voice Gateway (a local HTTP server serving `/transcribe` and `/synthesize`
+  from fixtures) so the whole voice loop is testable without a mic; WAV fixtures of speech and
+  silence against the VAD thresholds; a `--selftest` audio probe using PipeWire's null sink; a soak
+  test for process leaks around capture/playback and for the service core's start/stop.
+- **Both distros, in containers, in CI:** `gradle test` plus a packaging smoke test that installs
+  the artefact and runs `celeste-linux --selftest`.
+
+## 12. Risks
+
+| Risk | Impact | Mitigation |
+|---|---|---|
+| No echo cancellation (D8) | Speaker playback gets transcribed | Headphones or push-to-talk; PipeWire echo-cancel sink as an option |
+| Subprocess audio adds latency/jitter | Sluggish or clipped utterances | Measure in M2; the seam allows a JNA `libpipewire` swap |
+| AWT tray on Wayland needs an appindicator host | Tray icon missing | Tray is optional; hotkey and window still work; documented in `docs/DEVICES.md` |
+| Compose Desktop needs working GL | Window fails on exotic drivers | Document `SKIKO_RENDER_API=SOFTWARE` |
+| App image carries the build host's glibc | `.deb` broken on Debian | Build the `.deb` on Debian (container), the Arch package on Arch |
+| ONNX Runtime JVM jar is large | Fat package | Bundle it; measure the app image in M6 |
+| Upstream app changes | Port drifts | Copied files verbatim + `docs/PROVENANCE.md` + `tools/check-upstream.sh` diff report |
+| `internal` visibility across modules | Won't compile if split | One `:core` module (D4) |
+| No Secret Service daemon on the box | Credentials cannot be stored | 0600 file fallback, warned about in the UI |
+| systemd user unit without linger | Daemon dies at logout | Document `loginctl enable-linger`; the unit is optional |
+| Phone and desktop settings diverge | Confusion | Documented; the backup file is the only bridge |
+
+## 13. Upstream sync policy
+
+1. `../VoiceAssistant` is **read-only**. `tools/sync-from-android.sh` only reads from it.
+2. Files marked **COPY** in §7 are copied byte-for-byte. Any needed change means moving the file to
+   the ADAPT/PORT+ column deliberately, and recording why in `docs/PROVENANCE.md`.
+3. `docs/PROVENANCE.md` records, per file, the upstream commit hash it was taken from.
+4. `tools/check-upstream.sh` diffs `core/` against the upstream tree and prints what changed
+   upstream, so a sync is a reviewable list rather than a surprise.
+
+## 14. Open questions
+
+1. **Binary and package name** — `celeste-linux` as the package with `celeste` as the command, or
+   something else?
+2. **Fresh `git init` here?** Recommended: this directory becomes its own repository, upstream stays
+   untouched and unlinked.
+3. **Default interaction on the desktop:** always-listening while the app runs, or a hotkey that
+   arms listening for the session? (Affects M2 and the hotkey design.)
+4. **v1 scope:** is rooms + spontaneous messaging wanted in the first release, or is
+   text + voice + images enough to ship and the rest follows?
+5. **Local offline TTS:** rely on the distro's `espeak-ng` (thin, robotic, always available), or
+   ship an optional piper voice download (better quality, about 60 MB per voice) alongside the
+   gateway's Kokoro?
+6. **Default gateway:** ship placeholder URLs or pre-fill the Voice Gateway / Ollama addresses of
+   your own boxes (no credentials in any file)?
+7. **Update check:** drop it for v1 (recommended, nothing published yet) or implement it against a
+   releases endpoint?

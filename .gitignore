@@ -1,0 +1,23 @@
+# build output
+build/
+*/build/
+.gradle/
+out/
+
+# IDE / local machine
+.idea/
+*.iml
+.vscode/
+local.properties
+
+# packaging output
+dist/
+packaging/out/
+
+# OS noise
+.DS_Store
+*.swp
+
+# Local harness config. Safe to commit while it holds no secret; the DeepSeek key lives in
+# ~/.local/share/opencode/auth.json and must never appear here.
+# opencode.json
