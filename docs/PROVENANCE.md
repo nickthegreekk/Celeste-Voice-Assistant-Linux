@@ -94,6 +94,58 @@ tests and arise nowhere here.
 `TEST_SOURCES`, and get a line in `docs/TEST-MAP.md` instead. That is the COPY demotion rule
 (AGENTS.md §3) pointed at tests, and it is why this list will never be all 45 upstream test files.
 
+## Adapted files — verdicts ADAPT and PORT+
+
+Files that came from upstream and were changed, rather than copied or written here. PLAN.md §7
+gives each one a verdict; this records what actually changed, because "ADAPT" describes an
+intention and a reader six months from now needs the diff.
+
+These are not COPY files and never were, so nothing below is a demotion — but a change to a file
+in this table that is not written down here is one nobody can review.
+
+| File | Verdict | Upstream | What changed |
+|---|---|---|---|
+| `SettingsManager.kt` | PORT+ | `app/src/main/java/com/nikosm/voiceassistant/SettingsManager.kt` | Seams 7 and 15; `Context`→`AppEnv`; `Uri`→`Path`; `android.util.Base64`→`java.util.Base64`; `createEncryptedPrefsWithRecovery` removed. Detail below. |
+
+### `SettingsManager.kt`
+
+Nothing about *what* is stored changed. The corruption-tolerant read on every entry, the legacy
+migrations from the pre-`_v2` key names, the name-keyed history and spontaneous-state moves on a
+rename, the two prefix scans that sweep orphans after a restore, the artwork orphan sweep and the
+`BackupData` shape are all upstream's, comments included — that last one especially, because
+importing an Android backup is a stated feature and the on-disk format is therefore a
+compatibility surface rather than an implementation detail.
+
+**Removed: `createEncryptedPrefsWithRecovery` and its `buildEncryptedPrefs` helper** (upstream
+lines 79–139, about fifty lines plus the constants they used). They exist for one reason, stated
+in their own comments: `EncryptedSharedPreferences` can fail to initialise against Android
+Keystore on some Pixel/Android 13 combinations, so the code deletes the corrupted Keystore alias,
+deletes the undecryptable preferences file, retries once, and — if the retry also fails — falls
+back to *unencrypted* storage rather than crashing, warning that credentials "will not be
+encrypted at rest on this device". There is no Keystore here and no encrypted store, so there is
+nothing to corrupt and no recovery to attempt; it is dead weight that would also have implied a
+seam (8) that v1 does not have (PLAN.md §5a). The settings file is mode 0600 by decision, which is
+what the phone's own fallback produced on the devices the recovery existed for.
+
+**Deliberately not removed: the per-entry tolerance.** Every `runCatching` around a decode, and
+every degrade-to-default, is upstream's. That — together with the settings file's own
+quarantine-and-keep behaviour in `JsonSettingsStore` — is the protection the user's data actually
+depends on, and it is pinned by `SettingsManagerCorruptionTest` (41 tests, all of upstream's
+assertions unchanged).
+
+**Platform substitutions, none of which change behaviour:** `Context` → `AppEnv` (with `filesDir`
+→ `dataDir`); `SharedPreferences` → the `SettingsStore` seam, so `prefs.edit().putString(…).apply()`
+becomes `store.edit().putString(…).commit()`; `BitmapFactory`/`Bitmap.compress` → the `ImageCodec`
+seam, with the dimensions and JPEG qualities staying here because PLAN.md §5b records them as
+behaviour; `Uri` → `Path`; `android.util.Base64` → `java.util.Base64`, encoding with the basic
+encoder (`Base64.NO_WRAP`'s exact output, so a written backup matches what the phone would write)
+and decoding with the MIME decoder (Android's `Base64.DEFAULT` emits line breaks the basic decoder
+would reject).
+
+The `Persona.iconImageUri` / `backgroundImageUri` fields keep their names and their `String` type
+even though they now hold a path. Renaming them would change the persisted schema and therefore
+what a backup contains, which is the one thing this port must not do.
+
 ## Hand-written files in `core/`
 
 Not from upstream, so they have no upstream commit — but two of them exist only because an upstream
