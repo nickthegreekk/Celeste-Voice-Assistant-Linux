@@ -206,6 +206,27 @@ single `--target` argument. The cost is a process spawn per utterance (~10 ms) a
 ever shows up in the latency budget, the seam is narrow enough to swap for a JNA binding to
 `libpipewire`.
 
+**Seam 2 is a handle, not a suspension (2026-10-15).** Decided from the call sites in `AssistantServiceAudio.kt`, which is
+the first caller of seams 2, 3 and 6. `AudioPlayback.playFile` and `playPcm` return a `PlaybackHandle` carrying `stop()`,
+`positionMs`, `durationMs` and completion/error callbacks; the chunked sequence stays a sequence, and the one-playback
+guard stays in the caller (`:core`), mirroring the `currentAudioTrack` identity checks that the upstream comments exist
+to explain. Four things the interface must get right:
+
+- **`positionMs` is elapsed-since-start capped at `durationMs`, not a hardware position** - a `pw-play` subprocess reports
+  none. `durationMs` comes from the WAV header that the ported `wavDurationSeconds` already reads, so the progress fraction
+  the karaoke highlight and the reveal need never depends on the player.
+- **Completion distinguishes three cases:** exited zero without being stopped (`onFinished`), failed (`onError`), and
+  stopped on purpose (neither). A cancel that reported "finished" would advance the chunk sequence - the bug class the
+  upstream identity checks exist for.
+- **`playPcm` assembles a temporary WAV and reuses the file path**, unless the eSpeak call site genuinely needs incremental
+  streaming, in which case say why where it matters. One mechanism, one place to sweep temp files.
+- **Callbacks are dispatched on a defined dispatcher** (the UI reads the progress value) and `stop()` is safe to call from
+  it while the process runs.
+
+The payoff is testability, and that is why this shape beats a suspending one: a fake handle in `:core`'s tests makes the
+chunked sequencing, the cancel-previous guard and the progress arithmetic provable in M1 - with no audio hardware and no
+M2 implementation - instead of leaving 240 lines of tuned behaviour unchecked until the stubs are replaced.
+
 **Latency budget to verify in M2:** capture start to first chunk < 50 ms; utterance end to WAV on
 disk < 100 ms; WAV to `/transcribe` to reply to first audio out is dominated by the gateway and the
 model.
