@@ -136,7 +136,7 @@ implementation in `platform/`; `core` never imports from `platform`.
 | 6 | `TextToSpeech` | Android `TextToSpeech`, bundled eSpeak JNI, gateway HTTP | `spd-say` (speech-dispatcher), `espeak-ng` CLI or JNA to the distro `libespeak_ng.so`, gateway HTTP unchanged |
 | 7 | `SettingsStore` | `EncryptedSharedPreferences` | JSON file in `~/.config/celeste-linux/` |
 | 8 | `SecretStore` | AES/GCM via Android Keystore | **Not in v1** — credentials live in the settings file at mode 0600, see §5a |
-| 9 | `Notifier` | `NotificationManager` + channels | `notify-send` with an "Open" action |
+| 9 | `Notifier` | `NotificationManager` + channels | `notify-send`, tracking the notification id so a cancel is possible. **Lands real in M1**, not as a stub, because a byte-identical COPY file calls `cancelSpontaneousNotification`; M4 adds the Open action and the click routing rather than replacing it |
 | 10 | `Scheduler` | `WorkManager` (self-rescheduling, reboot-safe) | coroutine timer inside the service core, driven by the already pure `SpontaneousScheduler`; optional systemd user timer |
 | 11 | `Tray` | Quick-settings tile | AWT `SystemTray` menu (Listen now, Mute mic, Open, Quit) |
 | 12 | `Hotkey` | None (proximity "wave to interrupt") | WM/desktop hotkey to `celeste-linux --listen` (documented per desktop); optional XDG GlobalShortcuts portal |
@@ -168,6 +168,15 @@ Expect this to recur wherever a ported file is mostly callbacks: the policy hold
 while the file keeps the shape its platform forces. It is a deliberate divergence from upstream's structure, so record it
 in `docs/PROVENANCE.md` with the reason: upstream's shape is untestable, which is the same class of reason §9 gives for
 the other replacements.
+
+**A deliberate deletion carries a restore marker (2026-10-15).** Where a milestone ports a file but one upstream *call*
+has no meaning yet - M1's `AssistantService.kt:2016` calls `removePersonaShortcut`, and M1 creates no `.desktop` entry
+for a shortcut to be withdrawn from - the call is deleted with a comment reading
+`DEFERRED TO M4: removePersonaShortcut(applicationContext, oldName)`, and the deletion is recorded in §9. Then
+`grep -rn 'DEFERRED TO M' core/` is the complete restore list for the milestone each marker names, exactly as
+`BORROWED FROM M1` is for declarations and `Stub` is for implementations. The marker is required precisely because the
+alternative - M1 defining a no-op so the call survives - buys nothing when the feature is vacuous, and loses the mirror of
+this rule, which is that a symbol a byte-identical COPY file calls must exist for real.
 
 ### 5a. Seam 8 is not in v1 (2026-10-15)
 
@@ -396,6 +405,7 @@ with the service they extend.
 | Foreground service + persistent notification | Tray icon while listening; systemd user unit for autostart | Desktop concept |
 | `WorkManager` (survives reboot, batched) | In-process timer, exact; systemd timer if the app must wake a sleeping session | A desktop may be off too, and this is honest about it |
 | Runtime permission prompts | Device picker in settings; mic access is granted by the session | No permission model for a normal user app |
+| Launcher shortcuts (added and withdrawn per persona) | per-persona `.desktop` entries (M4) | The two call sites in `AssistantService.kt` are deleted in M1, each marked `DEFERRED TO M4` — the feature is vacuous there, since M1 creates no entry to withdraw, and M4 restores the calls when `PersonaShortcuts.kt` lands |
 | Android Keystore | libsecret / 0600 fallback | Available on both distros |
 
 ## 10. Milestones
@@ -415,6 +425,13 @@ prints the resolved paths and audio devices, `tools/sync-from-android.sh`, `docs
 
 [2026-10-15: `AppEnv` is designed HERE, not in M0.5. M0.5 resolved the XDG paths in `:platform` and the selftest exercised them; the interface itself is derived by reading what the ported files actually ask of `Context` — paths, the logger the `android.util.Log` shim routes into, the process launcher from D6, device info — rather than by guessing a shape a milestone early. Promoting the resolved-paths holder into `:core` is the mechanical first step, and `AppEnv` takes it as a parameter, so `:core` never sees a `:platform` type.]
 [Revised mid-M1, 2026-10-15: M1.1-M1.3 were all foundation - AppEnv, AppLogger, SettingsStore, ImageCodec - and no ported :core file had landed yet. That is the same boundary-discovery pattern M0 showed, so M1 is re-estimated at 12-15 days. Do NOT re-baseline M2-M7 from it: these foundations are inherited by every later milestone, and only M2 audio seams are comparable new-code work.]
+[Cluster inventory, 2026-10-15: about 8,000 lines - `AssistantService.kt` (3,371 to ~2,850), `Chat.kt` (2,951), `Audio.kt`
+(1,379 to ~600), `Gateway.kt` (655), `Context.kt` (484), plus `VADAudioRecorder.kt` (322, NEW) and `VADDetector.kt` (112)
+pulled in by real call sites in the service, `EspeakEngine.kt` (131 to ~80, its asset copier deleted since no Android
+assets come across), and the six m1 COPY files byte-identical. `SpontaneousDeliveryWorker.kt` is NOT in the cluster:
+every reference to it is a comment, so M1's UI really is separable and Compose stays out of the service closure.
+Consequence: M2's remaining scope is the seam implementations and the hands-free loop, nothing else.]
+
 [One-commit cluster, 2026-10-15: the four service files (`AssistantService`, `Chat`, `Audio`, `Gateway`) plus the six
 m1 COPY files cannot be split — nothing in that set compiles alone — so they land together at roughly 7,000 lines
 under the exception in AGENTS.md §7. Two things must be true at the end of it: both `BORROWED FROM M1` declarations
