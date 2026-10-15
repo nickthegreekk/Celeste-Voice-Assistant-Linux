@@ -45,7 +45,9 @@ Module boundaries:
 ```
 :core      ported upstream files + done-and-tested logic. MUST NOT import from :platform or :desktop.
 :platform  Linux implementations of the seams. May import :core.
-:desktop   Compose UI, window, tray, packaging. May import both.
+:desktop   the window, the tray, packaging and `Main.kt` — the parts that were never ported. May import both.
+           It does NOT hold the ported screens: upstream declares 301 members `internal` in a single-module
+           app and Kotlin does not share `internal` across modules, so every ported file stays in `:core`.
 ```
 
 If you find yourself wanting `:core` to know about PipeWire, `notify-send`, XDG paths or the

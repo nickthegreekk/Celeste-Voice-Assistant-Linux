@@ -93,6 +93,14 @@ small diff. Renaming would be cosmetic and would destroy that.
 **D4 — The copied files stay `internal`.** The app uses `internal` visibility heavily, so all
 shared files must live in **one** Gradle module (`:core`), not several.
 
+[2026-10-15, made concrete by the UI: `:core` has 301 `internal` top-level declarations and the UI needs 46 of
+them, so the **ported screens live in `:core` too** — `:desktop` keeps the window, the tray, packaging and
+`Main.kt`. The invariant is that the module boundary must not cut through upstream's visibility: upstream is a
+one-module app, so a member it declares `internal` has to stay reachable by the files that used it there.
+Rejected: `-Xfriend-paths` (an unsupported flag that breaks silently on a Kotlin upgrade) and demoting 46 COPY
+declarations to public (a mass demotion of byte-identical files, each needing a §7 row change and a PROVENANCE
+entry, and it destroys the clean-diff guarantee for every future upstream change).]
+
 **D5 — Android's `Context` becomes one small interface.** An `AppEnv` object (paths, logger,
 process launcher, device info) replaces `Context` and `Log`. This is the single most mechanical
 change in the codebase and it touches a few hundred call sites.
@@ -142,7 +150,7 @@ VoiceAssistant-Linux/
 │   └── src/test/kotlin/…       the ported JVM tests
 ├── platform/                   Linux implementations of the seams (§5)
 │   └── src/main/kotlin/com/nikosm/voiceassistant/linux/…
-├── desktop/                    Compose UI, window, tray, packaging config
+├── desktop/                    window, tray, packaging — never ported from anywhere; the screens live in :core
 │   └── src/main/kotlin/com/nikosm/voiceassistant/…
 │   └── src/test/kotlin/…       Compose desktop UI tests
 ├── packaging/

@@ -107,6 +107,17 @@ seeded content is a working-tree step, never a commit — the port replaces it b
 `:core` never holds the Android original. Rejected: a second copy path outside the script, which is the door
 AGENTS.md §1 exists to close. → PLAN.md §7a, AGENTS.md §1
 
+## 2026-10-15 — The ported screens live in `:core`, because `internal` is not shared
+
+`:core` holds 301 `internal` top-level declarations and the UI needs 46 of them, in COPY files, so the ported screens
+cannot compile from `:desktop`. They move into `:core`, which gains the Compose and Coil dependencies approved for the
+UI; `:desktop` keeps the window, the tray, packaging and `Main.kt`. The invariant behind it: the module boundary must
+not cut through upstream's visibility, because upstream is a one-module app and a member it declares `internal` has to
+stay reachable by the files that used it there. Rejected: `-Xfriend-paths`, an unsupported flag that breaks silently on
+a Kotlin upgrade; and demoting the 46 COPY declarations to public, which edits byte-identical files, needs a §7 row and
+a PROVENANCE entry each, and would have to be repeated every time a ported file crosses a module line. The `UI_SOURCES`
+list and module tag added for the old boundary come back out.
+
 ## 2026-10-15 — Three UI dependencies, approved on a measurement
 
 `compose.material3`, `compose.materialIconsExtended` and Coil 3 for `AsyncImage` are declared in `:desktop` — the only
