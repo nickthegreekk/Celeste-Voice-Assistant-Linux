@@ -157,17 +157,16 @@ exits non-zero if the settings directory is not writable.
 needed adjusting. Report to the user: milestone spend from the DeepSeek dashboard, and whether the
 M0 experience suggests M1 is the 8–12 days the plan claims.
 
-## 6. The first prompt
+## 6. The shape of a prompt (M0 is done; this is the template)
 
-Paste this to start, and nothing more until M0 is done:
-
-> Read AGENTS.md, then PLAN.md, then docs/BOOTSTRAP.md. We are doing M0 only, the six steps in
-> docs/BOOTSTRAP.md §5, one commit per step. The upstream Android project at
-> ../VoiceAssistant is read-only — never write there, and use tools/sync-from-android.sh
-> for every copy. Do not copy upstream files that are not on the COPY list unless the compiler
-> names them as missing, and ask before bringing across anything beyond Models.kt and one or two
-> other files. Do not start M1. Commit after each step with a body explaining why, and stop and ask
-> if a step turns out to be different from how the plan describes it.
+> Read AGENTS.md, then PLAN.md, then docs/BOOTSTRAP.md. Work the milestone one step at a time, one commit
+> per step, and report when its acceptance criterion passes. The upstream Android project at
+> ../VoiceAssistant is read-only — never write there, and use tools/sync-from-android.sh for every
+> copy. Decide and record: where the plan's rules already answer a fork, choose, implement, and write the
+> entry in docs/DECISIONS.md in the same commit rather than stopping. Stop only for the four cases in
+> AGENTS.md §10 — a COPY verdict change or a deleted upstream call, a new dependency, a contradiction of what
+> the plan records, or something that cannot be reversed in one commit — and batch those questions rather
+> than asking one at a time. Commit with a body that explains why.
 
 ## 7. After M0
 

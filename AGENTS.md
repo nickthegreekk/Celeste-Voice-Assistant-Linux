@@ -150,11 +150,33 @@ A task is done when:
 6. No new dependency was added without naming it in the commit body and pinning it in
    `gradle/libs.versions.toml`.
 
-## 10. When the plan does not cover something
+## 10. Deciding without stopping
 
-Ask the user. The upstream Android app is the **behavioural** reference for anything the plan omits:
-read it, and port what it does. Do not invent requirements, do not redesign a feature because a
-nicer approach occurs to you, and do not add features the plan lists as out of scope (PLAN.md §2).
+**Decide, record, keep going.** A fork the plan's existing rules already answer, or one that reverses in a single
+commit, is yours to call: pick the option you would recommend, implement it, and record it in
+[docs/DECISIONS.md](docs/DECISIONS.md) in the same commit — what the fork was, what you chose, what you rejected
+and why. That record is what makes a decision reviewable *afterwards*, in the diff, instead of blocking
+*beforehand*.
+
+**Stop and ask for exactly four things:**
+
+1. changing a COPY file's verdict, or deleting an upstream call (either way the marker goes in the same commit);
+2. adding a dependency;
+3. contradicting something the plan records — the seam list, the module boundaries, or a decision in
+   [docs/DECISIONS.md](docs/DECISIONS.md);
+4. anything you cannot reverse in one commit.
+
+**Otherwise proceed and flag it.** Name the decision in your report so it can be disputed, but do not wait for an
+answer before continuing.
+
+**Batch the stops.** If more than one of those four applies, collect them and raise them together at the end of a
+file or a session. A question per fork costs the project a round trip per fork.
+
+A plan that is approximate is not a contradiction: "§7a says three to six files and the compiler named eight" is
+the plan being approximate, and the rules already say what to do. The upstream Android app stays the
+**behavioural** reference for anything the plan omits — read it and port what it does. Do not invent
+requirements, do not redesign a feature because a nicer approach occurs to you, and do not add features the plan
+lists as out of scope (PLAN.md §2).
 
 ## 11. First task
 
