@@ -73,7 +73,7 @@ Installed by the package, not by hand:
 | Audio capture/playback | `pipewire`, `pipewire-audio`, `alsa-utils` | `pipewire-bin`, `alsa-utils` |
 | Device/sink selection | `wireplumber` | `wireplumber` |
 | Desktop notifications | `libnotify` | `libnotify-bin` |
-| Secret storage (fallback: 0600 file) | `libsecret` | `libsecret-tools` |
+| Credentials | in the settings file, mode 0600 — no Secret Service daemon needed | same |
 | Local TTS fallback | `espeak-ng` | `espeak-ng` |
 | Speech-dispatcher fallback | `speech-dispatcher` | `speech-dispatcher` |
 
@@ -110,7 +110,7 @@ artefact and is not planned for the first release.
 | `~/.local/share/celeste-linux/` | Chat history per persona, room transcripts, persona artwork |
 | `~/.local/state/celeste-linux/` | Logs (also sent to journald), usage-tracking counters |
 | `~/.cache/celeste-linux/` | Utterance WAVs, downloaded images, model downloads |
-| libsecret (`secret-tool`) | API keys, server passwords, gateway credentials |
+| (no keyring daemon) | Credentials live in the settings file above, mode 0600. libsecret is not used in v1 — see PLAN.md §5a. |
 
 The Android app's own export/import backup file can be imported, because the backup reader is pure
 Kotlin and comes across with the rest. Persona artwork paths are rewritten into the Linux data

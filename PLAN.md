@@ -135,13 +135,14 @@ implementation in `platform/`; `core` never imports from `platform`.
 | 5 | `SpeechToText` | HTTP `POST /transcribe` | unchanged (already HTTP) |
 | 6 | `TextToSpeech` | Android `TextToSpeech`, bundled eSpeak JNI, gateway HTTP | `spd-say` (speech-dispatcher), `espeak-ng` CLI or JNA to the distro `libespeak_ng.so`, gateway HTTP unchanged |
 | 7 | `SettingsStore` | `EncryptedSharedPreferences` | JSON file in `~/.config/celeste-linux/` |
-| 8 | `SecretStore` | AES/GCM via Android Keystore | `secret-tool` (libsecret), 0600 file fallback |
+| 8 | `SecretStore` | AES/GCM via Android Keystore | **Not in v1** — credentials live in the settings file at mode 0600, see §5a |
 | 9 | `Notifier` | `NotificationManager` + channels | `notify-send` with an "Open" action |
 | 10 | `Scheduler` | `WorkManager` (self-rescheduling, reboot-safe) | coroutine timer inside the service core, driven by the already pure `SpontaneousScheduler`; optional systemd user timer |
 | 11 | `Tray` | Quick-settings tile | AWT `SystemTray` menu (Listen now, Mute mic, Open, Quit) |
 | 12 | `Hotkey` | None (proximity "wave to interrupt") | WM/desktop hotkey to `celeste-linux --listen` (documented per desktop); optional XDG GlobalShortcuts portal |
 | 13 | `FileDialogs` | SAF `ActivityResult` pickers | AWT `FileDialog` / chooser |
 | 14 | `CertTrust` | `networkSecurityConfig` + TOFU prompt | OkHttp `X509TrustManager` + TOFU store file in `~/.local/share/celeste-linux/` |
+| 15 | `ImageCodec` | Android `BitmapFactory` / `Bitmap.compress` | `javax.imageio` decode, scale and encode, with JPEG quality 88 and the upstream dimension limits |
 
 The bundled `arm64-v8a/libespeak-ng.so`, `src/main/cpp/` (its CMake build and JNI shim) and the
 34 MB of piper/espeak assets do **not** come across: on Linux eSpeak-NG is a distro package and
@@ -347,9 +348,10 @@ prints the resolved paths and audio devices, `tools/sync-from-android.sh`, `docs
 `.gitignore`, `git init`.
 *Accept:* `./gradlew :core:test` passes the copied suites on Arch; the same in a Debian container.
 
-**M1 — Text app (8–12 d).** `AppEnv`, seams 7/8/13/14, the settings blob and its recovery, personas,
+**M1 — Text app (12–15 d, revised mid-milestone).** `AppEnv`, seams 7/13/14 plus the new 15, the settings blob and its recovery, personas,
 
 [2026-10-15: `AppEnv` is designed HERE, not in M0.5. M0.5 resolved the XDG paths in `:platform` and the selftest exercised them; the interface itself is derived by reading what the ported files actually ask of `Context` — paths, the logger the `android.util.Log` shim routes into, the process launcher from D6, device info — rather than by guessing a shape a milestone early. Promoting the resolved-paths holder into `:core` is the mechanical first step, and `AppEnv` takes it as a parameter, so `:core` never sees a `:platform` type.]
+[Revised mid-M1, 2026-10-15: M1.1-M1.3 were all foundation - AppEnv, AppLogger, SettingsStore, ImageCodec - and no ported :core file had landed yet. That is the same boundary-discovery pattern M0 showed, so M1 is re-estimated at 12-15 days. Do NOT re-baseline M2-M7 from it: these foundations are inherited by every later milestone, and only M2 audio seams are comparable new-code work.]
 servers, providers, chat orchestration, main window, settings/persona screens, image-gen config
 screens. Port the JVM tests.
 *Accept:* a real conversation with Ollama and with one cloud provider end to end; settings survive a
