@@ -348,6 +348,8 @@ prints the resolved paths and audio devices, `tools/sync-from-android.sh`, `docs
 *Accept:* `./gradlew :core:test` passes the copied suites on Arch; the same in a Debian container.
 
 **M1 — Text app (8–12 d).** `AppEnv`, seams 7/8/13/14, the settings blob and its recovery, personas,
+
+[2026-10-15: `AppEnv` is designed HERE, not in M0.5. M0.5 resolved the XDG paths in `:platform` and the selftest exercised them; the interface itself is derived by reading what the ported files actually ask of `Context` — paths, the logger the `android.util.Log` shim routes into, the process launcher from D6, device info — rather than by guessing a shape a milestone early. Promoting the resolved-paths holder into `:core` is the mechanical first step, and `AppEnv` takes it as a parameter, so `:core` never sees a `:platform` type.]
 servers, providers, chat orchestration, main window, settings/persona screens, image-gen config
 screens. Port the JVM tests.
 *Accept:* a real conversation with Ollama and with one cloud provider end to end; settings survive a
