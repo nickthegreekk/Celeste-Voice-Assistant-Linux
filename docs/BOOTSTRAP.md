@@ -112,6 +112,8 @@ time this was written, and it is **read-only**.
 
 ## 5. M0 — skeleton, in order
 
+**[Corrected 2026-10-15 — PLAN.md §7a supersedes this section's M0.2 and M0.3.]** M0.2: run `tools/sync-from-android.sh --group m0`, not the bare script (it now refuses on purpose). The six m1 files arrive in M1, with the `AssistantService.kt` they extend. M0.3: the real file set is the six m0 COPY files (2,046 lines) plus three hand-written ones — the `android.util.Log` shim, `GatewayUrl.kt` and `Models.kt` — and nothing else. If all twelve were already copied in one go, `git rm` the six m1 files out of `core/`: `--group m1` brings them back byte-identical in M1, and upstream is the source of truth, so nothing is lost.
+
 Do these in order, committing after each. Do not start M1 until all six are done.
 
 **M0.1 — Gradle skeleton.** `settings.gradle.kts` with three modules (`:core`, `:platform`,

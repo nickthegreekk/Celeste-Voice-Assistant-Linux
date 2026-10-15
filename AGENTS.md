@@ -52,6 +52,8 @@ filesystem layout, the answer is a new interface in `:core` and its implementati
 
 ## 3. File verdicts are binding
 
+**[2026-10-15, PLAN.md §7a.]** The verdicts stand, but every COPY file also has an *arrival milestone* (`m0`/`m1`) — take a file only when its dependencies are ported. And `android.util.Log` is handled by a shim at `core/src/main/kotlin/android/util/Log.kt`, the only file under an `android.*` package: **never "fix" a fully-qualified `android.*` call inside a COPY file** — extend the shim, or stop and ask.
+
 [PLAN.md](PLAN.md) §7 classifies every upstream file as **COPY**, **ADAPT**, **PORT+** or **NEW**.
 That classification is part of the specification:
 

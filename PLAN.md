@@ -230,6 +230,61 @@ edits, **PORT+** = real work but the logic survives, **NEW** = new implementatio
 
 Totals: **12 files / 4,434 lines copied verbatim**, 26 files adapted, 8 files rewritten.
 
+### 7a. Arrival order, and one measurement correction (2026-10-15)
+
+Reported by the agent during the first M0 attempt, and confirmed by compiling.
+
+**The purity test was wrong.** The COPY column was derived by grepping for `import android.*`. Three
+of those files use `android.util.Log` **fully qualified**, so no import line exists and the grep could
+not see it: `SpontaneousScheduler.kt:410`, `AssistantServiceRoomTurns.kt` (x6) and
+`AssistantServiceSpontaneous.kt` (x6). A file that touches `android.*` cannot compile on the JVM, so
+"pure, copy verbatim" was wrong for those three. The fix is a shim, not a demotion — see below.
+
+**Half the COPY list is not standalone: it is extension functions on `AssistantService`.** Upstream
+split one ~15k-line service across files by concern, so `AssistantServiceComfy.kt:189`,
+`AssistantServiceRooms.kt`, `AssistantServiceRoomTurns.kt`, `AssistantServiceSpontaneous.kt`,
+`AssistantServiceImageGen.kt` and `TurnSink.kt` cannot compile without `AssistantService.kt`
+(3,371 lines, PORT+) and its `Context` to `AppEnv` work, which §10 schedules for M1. M0 cannot carry
+them without importing M1's core (~10k lines) into one commit.
+
+**The rule that fixes both: a COPY file keeps its verdict, but each one has an arrival milestone.**
+
+| Group | Files | Lines | Arrives | Needs first |
+|---|---|---:|---|---|
+| **m0** | `ModelCatalog.kt`, `ComfyJobs.kt`, `ComfyWorkflow.kt` | 1,311 | M0 | nothing — compile clean today |
+| **m0** | `MessageTimestamps.kt`, `SpontaneousScheduler.kt` | 596 | M0 | `Models.kt` + the `android.util.Log` shim |
+| **m0** | `ServerIdentity.kt` | 139 | M0 | `Models.kt`, the shim, `normalizeGatewayUrl` |
+| **m1** | `AssistantService{Comfy,Rooms,RoomTurns,Spontaneous,ImageGen}.kt`, `TurnSink.kt` | 2,388 | M1 | `AssistantService.kt` |
+
+The m0 group is six files, 2,046 lines. The m1 group is six files, 2,388 lines, and the 12 add to the
+4,434 originally claimed — the count was right, the ordering was missing.
+
+`tools/sync-from-android.sh --group m0|m1` copies one group; the bare copy is refused, because
+copying a file whose dependency has not been ported produces a source set that does not compile.
+`--check` reports a file that has not arrived yet as *not yet taken* rather than as a fault.
+
+**The `android.util.Log` shim.** One file, `core/src/main/kotlin/android/util/Log.kt`, defines
+`d/i/w/e/v/wtf(tag, msg)` and their `(tag, msg, Throwable)` forms, forwarding to the project logger.
+It exists so that a COPY file is never edited for a logging call: logging is behaviourally
+invisible, byte-identity is preserved, and demoting three files to ADAPT would put a permanent diff
+on files we would otherwise take verbatim. It is the **only** file in this project allowed to live
+under an `android.*` package, and it is not a compatibility layer — nothing else is added to it.
+
+**`normalizeGatewayUrl`.** Upstream defines it inside `AssistantServiceGateway.kt:118`, a 655-line
+file that references `AssistantService` 22 times and so cannot arrive before M1. It is defined now in
+a small NEW file, `GatewayUrl.kt`, with upstream's semantics (`raw.trim().trimEnd('/')`). When
+`AssistantServiceGateway.kt` is ported, its copy of the function is dropped in favour of this one:
+one definition, and the removal is an ADAPT recorded in `docs/PROVENANCE.md`.
+
+**`Models.kt`.** §7 calls it ADAPT only because of a Compose import. If that import is annotation-only
+(`androidx.compose.runtime.Immutable` or similar), keep the file byte-identical and add
+`androidx.compose.runtime:runtime` to `:core`: one dependency buys a permanent no-diff. Decide when
+the import is actually visible, and record which way it went.
+
+**Consequence for §10.** M0's upstream file set is the six m0 files (2,046 lines) plus `Models.kt`,
+the shim and `GatewayUrl.kt`. M1 gains the six m1 files (2,388 lines) unchanged, since they arrive
+with the service they extend.
+
 ## 8. Feature parity matrix
 
 | Feature (upstream README) | Milestone | Notes |
@@ -279,7 +334,7 @@ tests for behaviour). They assume the seams in §5 are respected and the copied 
 **M0 — Skeleton and build (2–3 d).** Gradle project, Compose Desktop plugin, JDK 25 toolchain
 *(deviation, 2026-10-15: was JDK 21. The build box has 17, 25 and 27; Kotlin 2.4.10's compiler
 accepts jvmTarget at most JVM_26, so 27 cannot be a target and 25 — a Temurin LTS already present
-— was chosen over installing 21. See the root `build.gradle.kts`.)*, `:core` with the 12 copied files compiling and its tests running, a headless `--selftest` that
+— was chosen over installing 21. See the root `build.gradle.kts`.)*, `:core` with the six m0 COPY files (PLAN.md §7a) plus the Log shim, `GatewayUrl.kt` and `Models.kt` compiling, and the ported JVM tests running, a headless `--selftest` that
 prints the resolved paths and audio devices, `tools/sync-from-android.sh`, `docs/PROVENANCE.md`,
 `.gitignore`, `git init`.
 *Accept:* `./gradlew :core:test` passes the copied suites on Arch; the same in a Debian container.
