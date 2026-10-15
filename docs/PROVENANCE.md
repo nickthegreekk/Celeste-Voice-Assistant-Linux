@@ -106,6 +106,35 @@ in this table that is not written down here is one nobody can review.
 | File | Verdict | Upstream | What changed |
 |---|---|---|---|
 | `SettingsManager.kt` | PORT+ | `app/src/main/java/com/nikosm/voiceassistant/SettingsManager.kt` | Seams 7 and 15; `Context`→`AppEnv`; `Uri`→`Path`; `android.util.Base64`→`java.util.Base64`; `createEncryptedPrefsWithRecovery` removed. Detail below. |
+| `AssistantServiceAudio.kt` | PORT+ | `app/src/main/java/com/nikosm/voiceassistant/AssistantServiceAudio.kt` | Landing in stages (PLAN.md §10). So far: `cleanTextForTts`'s astral-emoji class rewritten for the JVM regex engine. Detail below. |
+
+### `AssistantServiceAudio.kt`
+
+The file arrives in pieces because only a third of it is portable on its own; the rest of the
+1,379 lines is a `MediaPlayer`/`AudioTrack` state machine and the Android audio-focus machinery
+PLAN.md §9 deletes. The order is the pure third first, then the sequencer, then what remains, which
+lands with the service it hangs off.
+
+**`cleanTextForTts`'s astral-emoji class was rewritten, because upstream's matches nothing here.**
+Upstream strips astral-plane emoji with the surrogate-pair class
+`[\uD83C-\uD83E][\uDC00-\uDFFF]`. That is correct on Android, whose `java.util.regex` is
+ICU-backed, and it is inert on the JVM: OpenJDK pairs a well-formed surrogate pair into a single
+code point *before* applying a character class, so neither half of the class is ever offered a
+value it contains. Measured directly — the pair `D83D DE00` reports `matches = false`, and
+`Pattern.UNICODE_CHARACTER_CLASS` does not change it.
+
+This was worth catching because it fails **silently**. Nothing throws; the strip simply does
+nothing, and emoji reach eSpeak and speech-dispatcher, which is the exact symptom the line exists
+to prevent. It surfaced from a JVM test asserting a removed 😀 and getting "Nice one 😀" back,
+not from an error.
+
+The replacement denotes the same set as the class it replaces: high `D83C`–`D83E` over low
+`DC00`–`DFFF` is code points `U+1F000`–`U+1FBFF`, which is the emoji, symbol, transport and
+enclosed-alphanumeric blocks — including the regional indicators that make flags. The BMP half of
+the class is unchanged, because those are single code units and behave identically on both engines.
+`AssistantServiceAudioTest` pins the three emoji shapes (face, symbol, flag), and also pins that
+ordinary prose and Greek text survive untouched — a class widened too far is a worse bug than the
+one it fixes.
 
 ### `SettingsManager.kt`
 
