@@ -11,7 +11,7 @@
 # source set that cannot compile. The m0 group stands alone; the m1 group needs AssistantService.kt
 # (and its Context -> AppEnv port) to exist first.
 #
-# There are two lists, and both follow the same rules:
+# There are three lists, and all of them follow the same rules:
 #   COPY_SOURCES  main sources      -> core/src/main/kotlin/com/nikosm/voiceassistant/
 #   COPY_DATA     data files        -> repo root / assets/
 #   TEST_SOURCES  upstream tests    -> core/src/test/kotlin/com/nikosm/voiceassistant/
@@ -21,11 +21,16 @@
 # on purpose, stays out of this list, and gets a line in docs/TEST-MAP.md instead — the same
 # demotion rule that applies to a COPY file (AGENTS.md §3), pointed at tests.
 #
+# This script also owns the PINNED upstream revision: core/src/main/resources/upstream-commit.txt,
+# written on every successful copy and read by --selftest (BOOTSTRAP.md §5, M0.5). It is a
+# checked-in one-line file rather than a build-time `git rev-parse`, so a fresh clone and the
+# Debian container can print it without the upstream tree being present.
+#
 # Usage:
 #   tools/sync-from-android.sh --group m0       copy the files M0 needs, main and test
 #   tools/sync-from-android.sh --group m1       copy the files that arrive with AssistantService
-#   tools/sync-from-android.sh --check          report drift, and which files have not arrived yet
-#   tools/sync-from-android.sh --list           print the groups, the test resolution and the commit
+#   tools/sync-from-android.sh --check          report drift, the pin, and what has not arrived yet
+#   tools/sync-from-android.sh --list           print the groups, the test resolution and the pin
 #
 # Environment:
 #   UPSTREAM   path to the upstream Android project (default: ../VoiceAssistant)
@@ -38,8 +43,8 @@ REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 UPSTREAM_APP="$UPSTREAM/app/src/main"
 UPSTREAM_SRC="$UPSTREAM_APP/java/com/nikosm/voiceassistant"
 DEST_SRC="$REPO_ROOT/core/src/main/kotlin/com/nikosm/voiceassistant"
-UPSTREAM_TEST="$UPSTREAM/app/src/test/java/com/nikosm/voiceassistant"
 DEST_TEST="$REPO_ROOT/core/src/test/kotlin/com/nikosm/voiceassistant"
+PIN_FILE="$REPO_ROOT/core/src/main/resources/upstream-commit.txt"
 
 # Upstream test trees, searched in order. A name found in more than one is resolved by this
 # order, and --list prints the path it picked so a wrong pick is visible rather than silent.
@@ -86,7 +91,7 @@ case "${1:-}" in
   --group)    MODE="copy"; GROUP="${2:-}"; [ -n "$GROUP" ] || { echo "--group needs m0 or m1" >&2; exit 2; } ;;
   --check)    MODE="check" ;;
   --list)     MODE="list" ;;
-  -h|--help)  sed -n '2,32p' "$0"; exit 0 ;;
+  -h|--help)  sed -n '2,38p' "$0"; exit 0 ;;
   *)          echo "usage: $0 --group m0|m1 | --check | --list" >&2; exit 2 ;;
 esac
 
@@ -229,6 +234,11 @@ case "$MODE" in
     echo "m0 = the files that stand alone (PLAN.md §7a), main and test"
     echo "m1 = the files that need AssistantService.kt to exist first"
     echo "a test that needs retargeting stays OFF this list and goes in docs/TEST-MAP.md"
+    if [ -f "$PIN_FILE" ]; then
+      echo "pin  $(tr -d '\r\n' < "$PIN_FILE")  ($PIN_FILE, read by --selftest)"
+    else
+      echo "pin  not written yet — a successful --group run establishes it"
+    fi
     ;;
   copy)
     if [ "$problems" -gt 0 ]; then
@@ -236,7 +246,10 @@ case "$MODE" in
       exit 1
     fi
     echo "group $GROUP copied from upstream commit $UPSTREAM_COMMIT"
-    echo "record that hash in docs/PROVENANCE.md for every file you took"
+    mkdir -p "$(dirname "$PIN_FILE")"
+    printf '%s\n' "$UPSTREAM_COMMIT" > "$PIN_FILE"
+    echo "pin written      $PIN_FILE"
+    echo "record in docs/PROVENANCE.md only files taken at an OLDER commit than the pin"
     if [ "$GROUP" = "m0" ]; then
       cat <<'NEXT'
 m0 still needs, hand-written rather than copied (PLAN.md §7a) — and :core must pin ui-graphics to the :desktop version:
@@ -255,6 +268,17 @@ NEXT
     fi
     ;;
   check)
+    if [ -f "$PIN_FILE" ]; then
+      PINNED="$(tr -d '\r\n' < "$PIN_FILE")"
+      if [ "$PINNED" = "$UPSTREAM_COMMIT" ]; then
+        echo "pin: $PINNED (matches upstream HEAD)"
+      else
+        echo "pin: $PINNED — upstream HEAD is $UPSTREAM_COMMIT. A note, not a fault:"
+        echo "     upstream moving is allowed, the copied files staying byte-identical is the guard."
+      fi
+    else
+      echo "pin: not written yet — run --group m0 once to establish it"
+    fi
     if [ "$problems" -eq 0 ]; then
       echo "no drift: main $taken taken / $waiting to arrive, test $taken_test taken / $waiting_test to arrive"
       exit 0
