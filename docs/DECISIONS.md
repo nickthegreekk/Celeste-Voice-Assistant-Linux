@@ -84,6 +84,16 @@ seeded content is a working-tree step, never a commit — the port replaces it b
 `:core` never holds the Android original. Rejected: a second copy path outside the script, which is the door
 AGENTS.md §1 exists to close. → PLAN.md §7a, AGENTS.md §1
 
+## 2026-10-15 — Three UI dependencies, approved on a measurement
+
+`compose.material3`, `compose.materialIconsExtended` and Coil 3 for `AsyncImage` are declared in `:desktop` — the only
+new dependencies the UI needs — pinned in `gradle/libs.versions.toml` at the versions the Android app already uses. A
+new dependency is a stop under AGENTS.md §10.2, and what settled it was the probe rather than an argument: without them
+81 imports fail, and every one of those is material3 or material icons, so the fix is two declarations rather than a
+porting effort. Coil serves local files only, as on Android, so no network artefact is needed. The probe script
+(`tools/compose-probe.sh`) stays in the repository: it answers D2 by compiling rather than by reading, and it will
+answer again if the UI's import picture changes.
+
 ## 2026-10-15 — A grep is evidence of text, not of behaviour
 
 Three times a grep-derived claim went into the plan and the compiler disproved it. Three COPY files call

@@ -75,6 +75,17 @@ the estimate hoped for: the Compose surface transfers with import-level edits, a
 is 12 call sites across 5 files — the `LocalContext`/`LocalConfiguration` ones — plus the seams §7
 already assigns.]
 
+[2026-10-15, measured rather than assumed: `tools/compose-probe.sh` compiles every `androidx.compose.*` import the UI
+layer uses against `:desktop`, and of 203 distinct imports 194 resolve unchanged. The nine that do not are twelve call
+sites across five files plus the app's own `ui/theme` (4 files, 152 lines, not yet copied): `LocalContext` at ten sites,
+every one wanting a Context for a Toast, the clipboard or a file picker — that is, for seams 9 and 13, which the seam
+list already predicted; `LocalConfiguration` at two sites, reading only screen height and orientation, which on a desktop
+is the window; the Material-You dynamic colour pair, which reads the wallpaper through a Context and falls back to a
+palette the theme already has; `android.app.Activity` and `android.os.Build` in `ui/theme`'s edge-to-edge and SDK check,
+both dropped; and `coil3.compose.AsyncImage`, which is a dependency. So D2 holds — the UI is a port with a list of twelve
+call sites, not a rewrite. The probe stays in the repo and gets re-run before each UI milestone: it answers this question
+by compiling, which is the only kind of answer that has held up in this project.]
+
 **D3 — Keep the Kotlin package and file names.** Copied files stay at
 `com.nikosm.voiceassistant`, same names, so an upstream change can be copied in and reviewed as a
 small diff. Renaming would be cosmetic and would destroy that.
