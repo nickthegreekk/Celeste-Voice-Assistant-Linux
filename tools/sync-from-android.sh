@@ -6,21 +6,26 @@
 # command it runs against $UPSTREAM is cp/read, and it refuses to write anything whose
 # destination lies inside that tree.
 #
-# Files arrive in GROUPS, not all at once. PLAN.md §7a explains why: half the COPY list is
-# extension functions on AssistantService, so copying the whole list in one go produces a source
-# set that cannot compile. The m0 group stands alone; the m1 group needs AssistantService.kt
+# Files arrive in GROUPS, not all at once. PLAN.md §7a explains why: half of the main COPY list
+# is extension functions on AssistantService, so copying the whole list in one go produces a
+# source set that cannot compile. The m0 group stands alone; the m1 group needs AssistantService.kt
 # (and its Context -> AppEnv port) to exist first.
 #
-# COPY files must stay byte-identical to upstream. The android.util.Log shim (PLAN.md §7a) exists
-# so that a logging call never forces one of them to be edited. If a task really needs a COPY file
-# changed, that is a deliberate demotion: edit PLAN.md §7, add a docs/PROVENANCE.md entry, and take
-# the file out of this list — in the same commit.
+# There are two lists, and both follow the same rules:
+#   COPY_SOURCES  main sources      -> core/src/main/kotlin/com/nikosm/voiceassistant/
+#   COPY_DATA     data files        -> repo root / assets/
+#   TEST_SOURCES  upstream tests    -> core/src/test/kotlin/com/nikosm/voiceassistant/
+# A test file arrives byte-identical like everything else, which means --check covers it and an
+# upstream improvement is later copyable as a small diff. A test that needs retargeting (the
+# AndroidJUnit4 / WorkManager / Compose-device ones) is NOT added to TEST_SOURCES: it is adapted
+# on purpose, stays out of this list, and gets a line in docs/TEST-MAP.md instead — the same
+# demotion rule that applies to a COPY file (AGENTS.md §3), pointed at tests.
 #
 # Usage:
-#   tools/sync-from-android.sh --group m0       copy the files M0 needs
+#   tools/sync-from-android.sh --group m0       copy the files M0 needs, main and test
 #   tools/sync-from-android.sh --group m1       copy the files that arrive with AssistantService
 #   tools/sync-from-android.sh --check          report drift, and which files have not arrived yet
-#   tools/sync-from-android.sh --list           print the groups and the upstream commit
+#   tools/sync-from-android.sh --list           print the groups, the test resolution and the commit
 #
 # Environment:
 #   UPSTREAM   path to the upstream Android project (default: ../VoiceAssistant)
@@ -33,6 +38,17 @@ REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 UPSTREAM_APP="$UPSTREAM/app/src/main"
 UPSTREAM_SRC="$UPSTREAM_APP/java/com/nikosm/voiceassistant"
 DEST_SRC="$REPO_ROOT/core/src/main/kotlin/com/nikosm/voiceassistant"
+UPSTREAM_TEST="$UPSTREAM/app/src/test/java/com/nikosm/voiceassistant"
+DEST_TEST="$REPO_ROOT/core/src/test/kotlin/com/nikosm/voiceassistant"
+DEST_TEST="$REPO_ROOT/core/src/test/kotlin/com/nikosm/voiceassistant"
+
+# Upstream test trees, searched in order. A name found in more than one is resolved by this
+# order, and --list prints the path it picked so a wrong pick is visible rather than silent.
+UPSTREAM_TEST_DIRS=(
+  "app/src/test/java/com/nikosm/voiceassistant"
+  "app/src/test/kotlin/com/nikosm/voiceassistant"
+  "app/src/androidTest/java/com/nikosm/voiceassistant"
+)
 
 # GROUP|upstream-name   — groups are arrival milestones, PLAN.md §7a
 COPY_SOURCES=(
@@ -51,6 +67,23 @@ COPY_SOURCES=(
   "m1|TurnSink.kt"
 )
 
+# GROUP|upstream-name — pure JVM tests, byte-identical, same rule as above
+TEST_SOURCES=(
+  "m0|ComfyWorkflowValidationTest.kt"
+  "m0|ComfyPromptFillingTest.kt"
+  "m0|ComfyFixtures.kt"
+)
+
+# GROUP|upstream-name   — the JVM tests, copied verbatim into :core's test source set.
+#
+# ComfyFixtures.kt is not a test class but has to travel with the two that are: it is the shared
+# fixture they build their captured workflows from, and both reference it.
+TEST_SOURCES=(
+  "m0|ComfyFixtures.kt"
+  "m0|ComfyPromptFillingTest.kt"
+  "m0|ComfyWorkflowValidationTest.kt"
+)
+
 # GROUP|label|source|destination
 COPY_DATA=(
   "m0|LICENSE|$UPSTREAM/LICENSE|$REPO_ROOT/LICENSE"
@@ -64,7 +97,7 @@ case "${1:-}" in
   --group)    MODE="copy"; GROUP="${2:-}"; [ -n "$GROUP" ] || { echo "--group needs m0 or m1" >&2; exit 2; } ;;
   --check)    MODE="check" ;;
   --list)     MODE="list" ;;
-  -h|--help)  sed -n '2,27p' "$0"; exit 0 ;;
+  -h|--help)  sed -n '2,34p' "$0"; exit 0 ;;
   *)          echo "usage: $0 --group m0|m1 | --check | --list" >&2; exit 2 ;;
 esac
 
@@ -72,8 +105,8 @@ if [ -z "$MODE" ]; then
   cat >&2 <<'USAGE'
 refusing to copy: a group is required.
 
-  tools/sync-from-android.sh --group m0     the six files that stand alone (PLAN.md §7a)
-  tools/sync-from-android.sh --group m1     the six that need AssistantService.kt first
+  tools/sync-from-android.sh --group m0     the files that stand alone (PLAN.md §7a)
+  tools/sync-from-android.sh --group m1     the files that need AssistantService.kt first
 
 Copying a file whose dependency has not been ported yet leaves :core unable to compile, which is
 exactly what the group split exists to prevent. --check and --list need no group.
@@ -112,8 +145,20 @@ echo "mode     : ${MODE}${GROUP:+ (group $GROUP)}"
 echo
 
 problems=0
-taken=0
-waiting=0
+taken=0; waiting=0
+taken_test=0; waiting_test=0
+in_test=0
+
+upstream_test_path() {
+  # $1 = file name. Prints the first path that exists, in UPSTREAM_TEST_DIRS order.
+  for d in "${UPSTREAM_TEST_DIRS[@]}"; do
+    if [ -f "$UPSTREAM/$d/$1" ]; then
+      printf '%s\n' "$UPSTREAM/$d/$1"
+      return 0
+    fi
+  done
+  return 1
+}
 
 sync_one() {
   # $1 = group, $2 = label, $3 = source, $4 = destination
@@ -144,10 +189,10 @@ sync_one() {
       if [ ! -f "$dst" ]; then
         # Expected in m0 for the m1 group: not a fault, just not taken yet.
         printf 'not yet taken (%s)  %s\n' "$grp" "$label"
-        waiting=$((waiting + 1))
+        if [ "$in_test" = 1 ]; then waiting_test=$((waiting_test + 1)); else waiting=$((waiting + 1)); fi
       elif cmp -s "$src" "$dst"; then
         printf 'ok                %s\n' "$label"
-        taken=$((taken + 1))
+        if [ "$in_test" = 1 ]; then taken_test=$((taken_test + 1)); else taken=$((taken + 1)); fi
       else
         printf 'DIFFERS           %s\n' "$label"
         diff -u "$dst" "$src" | head -40 || true
@@ -170,11 +215,31 @@ for entry in "${COPY_DATA[@]}"; do
   sync_one "$grp" "$label" "$src" "$dst"
 done
 
+in_test=1
+for entry in "${TEST_SOURCES[@]}"; do
+  grp="${entry%%|*}"; name="${entry#*|}"
+  if ! src="$(upstream_test_path "$name")"; then
+    if [ "$MODE" = "copy" ] && [ "$grp" = "$GROUP" ]; then
+      echo "MISSING UPSTREAM  $name (searched: ${UPSTREAM_TEST_DIRS[*]})" >&2
+      problems=$((problems + 1))
+    elif [ "$MODE" = "check" ]; then
+      printf 'SKIP (absent upstream)  %s\n' "$name"
+    fi
+    continue
+  fi
+  if [ "$MODE" = "list" ]; then
+    printf '%s  %s  <- %s\n' "$grp" "$name" "${src#"$UPSTREAM"/}"
+  else
+    sync_one "$grp" "$name" "$src" "$DEST_TEST/$name"
+  fi
+done
+
 echo
 case "$MODE" in
   list)
-    echo "m0 = seven files, 3,030 lines — they stand alone (PLAN.md §7a)"
-    echo "m1 = six files, 2,388 lines — they need AssistantService.kt to exist first"
+    echo "m0 = the files that stand alone (PLAN.md §7a), main and test"
+    echo "m1 = the files that need AssistantService.kt to exist first"
+    echo "a test that needs retargeting stays OFF this list and goes in docs/TEST-MAP.md"
     ;;
   copy)
     if [ "$problems" -gt 0 ]; then
@@ -202,7 +267,7 @@ NEXT
     ;;
   check)
     if [ "$problems" -eq 0 ]; then
-      echo "no drift: $taken file(s) taken and byte-identical, $waiting still to arrive"
+      echo "no drift: main $taken taken / $waiting to arrive, test $taken_test taken / $waiting_test to arrive"
       exit 0
     fi
     echo "$problems file(s) differ from upstream — COPY files must stay byte-identical" >&2
