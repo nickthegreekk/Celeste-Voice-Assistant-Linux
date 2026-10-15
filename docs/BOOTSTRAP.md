@@ -17,8 +17,10 @@ JVM the whole 32 GB. Two consequences:
   capture/playback processes, no JVM left running after a test.
 
 Toolchain already present: `java` 17.0.20, `/usr/bin/gradle`, `git`, `dpkg`, `pacman`. The project
-targets **JDK 21** for the build and the bundled runtime; if only 17 is installed, install
-`jdk21-openjdk` (Arch) / `openjdk-21-jdk` (Debian). The Gradle wrapper version is pinned in M0 step 1
+targets **JDK 25** for the build and the bundled runtime — originally 21, changed on 2026-10-15
+because this box carries 17, 25 (Temurin LTS under `~/.gradle/jdks`) and 27, Kotlin 2.4.10's
+compiler stops at JVM_26 so 27 cannot be a target, and 25 was already present. Deviation recorded
+in PLAN.md §10. The Gradle wrapper version is pinned in M0 step 1
 and is the source of truth — do not rely on the system `gradle` after that.
 
 ## 2. The harness

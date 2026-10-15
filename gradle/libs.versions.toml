@@ -1,0 +1,36 @@
+# The single place a version is written down (AGENTS.md §9.6: no dependency is added
+# without being named in the commit body and pinned here).
+#
+# kotlin matches the version the upstream app pins (app/gradle/libs.versions.toml), so the
+# ported sources and their upstream copies see the same language and stdlib. The Compose
+# *compiler* plugin is versioned with Kotlin itself since 2.0 and is pinned to `kotlin`
+# exactly; `compose` below is the runtime/UI release, which is a separate line.
+
+[versions]
+kotlin = "2.4.10"
+compose = "1.12.2"
+coroutines = "1.11.0"
+serialization = "1.11.0"
+okhttp = "5.5.0"
+# Deliberately 1.19.2, not the latest: upstream uses onnxruntime-android at this version,
+# and the whole point of seam 4 (PLAN.md §5) is that the VAD code is the same code with a
+# different artifact behind it. Drift here would mean re-tuning the detector.
+onnxruntime = "1.19.2"
+junit = "4.13.2"
+
+[libraries]
+kotlinx-coroutines-core = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "coroutines" }
+kotlinx-coroutines-swing = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-swing", version.ref = "coroutines" }
+kotlinx-coroutines-test = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-test", version.ref = "coroutines" }
+kotlinx-serialization-json = { module = "org.jetbrains.kotlinx:kotlinx-serialization-json", version.ref = "serialization" }
+
+okhttp = { module = "com.squareup.okhttp3:okhttp", version.ref = "okhttp" }
+onnxruntime = { module = "com.microsoft.onnxruntime:onnxruntime", version.ref = "onnxruntime" }
+
+junit = { module = "junit:junit", version.ref = "junit" }
+
+[plugins]
+kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }
+kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
+kotlin-serialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }
+compose = { id = "org.jetbrains.compose", version.ref = "compose" }

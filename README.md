@@ -23,7 +23,7 @@ no container running an APK.
 | **Audio** | PipeWire via WirePlumber; ALSA/PulseAudio fallbacks |
 | **Microphone** | Headset / headphones, or push-to-talk. See *No echo cancellation* below. |
 | **UI** | Compose Multiplatform desktop, one window plus a system-tray icon |
-| **Runtime** | JVM 21 (bundled into the package; no system JDK needed at run time) |
+| **Runtime** | JVM 25 (bundled into the package; no system JDK needed at run time) |
 
 ## What this is not
 

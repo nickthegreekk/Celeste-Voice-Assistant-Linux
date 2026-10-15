@@ -276,8 +276,10 @@ Totals: **12 files / 4,434 lines copied verbatim**, 26 files adapted, 8 files re
 Estimates are focused working days for one developer at this code's quality bar (dense comments,
 tests for behaviour). They assume the seams in §5 are respected and the copied files stay copied.
 
-**M0 — Skeleton and build (2–3 d).** Gradle project, Compose Desktop plugin, JDK 21 toolchain,
-`:core` with the 12 copied files compiling and its tests running, a headless `--selftest` that
+**M0 — Skeleton and build (2–3 d).** Gradle project, Compose Desktop plugin, JDK 25 toolchain
+*(deviation, 2026-10-15: was JDK 21. The build box has 17, 25 and 27; Kotlin 2.4.10's compiler
+accepts jvmTarget at most JVM_26, so 27 cannot be a target and 25 — a Temurin LTS already present
+— was chosen over installing 21. See the root `build.gradle.kts`.)*, `:core` with the 12 copied files compiling and its tests running, a headless `--selftest` that
 prints the resolved paths and audio devices, `tools/sync-from-android.sh`, `docs/PROVENANCE.md`,
 `.gitignore`, `git init`.
 *Accept:* `./gradlew :core:test` passes the copied suites on Arch; the same in a Debian container.
