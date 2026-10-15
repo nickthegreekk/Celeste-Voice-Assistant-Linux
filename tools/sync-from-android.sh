@@ -187,7 +187,8 @@ case "$MODE" in
       cat <<'NEXT'
 m0 still needs, hand-written rather than copied (PLAN.md §7a) — and :core must pin ui-graphics to the :desktop version:
   core/src/main/kotlin/android/util/Log.kt          the Log shim — the only android.* package here
-  core/src/main/kotlin/.../BorrowedFromM1.kt      normalizeGatewayUrl + the shared negative prompt; both deleted in M1
+  core/src/main/kotlin/.../GatewayUrl.kt           BORROWED FROM M1 - normalizeGatewayUrl
+  core/src/main/kotlin/.../ImageGenConstants.kt    BORROWED FROM M1 - IMAGE_GEN_NEGATIVE_PROMPT
 NEXT
     fi
     if [ "$GROUP" = "m1" ]; then
