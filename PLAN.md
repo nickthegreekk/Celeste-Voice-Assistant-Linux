@@ -158,6 +158,17 @@ implementation may stay a stub until its own milestone. Every stub is named `Stu
 logs once at INFO naming the milestone that replaces it — so `grep -rn 'Stub' platform/src/main` is the entire
 to-do list for the milestone that inherits them.
 
+**A PORT+ file that fuses platform callbacks with policy gets its policy extracted (2026-10-15).** One level up from
+seam 2's shape decision: upstream's TTS sequencing - chunk order, one-at-a-time, cancel-previous and the progress
+arithmetic - lives inside roughly 350 lines of MediaPlayer callbacks and `serviceScope.launch` in
+`AssistantServiceAudio.kt`, reachable only through a live service with a real player, so no fake can drive it. The policy
+moves to a NEW class in `:core` taking an injected `AudioPlayback`; the service keeps only what belongs to it - state
+transitions, `voiceDuration` publication, the TTS generation counter - and **nothing else re-implements the guard**.
+Expect this to recur wherever a ported file is mostly callbacks: the policy holds the tuned behaviour and deserves tests,
+while the file keeps the shape its platform forces. It is a deliberate divergence from upstream's structure, so record it
+in `docs/PROVENANCE.md` with the reason: upstream's shape is untestable, which is the same class of reason §9 gives for
+the other replacements.
+
 ### 5a. Seam 8 is not in v1 (2026-10-15)
 
 Credentials — provider API keys, server passwords and gateway credentials — live in the settings
@@ -243,7 +254,7 @@ edits, **PORT+** = real work but the logic survives, **NEW** = new implementatio
 | `SettingsScreens.kt` | 2423 | ADAPT | `Toast` to snackbar; pickers to `FileDialogs`; clipboard to AWT |
 | `MainVoiceScreen.kt` | 2097 | ADAPT | Runtime permissions to `AudioDevices` picker; insets/edge-to-edge to window chrome |
 | `PersonaEditor.kt` | 1579 | ADAPT | Image pick (SAF) to file dialog; the pin/workflow picker stays |
-| `AssistantServiceAudio.kt` | 1379 | PORT+ | Seams 1/2/3/6. **Arrives in M1 with the chat flow that calls it** (PLAN.md §5 rule); its `:platform` implementations stay `Stub*` until M2. Keeps queueing, cancel-previous and the one-playback guard |
+| `AssistantServiceAudio.kt` | 1379 | PORT+ | Seams 1/2/3/6. **Arrives in M1 with the chat flow that calls it** (PLAN.md §5 rule); its `:platform` implementations stay `Stub*` until M2. Its TTS sequencing is **extracted** to the new `TtsChunkSequencer` class and tested against a fake playback handle (§5 rule), so the surviving third is smaller than a straight port implies |
 | `SettingsManager.kt` | 1356 | PORT+ | Encrypted prefs/Keystore to seams 7/8; keeps corruption recovery, migration, backup read/write |
 | `RoomScreens.kt` | 996 | ADAPT | Compose only |
 | `Models.kt` | 984 | **COPY** | Data classes + the persisted colour schema; takes `ui-graphics` in `:core` (§7a) |
@@ -462,6 +473,14 @@ A first usable milestone is **M2**: roughly **15–23 days**.
   test for process leaks around capture/playback and for the service core's start/stop.
 - **Both distros, in containers, in CI:** `gradle test` plus a packaging smoke test that installs
   the artefact and runs `celeste-linux --selftest`.
+
+**What M1 covers, and what it does not (2026-10-15).** Covered: the ported upstream JVM tests (workflow tokens, settings
+recovery), the new platform tests (XDG resolution, the JSON settings store, the image codec) and - once the sequencer is
+extracted - TTS sequencing, cancel-previous and the progress arithmetic against a fake playback handle. **Not covered in
+M1: the service's own state transitions.** `AssistantService.kt` is touched by no test until M2's hands-free acceptance
+run and M7's soak test, because upstream fused its logic with live Android callbacks and constructing it needs every
+collaborator faked. That is a known, accepted gap rather than an oversight: the M2 acceptance criterion is the first
+thing that exercises it.
 
 ## 12. Risks
 
