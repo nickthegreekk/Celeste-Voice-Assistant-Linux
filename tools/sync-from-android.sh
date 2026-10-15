@@ -42,6 +42,7 @@ COPY_SOURCES=(
   "m0|MessageTimestamps.kt"
   "m0|SpontaneousScheduler.kt"
   "m0|ServerIdentity.kt"
+  "m0|Models.kt"
   "m1|AssistantServiceComfy.kt"
   "m1|AssistantServiceRooms.kt"
   "m1|AssistantServiceRoomTurns.kt"
@@ -172,7 +173,7 @@ done
 echo
 case "$MODE" in
   list)
-    echo "m0 = six files, 2,046 lines — they stand alone (PLAN.md §7a)"
+    echo "m0 = seven files, 3,030 lines — they stand alone (PLAN.md §7a)"
     echo "m1 = six files, 2,388 lines — they need AssistantService.kt to exist first"
     ;;
   copy)
@@ -184,10 +185,9 @@ case "$MODE" in
     echo "record that hash in docs/PROVENANCE.md for every file you took"
     if [ "$GROUP" = "m0" ]; then
       cat <<'NEXT'
-m0 still needs, hand-written rather than copied (PLAN.md §7a):
+m0 still needs, hand-written rather than copied (PLAN.md §7a) — and :core must pin ui-graphics to the :desktop version:
   core/src/main/kotlin/android/util/Log.kt          the Log shim — the only android.* package here
   core/src/main/kotlin/.../BorrowedFromM1.kt      normalizeGatewayUrl + the shared negative prompt; both deleted in M1
-  Models.kt                                         COPY; needs ui-graphics pinned in :core (PLAN.md §7a)
 NEXT
     fi
     if [ "$GROUP" = "m1" ]; then
