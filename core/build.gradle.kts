@@ -25,6 +25,13 @@ dependencies {
     implementation(libs.okhttp)
     implementation(libs.onnxruntime)
 
+    // The real org.json, which upstream also uses on the JVM (its build file adds it for tests
+    // because android.jar's stub returns defaults rather than parsing). Here it is needed for
+    // real: the ported service parses HTTP responses with JSONObject, and SettingsManager's
+    // legacy migrations and legacy-backup reader use it so that what this port reads is
+    // byte-for-byte what the phone wrote.
+    implementation(libs.org.json)
+
     // This is not a UI dependency and it is not here by accident — do not tidy it away.
     // Models.kt is a COPY file (PLAN.md §7a) and androidx.compose.ui.graphics.Color is part of
     // its *persisted* schema, not a decoration: `object ColorSerializer` persists
