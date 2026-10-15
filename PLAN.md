@@ -53,6 +53,28 @@ the systemd launcher.
 **D2 — Compose Multiplatform, not a new UI.** 20,585 lines across 23 files are Compose. The desktop
 target hosts them; the edits are import substitutions and the interaction sites named in §7.
 
+[D2 measured, 2026-10-15 — **it holds, and the number is 9.** `tools/compose-probe.sh` writes every
+`androidx.compose.*` / `coil3.*` / `com.nikosm.*.ui.*` import the UI layer actually uses into one
+file and compiles it against `:desktop`. Of **203** distinct imports, **194 resolve as they stand**.
+The nine that do not, with `--deps` (which adds material3 and material-icons-extended through the
+Compose plugin's own accessors and then puts the build script back):
+
+| Import | What it is |
+|---|---|
+| `androidx.compose.material3.dynamicDarkColorScheme` / `dynamicLightColorScheme` | Android's Material You, which reads the wallpaper through a `Context`. No desktop counterpart; the theme's own palette is the fallback and already exists |
+| `androidx.compose.ui.platform.LocalContext` | 10 call sites, every one wanting a `Context` for a Toast, a clipboard entry or a file picker — i.e. for a seam that already exists |
+| `androidx.compose.ui.platform.LocalConfiguration` | 2 call sites, and the only thing read is `screenHeightDp` and `orientation`: on a desktop that is the window's own size, which `:desktop` knows |
+| `android.app.Activity`, `android.os.Build` | `ui/theme/Theme.kt`'s edge-to-edge and SDK-version check |
+| `coil3.compose.AsyncImage` | a dependency, not a port — Coil 3 is multiplatform and §8 already assumes it |
+| `VoiceAssistantTheme`, `isDynamicColorSupported` | the app's own `ui/theme/` package (4 files, 152 lines), not yet copied |
+
+Without `--deps`, 81 imports fail — every `androidx.compose.material3.*` and
+`androidx.compose.material.icons.*` one. Those are **two dependency declarations on `:desktop`**,
+not porting work, and they are the only new dependencies the UI needs. The conclusion is the one
+the estimate hoped for: the Compose surface transfers with import-level edits, and the genuine work
+is 12 call sites across 5 files — the `LocalContext`/`LocalConfiguration` ones — plus the seams §7
+already assigns.]
+
 **D3 — Keep the Kotlin package and file names.** Copied files stay at
 `com.nikosm.voiceassistant`, same names, so an upstream change can be copied in and reviewed as a
 small diff. Renaming would be cosmetic and would destroy that.

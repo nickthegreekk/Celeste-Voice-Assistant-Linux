@@ -13,6 +13,20 @@ not stop for it. Stop only for the four cases listed in AGENTS.md §10.
 
 ---
 
+## 2026-10-15 — D2 is measured before the UI is ported, and it holds
+
+The plan assumed Compose comes across with import-level edits, and nothing had exercised that. If it
+held, the later milestones were mostly mechanical; if it did not, the cost would land in a milestone
+nobody had reached — so it was worth knowing before M2 rather than at M6. `tools/compose-probe.sh`
+turns the assumption into an assertion: it writes every `androidx.compose.*` import the UI layer
+uses into one file and compiles it against `:desktop`, so an unresolved import is a compile error
+and the compiler's list is the answer rather than an inference. Of 203 distinct imports, 194 resolve
+unchanged; the nine that do not are two Compose dependencies (material3, material-icons-extended), a
+third not yet declared (Coil 3), four Android-only symbols with named replacements, and the app's own
+`ui/theme/` package which simply has not been copied. The real work is **12 call sites across 5
+files** — `LocalContext` and `LocalConfiguration`. Rejected: porting a representative screen first,
+which costs a screen to learn what the import set answers in one compile. → PLAN.md D2
+
 ## 2026-10-15 — `AssistantService.cacheDir` stays a `java.io.File`
 
 Two byte-identical COPY files force the type: `AssistantServiceComfy.kt` builds `File(cacheDir, …)` and then
