@@ -1,59 +1,102 @@
 # Provenance
 
-Where every file that came from the upstream Android app came from, and what was done to it
-on the way across.
+Where every file that came from the upstream Android app came from, and what was done to it on the
+way across.
 
 Two things depend on this file being accurate:
 
 - **The port must stay reviewable.** Files marked **COPY** in PLAN.md §7 are byte-identical to
   upstream forever. When upstream fixes something in one of them, the fix can be copied in and
-  reviewed as a small diff rather than as "what did the port change here?". That only works if
-  the file really is unmodified and the commit it came from is written down.
-- **A COPY file that has to change is a deliberate demotion**, not an edit. See *Demotions*
-  below.
+  reviewed as a small diff rather than as "what did the port change here?". That only works if the
+  file really is unmodified and the commit it came from is written down.
+- **A COPY file that has to change is a deliberate demotion**, not an edit. See *Demotions* below.
 
 ## The sync
 
-Everything here is copied by `tools/sync-from-android.sh`, which is the only sanctioned way to
-move a file out of upstream (AGENTS.md §1). It reads from upstream and never writes to it.
+Everything here is copied by `tools/sync-from-android.sh`, which is the only sanctioned way to move
+a file out of upstream (AGENTS.md §1). It reads from upstream and never writes to it.
 
 | | |
 |---|---|
 | Upstream | `../VoiceAssistant` |
 | Pinned at | `fe584ad01c39f996d692ac5547611c040dc44eb3` |
-| Synced | 2026-10-15 (M0.2) |
+| Synced | 2026-10-15 (M0.2, M0.3) |
 
-The COPY list is the COPY column of PLAN.md §7, and it lives in the script. If a file is not in
-that list, it does not get copied; `--check` will not miss it because it never knew about it.
+COPY files arrive in **groups**, one per milestone, because half the COPY list is extension
+functions on `AssistantService` and cannot compile before the service is ported (PLAN.md §7a).
+`--group m0` copies the six files that stand alone; the bare copy is refused. `--check` reports a
+file that has not arrived yet as *not yet taken* rather than as a fault.
 
-## Source files — PLAN.md §7, verdict COPY
+## Group m0 — taken
 
 Destination for all of them: `core/src/main/kotlin/com/nikosm/voiceassistant/`.
 Upstream: `app/src/main/java/com/nikosm/voiceassistant/` — same package `com.nikosm.voiceassistant`,
 same file name, on purpose (PLAN.md §3, D3).
 
-| File | Lines | Upstream commit | Notes |
-|---|---:|---|---|
-| `ModelCatalog.kt` | 708 | `fe584ad0` | pure |
-| `AssistantServiceRoomTurns.kt` | 671 | `fe584ad0` | pure |
-| `AssistantServiceSpontaneous.kt` | 648 | `fe584ad0` | pure |
-| `SpontaneousScheduler.kt` | 434 | `fe584ad0` | pure — the reason M4's scheduling is nearly free |
-| `AssistantServiceImageGen.kt` | 370 | `fe584ad0` | pure |
-| `ComfyJobs.kt` | 343 | `fe584ad0` | pure |
-| `AssistantServiceComfy.kt` | 317 | `fe584ad0` | pure |
-| `AssistantServiceRooms.kt` | 284 | `fe584ad0` | pure |
-| `ComfyWorkflow.kt` | 260 | `fe584ad0` | pure — token substitution semantics must not drift |
-| `MessageTimestamps.kt` | 162 | `fe584ad0` | pure |
-| `ServerIdentity.kt` | 139 | `fe584ad0` | pure |
-| `TurnSink.kt` | 98 | `fe584ad0` | pure |
-| **Total** | **4,434** | | matches PLAN.md §7's 4,434 |
+| File | Lines | Upstream commit |
+|---|---:|---|
+| `Models.kt` | 984 | `fe584ad0` |
+| `ModelCatalog.kt` | 708 | `fe584ad0` |
+| `SpontaneousScheduler.kt` | 434 | `fe584ad0` |
+| `ComfyJobs.kt` | 343 | `fe584ad0` |
+| `ComfyWorkflow.kt` | 260 | `fe584ad0` |
+| `MessageTimestamps.kt` | 162 | `fe584ad0` |
+| `ServerIdentity.kt` | 139 | `fe584ad0` |
+| **Total** | **3,030** | |
+
+`Models.kt` is COPY rather than ADAPT because its only Compose dependency turned out to be
+`androidx.compose.ui.graphics.Color`, which is part of the *persisted* settings schema
+(`object ColorSerializer`, three `@Serializable` fields, ~35 ARGB literals) and not an annotation.
+`:core` takes `org.jetbrains.compose.ui:ui-graphics` pinned to the exact version `:desktop`
+resolves, so this file stays byte-identical forever (PLAN.md §7a, amended 2026-10-15). That
+dependency is the only reason `:core` is not Compose-free, and the note in `core/build.gradle.kts`
+says so.
+
+## Group m1 — not yet taken
+
+These six are byte-identical copies too. They are simply not in `core/` yet, because each one is a
+set of extension functions on `AssistantService` and cannot compile until `AssistantService.kt`
+(3,371 lines, PORT+) is ported at M1.
+
+| File | Lines | Arrives |
+|---|---:|---|
+| `AssistantServiceRoomTurns.kt` | 671 | M1 |
+| `AssistantServiceSpontaneous.kt` | 648 | M1 |
+| `AssistantServiceImageGen.kt` | 370 | M1 |
+| `AssistantServiceComfy.kt` | 317 | M1 |
+| `AssistantServiceRooms.kt` | 284 | M1 |
+| `TurnSink.kt` | 98 | M1 |
+| **Total** | **2,388** | |
+
+3,030 + 2,388 = 5,418 across thirteen source files, which is PLAN.md §7's 4,434 plus `Models.kt`,
+which §7 counted separately as ADAPT.
+
+## Hand-written files in `core/`
+
+Not from upstream, so they have no upstream commit — but two of them exist only because an upstream
+declaration is stuck behind the m1 boundary.
+
+| File | Why it exists |
+|---|---|
+| `android/util/Log.kt` | The `Log` shim. Three COPY files call `android.util.Log` **fully qualified**, so no `import android.*` line exists to find; a file in that state cannot compile on the JVM. The only file in this project allowed under an `android.*` package (PLAN.md §7a). |
+| `com/nikosm/voiceassistant/GatewayUrl.kt` | `BORROWED FROM M1` — `normalizeGatewayUrl`, defined upstream at `AssistantServiceGateway.kt:118`. |
+| `com/nikosm/voiceassistant/ImageGenConstants.kt` | `BORROWED FROM M1` — `IMAGE_GEN_NEGATIVE_PROMPT`, defined upstream at `AssistantServiceImageGen.kt:74`. |
+
+**Borrowed declarations.** A declaration that a m0 file needs but upstream defines inside a m1 file
+is duplicated into its own file, whose header carries the exact line `BORROWED FROM M1` and names
+the upstream file that will absorb it. `grep -rl "BORROWED FROM M1" core/` is the M1 checklist
+(AGENTS.md §3). When the upstream file arrives, that declaration is deleted from here in the same
+commit and the deletion is recorded below.
+
+Neither borrowed declaration may be edited to differ from upstream. If one needs to change, the
+upstream file has changed, and this is a sync — not an edit.
 
 ## Other byte-identical files
 
-| File | Upstream | Upstream commit | Notes |
+| File | Upstream | Commit | Notes |
 |---|---|---|---|
 | `LICENSE` | `LICENSE` | `fe584ad0` | GPL-3.0, verbatim. This port is a derivative work, so it is GPL-3.0 too (README.md). |
-| `assets/silero_vad.onnx` | `app/src/main/assets/silero_vad.onnx` | `fe584ad0` | 2,327,524 bytes, sha256 `2623a2953f6ff3d2c1e61740c6cdb7168133479b267dfef114a4a3cc5bdd788f`. MIT. Seam 4 runs this exact model file — the same one the phone uses — so a VAD decision here means what it means there. |
+| `assets/silero_vad.onnx` | `app/src/main/assets/silero_vad.onnx` | `fe584ad0` | 2,327,524 bytes, sha256 `2623a2953f6ff3d2c1e61740c6cdb7168133479b267dfef114a4a3cc5bdd788f`. MIT. Seam 4 runs this exact model file — the same one the phone uses — so a VAD decision here means what it means there. Grouped m1, but taken early in M0.2 before the group split existed; it is inert data and does not affect compilation. |
 
 ## Files deliberately NOT taken
 
@@ -72,20 +115,22 @@ A **COPY** file must never be edited quietly. If one has to change, all three of
 **one commit** (AGENTS.md §3):
 
 1. Move its row in PLAN.md §7 out of the COPY column, to ADAPT or PORT+.
-2. Delete it from `COPY_SOURCES` in `tools/sync-from-android.sh`.
+2. Remove it from `COPY_SOURCES` in `tools/sync-from-android.sh`.
 3. Add a row below saying what changed and why.
 
 *None yet.*
 
-## Bringing in a file that is not on the list
+## Borrowed-declaration removals
 
-M0.3 covers this: the COPY files are not self-contained, and the compiler names what is missing.
-Each file pulled in that way enters `:core` as an ADAPT file, gets a row here, and gets an entry
-in the M0.3 commit body saying why the smallest satisfying type was not enough.
+The other half of the same rule: when an upstream m1 file arrives, the declaration borrowed from it
+is deleted from `core/` in the same commit.
+
+*None yet. Both borrowed declarations are still live.*
 
 ## Checking for drift
 
 ```sh
-tools/sync-from-android.sh --check   # exit 1 and a diff if any COPY file has moved
-tools/check-upstream.sh              # planned: what changed upstream since the pin above
+tools/sync-from-android.sh --check      # exit 1 and a diff if any taken COPY file has moved
+grep -rl "BORROWED FROM M1" core/       # the M1 checklist: every borrowed declaration
+tools/check-upstream.sh                 # planned: what changed upstream since the pin above
 ```

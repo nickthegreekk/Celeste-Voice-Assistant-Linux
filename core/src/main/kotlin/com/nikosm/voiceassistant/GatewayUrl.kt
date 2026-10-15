@@ -1,6 +1,11 @@
 package com.nikosm.voiceassistant
 
 /**
+ * BORROWED FROM M1
+ *
+ * Defined upstream in `AssistantServiceGateway.kt:118`, which will absorb this file when it is
+ * ported. `grep -rl "BORROWED FROM M1" core/` is the M1 checklist (AGENTS.md §3).
+ *
  * `normalizeGatewayUrl` lives here on its own because upstream keeps it somewhere we cannot
  * reach yet.
  *
