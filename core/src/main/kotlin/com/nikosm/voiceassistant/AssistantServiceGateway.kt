@@ -1,0 +1,699 @@
+package com.nikosm.voiceassistant
+
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import okhttp3.Credentials
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.MultipartBody
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.asRequestBody
+import okio.FileSystem
+import okio.Path.Companion.toOkioPath
+import org.json.JSONObject
+import java.nio.file.Files
+import java.nio.file.Path
+import java.security.cert.X509Certificate
+import java.util.Base64
+
+// ---------------------------------------------------------------------------
+// On-device language detection for gateway TTS routing. Zero-dependency
+// Unicode-script heuristic — replaces ML Kit language-id, a proprietary
+// dependency that reports telemetry to Firebase's logging backend roughly
+// every 15 minutes regardless of Play Services presence. Deliberately detects
+// only the non-Latin scripts that actually caused the original TTS-mislabeling
+// bug; Latin-script languages fall through to the "English" default by design.
+// ---------------------------------------------------------------------------
+
+/**
+ * Detects the dominant non-Latin script of [text] and returns the internal
+ * language name the gateway expects (the exact TRANSLATION_LANGUAGES entries
+ * the gateway's LANG_CONFIG / UNSUPPORTED_TTS_LANGUAGES tables are keyed by).
+ * Returns null when no non-Latin script is sufficiently present — Latin-script
+ * languages, undetermined text, and short/noise-only samples fall through to
+ * the caller's default.
+ */
+// internal, not private: the pure script classification is what M3/L1 fix, and it has no
+// Android surface, so the JVM unit test (ScriptLanguageDetectionTest) pins it directly
+// instead of going through the suspend wrapper's "English" fallback.
+internal fun detectScriptLanguage(text: String): String? {
+    // L1: examine the WHOLE text, not a leading window. Sampling only the first 200
+    // characters let a Latin-script preamble ("Here is the translation: …") crowd
+    // out the foreign-language content that followed it, so the reply was
+    // misclassified as English and spoken by the wrong voice. The cap never
+    // filtered anything: Latin characters contribute nothing to `scriptCounts`
+    // below (they map to null), so truncating could only ever lose evidence.
+    val sample = text
+    // M3: the mere PRESENCE of kana means Japanese, decided before any counting.
+    // Every kanji in Japanese text is in the Han range counted as "Chinese" below,
+    // and ordinary Japanese is frequently kanji-majority, so a raw character count
+    // let "Chinese" outvote the kana and routed Japanese replies to a Mandarin
+    // voice. Hiragana/katakana are exclusive to Japanese, so one kana is decisive
+    // regardless of the Han/kana ratio. (Kanji-only Japanese text has no kana to
+    // key off and is still reported as Chinese — a known limit of a zero-dependency
+    // script heuristic; detecting it would need real language identification.)
+    if (sample.any { it in '\u3040'..'\u30FF' }) return "Japanese"
+    val scriptCounts = mutableMapOf<String, Int>()
+    for (ch in sample) {
+        val lang = when {
+            ch in '\u0370'..'\u03FF' -> "Greek"
+            ch in '\u0400'..'\u04FF' -> "Russian"
+            ch in '\u0590'..'\u05FF' -> "Hebrew"
+            ch in '\u0600'..'\u06FF' -> "Arabic"
+            ch in '\u4E00'..'\u9FFF' -> "Chinese"
+            // M3: no Japanese branch here — kana is settled by the short-circuit
+            // above, so Japanese can never reach this dominance count.
+            ch in '\uAC00'..'\uD7AF' -> "Korean"
+            ch in '\u0900'..'\u097F' -> "Hindi" // Devanagari — Hindi is a LANG_CONFIG language; omitting it would fall through to the English default (the original bug class)
+            else -> null
+        }
+        if (lang != null) scriptCounts[lang] = (scriptCounts[lang] ?: 0) + 1
+    }
+    // The ranges above are written as escape sequences, as upstream writes them, and that is
+    // deliberate rather than a matter of taste. Several of the boundaries are UNASSIGNED code
+    // points — U+3040, U+30FF, U+9FFF and U+D7AF among them — so they have no glyph: written as
+    // literals they are invisible characters, and a paste that picks up a lookalike, or an editor
+    // that normalises, would move a range without the line looking any different. A script range
+    // decides which voice a reply is spoken in, so a quiet shift here is a wrong-language
+    // utterance rather than a crash.
+    //
+    // ScriptRangeBoundaryTest pins the first and last code point of every range, and the code
+    // points just outside them, so a future escape-to-literal tidy-up fails the build instead.
+    val dominant = scriptCounts.maxByOrNull { it.value }
+    // Require a real presence of non-Latin characters, not just noise/punctuation
+    return if (dominant != null && dominant.value >= 3) dominant.key else null
+}
+
+/**
+ * Detects the language of an LLM response on-device for gateway TTS routing.
+ *
+ * Fallback rules (same contract as the previous ML Kit version):
+ *  - no dominant non-Latin script (Latin-script languages, undetermined or
+ *    too-short text) -> "English" (per spec).
+ *  - detection failure (exception) -> "English".
+ * The old "unmapped BCP-47 passthrough" branch is gone by construction: the
+ * script heuristic only ever returns one of the eight supported non-Latin
+ * language names, so no unsupported code can reach the gateway from here.
+ *
+ * An extension on the service, unlike [detectScriptLanguage], for one reason: upstream gates
+ * the diagnostic log on `BuildConfig.DEBUG`, and this side has no build constant — the flag is
+ * `AppEnv.debugLogging`, which a free function cannot reach. Making the *wrapper* an extension
+ * keeps the classification itself pure and testable, which is the part that matters.
+ */
+internal suspend fun AssistantService.detectGatewayResponseLanguage(text: String): String {
+    return try {
+        val detected = detectScriptLanguage(text)
+        detected ?: "English"
+    } catch (e: Exception) {
+        if (appEnv.debugLogging) logger.w("AssistantService", "DEBUG: TTS language detection failed — falling back to 'English'", e)
+        "English"
+    }
+}
+
+// ---------------------------------------------------------------------------
+// M1: the single gateway-credential resolver.
+//
+// Every flow that talks to the user's gateway (transcription, TTS synthesis, the
+// "Test Voice" button) authenticates with the credentials of a *configured*
+// Servers entry — those credentials exist nowhere else. Matching a persona's
+// Backend URL to that entry used to be a raw `it.url == url` comparison backed by
+// a credential-less `?: ServerConfig(..., url)` fallback, so any non-byte-identical
+// URL (a trailing slash, surrounding whitespace, or a name-based Backend URL that
+// the audio-chat path already accepts) silently produced an UNAUTHENTICATED
+// request: a 401 whose reply text appeared but was never spoken. The resolver
+// below is now the one place that matching happens.
+// ---------------------------------------------------------------------------
+
+/**
+ * Normalizes a gateway URL for comparison: trims surrounding whitespace and drops
+ * trailing slashes, so `http://host:8880`, ` http://host:8880/` and
+ * `http://host:8880//` all compare equal.
+ *
+ * This definition is upstream's, and it lands here in the file that declares it upstream —
+ * retiring the borrowed stand-in in `GatewayUrl.kt`, which existed only because this file could
+ * not arrive before the service it belongs to. The compiler would have refused two declarations
+ * of the same symbol in one package, so the deletion was forced; making it deliberate is this
+ * commit's job, and `docs/PROVENANCE.md` records it.
+ *
+ * (The doc comments in this file name the borrowing convention rather than spelling its marker,
+ * so that the marker stays greppable as a to-do list. A mention of a marker reads as a marker.)
+ *
+ * The doc comment above and the trailing-slash rule are unchanged, in particular the reason the
+ * function is one line: callers concatenate paths onto the result, so removing the trailing
+ * slash is the whole job and no scheme is added or path rewritten.
+ */
+internal fun normalizeGatewayUrl(raw: String): String = raw.trim().trimEnd('/')
+
+/**
+ * Resolves the configured gateway entry a persona actually means, or null when
+ * nothing matches. Matches on any of:
+ *  - [displayName] — the `[Name] model` tag the audio-chat path resolves by name,
+ *  - the entry's NAME against the persona's Backend URL (a name-based Backend URL),
+ *  - the normalized entry URL against the normalized Backend URL.
+ *
+ * Deliberately never invents a config: a null result means the caller has no
+ * credentials to authenticate with, and must fail visibly rather than send an
+ * unauthenticated request.
+ */
+internal fun resolveGatewayConfig(
+    gateways: List<ServerConfig>,
+    backendUrl: String,
+    displayName: String? = null
+): ServerConfig? {
+    val wanted = backendUrl.trim()
+    val wantedUrl = normalizeGatewayUrl(backendUrl)
+    if (wanted.isEmpty() && wantedUrl.isEmpty() && displayName.isNullOrBlank()) return null
+    return gateways.firstOrNull { gw ->
+        (!displayName.isNullOrBlank() && gw.name == displayName) ||
+            (wanted.isNotEmpty() && gw.name == wanted) ||
+            (wantedUrl.isNotEmpty() && normalizeGatewayUrl(gw.url) == wantedUrl)
+    }
+}
+
+/** [resolveGatewayConfig] against this service's live gateway list. */
+internal fun AssistantService.findGatewayConfig(backendUrl: String, displayName: String? = null): ServerConfig? =
+    resolveGatewayConfig(_serverBases.value, backendUrl, displayName)
+
+internal fun AssistantService.testGatewayVoice(text: String, url: String, language: String, engine: String, kokoroVoice: String) {
+    // M1: resolve through the shared resolver (trim + trailing-slash normalization +
+    // name match) instead of the old credential-less `?: ServerConfig("Test", url)`
+    // fallback. A Backend URL that wasn't byte-identical to the saved entry used to
+    // go out unauthenticated — a 401 the user never saw. A URL that maps to no
+    // configured entry now fails visibly instead of silently.
+    val gw = findGatewayConfig(url)
+    if (gw == null) {
+        logger.e(
+            "AssistantService",
+            "Gateway voice test refused — '$url' does not match any configured gateway, so its " +
+                "credentials cannot be resolved. Add it in Servers settings, or fix the Backend URL."
+        )
+        // Visible, non-silent failure. Deliberately does NOT touch assistantState:
+        // a refused test must not disturb whatever turn owns the state machine.
+        updateNotification("Gateway not found: $url")
+        return
+    }
+    serviceScope.launch {
+        // B4: capture the current request generation before the fetch starts (read
+        // only — never bumps the chat sequence, so it can't discard an in-flight
+        // chat response). Stop (stopEverything) and any newer chat request bump the
+        // sequence, so this snapshot goes stale the moment either happens; it is
+        // re-checked immediately before playback below.
+        // M2: captured before the THINKING write so that write can record this
+        // generation as the owner of the state (same read-only snapshot, no bump).
+        val generation = currentChatRequestSeq()
+        recordThinkingOwner(generation)
+        _state.value = AssistantState.THINKING
+        updateNotification("Testing Gateway...")
+        try {
+            val bytes = withContext(Dispatchers.IO) {
+                val requestBody = MultipartBody.Builder()
+                    .setType(MultipartBody.FORM)
+                    .addFormDataPart("text", text)
+                    .addFormDataPart("language", language)
+                    .addFormDataPart("engine", engine)
+                    .apply {
+                        if (engine == "kokoro" && kokoroVoice != "af_heart") {
+                            addFormDataPart("voice", kokoroVoice)
+                        }
+                    }
+                    .build()
+
+                val requestBuilder = Request.Builder()
+                    .url(gw.url.trimEnd('/') + "/synthesize")
+                    .post(requestBody)
+
+                when (gw.effectiveAuthType) {
+                    AuthType.NONE -> { /* no Authorization header */ }
+                    AuthType.BASIC -> if (!gw.username.isNullOrBlank()) {
+                        requestBuilder.header("Authorization", Credentials.basic(gw.username, gw.password ?: ""))
+                    }
+                    AuthType.API_KEY -> if (!gw.apiKey.isNullOrBlank()) {
+                        requestBuilder.header("Authorization", "Bearer ${gw.apiKey}")
+                    }
+                }
+
+                // Tracked in currentCall so the Stop button can cancel this call too.
+                val call = client.newCall(requestBuilder.build())
+                currentCall = call
+                try {
+                    call.execute().use { response ->
+                        if (!response.isSuccessful) throw Exception("Server error: ${response.code}")
+                        val contentType = response.header("Content-Type") ?: ""
+                        if (contentType.contains("application/json")) {
+                            null
+                        } else {
+                            response.body.bytes()
+                        }
+                    }
+                } finally {
+                    // A6-style: only clear the slot if this call still owns it.
+                    if (currentCall === call) currentCall = null
+                }
+            }
+
+            if (bytes != null) {
+                // B4: re-check the generation immediately before playback. A Stop
+                // landing between fetch completion and this point used to let
+                // playAudioFile start anyway — an audible blip that stopAudio() then
+                // had to cut short. A superseded test now skips playback entirely.
+                if (!isChatRequestCurrent(generation)) {
+                    if (appEnv.debugLogging) logger.d("AssistantService", "Gateway test discarded — superseded by Stop or a newer request before playback")
+                    return@launch // finally performs the THINKING-only clean state reset
+                }
+                val outFile = cacheDir.toPath().resolve("test_synthesis.wav")
+                Files.createDirectories(cacheDir.toPath())
+                Files.write(outFile, bytes)
+                playAudioFile(outFile)
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            logger.e("AssistantService", "Gateway test failed", e)
+        } finally {
+            // H2: SAME ownership guard as the sibling finally blocks (the voice and
+            // cloud chat flows in AssistantServiceChat.kt both check
+            // `isChatRequestCurrent(generation)` before touching state/focus). Without the
+            // generation check a slow "Test Voice" fetch that completed AFTER a newer turn
+            // had started still saw that newer turn's THINKING and forced it to IDLE
+            // ("Ready to help") — and because the newer turn's own finally then failed
+            // its `_state == THINKING` guard, a turn that had retained the audio focus
+            // (stopRecording keeps it through THINKING) never abandoned it either,
+            // leaving other apps ducked indefinitely. A superseded test now leaves the
+            // newer turn's state and focus lifecycle completely untouched.
+            if (_state.value == AssistantState.THINKING && isChatRequestCurrent(generation)) {
+                // M2: leaving THINKING — release state ownership (see stopVadListening()).
+                clearThinkingOwnerIfOwned(generation)
+                _state.value = AssistantState.IDLE
+                updateNotification("Ready to help")
+            }
+        }
+    }
+}
+
+internal suspend fun AssistantService.synthesizeWithGateway(text: String, persona: Persona): Pair<ByteArray?, String?> {
+    if (text.isBlank()) return Pair(null, null)
+    val url = persona.backendUrl
+    if (url.isBlank()) return Pair(null, null)
+
+    // M1: resolve the persona's gateway entry through the shared resolver. The old
+    // credential-less `?: ServerConfig("Gateway", url)` fallback sent an
+    // UNAUTHENTICATED request whose 401 was swallowed as "no audio", so the reply
+    // appeared in the transcript but was silently never spoken. A Backend URL that
+    // maps to no configured entry is now refused before any request is built.
+    val gw = findGatewayConfig(url)
+    if (gw == null) {
+        logger.e(
+            "AssistantService",
+            "Gateway synthesis refused — Backend URL '$url' for persona '${persona.name}' does not " +
+                "match any configured gateway, so its credentials cannot be resolved. No request was " +
+                "sent; the reply cannot be spoken until the Backend URL matches a Servers entry."
+        )
+        return Pair(null, null)
+    }
+    val baseUrl = gw.url.trimEnd('/')
+    // Non-Translator personas keep targetLanguage at its "English" default no matter
+    // what language the model actually replied in, so the gateway would apply an
+    // English voice to foreign text. Detect the response language on-device instead.
+    // Translator personas translate TO persona.targetLanguage, so their explicit
+    // value is authoritative and stays untouched.
+    val language = if (persona.isTranslator) {
+        persona.targetLanguage
+    } else {
+        detectGatewayResponseLanguage(text)
+    }
+
+    return try {
+        withContext(Dispatchers.IO) {
+            val requestBody = MultipartBody.Builder()
+                .setType(MultipartBody.FORM)
+                .addFormDataPart("text", text)
+                .addFormDataPart("language", language)
+                .addFormDataPart("engine", persona.voiceEngine)
+                .apply {
+                    if (persona.voiceEngine == "kokoro" && persona.kokoroVoice != "af_heart") {
+                        addFormDataPart("voice", persona.kokoroVoice)
+                    }
+                }
+                .build()
+
+            val requestBuilder = Request.Builder()
+                .url("$baseUrl/synthesize")
+                .post(requestBody)
+
+            when (gw.effectiveAuthType) {
+                AuthType.NONE -> { /* no Authorization header */ }
+                AuthType.BASIC -> if (!gw.username.isNullOrBlank()) {
+                    requestBuilder.header("Authorization", Credentials.basic(gw.username, gw.password ?: ""))
+                }
+                AuthType.API_KEY -> if (!gw.apiKey.isNullOrBlank()) {
+                    requestBuilder.header("Authorization", "Bearer ${gw.apiKey}")
+                }
+            }
+
+            // Tracked in currentCall so the Stop button can cancel synthesis too —
+            // previously an in-flight synthesis was unstoppable and its audio played
+            // even after Stop (the identity guard keeps cleanup from clobbering a
+            // newer phase's call).
+            val call = client.newCall(requestBuilder.build())
+            currentCall = call
+            try {
+                call.execute().use { response ->
+                    if (!response.isSuccessful) throw Exception("Server error: ${response.code}")
+                    val contentType = response.header("Content-Type") ?: ""
+                    if (contentType.contains("application/json")) {
+                        val json = JSONObject(response.body.string())
+                        val note = json.optString("note", "Voice unavailable for this language.")
+                        logger.d("AssistantService", "Synthesis skipped: $note")
+                        Pair(null, null)
+                    } else {
+                        // Stage-2: parse word-level timestamps from the new header.
+                        //
+                        // The BASIC decoder, not the MIME one. Android's `Base64.decode(…,
+                        // Base64.DEFAULT)` tolerates line breaks, which is why the mime decoder
+                        // looks like its counterpart — but this payload arrives in an HTTP header
+                        // field, and a header value cannot contain CR or LF, so a 76-column wrap
+                        // is not merely unlikely here, it is impossible. Choosing the lenient
+                        // decoder would buy nothing and would silently accept a corrupted value:
+                        // the mime decoder ignores *any* non-alphabet character, so a header with
+                        // a stray character decodes to different bytes rather than failing.
+                        val tsB64 = response.header("X-Word-Timestamps-B64")
+                        val timestampsJson = tsB64?.let {
+                            try { String(Base64.getDecoder().decode(it), Charsets.UTF_8) } catch (_: Exception) { null }
+                        }
+                        Pair(response.body.bytes(), timestampsJson)
+                    }
+                }
+            } finally {
+                if (currentCall === call) currentCall = null
+            }
+        }
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        logger.e("AssistantService", "Gateway synthesis failed", e)
+        Pair(null, null)
+    }
+}
+
+internal suspend fun AssistantService.transcribeWithGateway(file: Path, persona: Persona): String? {
+    val allGateways = _serverBases.value
+
+    // S2: resolve preferred gateway from persona's configured backendUrl.
+    // M1: through the shared resolver, so trim / trailing-slash differences and a
+    // name-based Backend URL (which the audio-chat path already accepts) resolve to
+    // the configured entry instead of failing with "not in the configured gateway
+    // list" against an entry that plainly exists.
+    val preferredGateway = if (persona.backendUrl.isNotBlank()) {
+        resolveGatewayConfig(allGateways, persona.backendUrl)
+    } else null
+
+    // Build gwsToTry using the same failover logic as sendTextMessageToServer/sendAudioToServer
+    val gwsToTry: List<ServerConfig> = if (persona.allowGatewayFailover) {
+        val workingGateways = allGateways.filter { isServerHealthyForRetry(it.url) }
+        buildList {
+            preferredGateway?.let { add(it) }
+            addAll(workingGateways.filter { it != preferredGateway })
+        }
+    } else {
+        when {
+            preferredGateway != null -> listOf(preferredGateway)
+            persona.backendUrl.isBlank() -> throw Exception(
+                "No gateway is configured for persona '${persona.name}'. Set a Backend URL in its persona settings, or enable 'Allow Gateway Failover'."
+            )
+            else -> throw Exception(
+                "Gateway '${persona.backendUrl}' for persona '${persona.name}' is not in the configured gateway list. Check Settings, or enable 'Allow Gateway Failover'."
+            )
+        }
+    }
+
+    if (gwsToTry.isEmpty()) {
+        throw Exception("No working gateways available for transcription.")
+    }
+
+    var lastEx: Exception? = null
+    for (gw in gwsToTry.distinct()) {
+        val url = gw.url
+        try {
+            val result = withContext(Dispatchers.IO) {
+                val mediaType = if (file.fileName.toString().substringAfterLast('.', "") == "wav") {
+                    "audio/wav".toMediaType()
+                } else {
+                    "audio/mp4".toMediaType()
+                }
+                // OkHttp streams a file body through okio, and both of its entry points are okio's
+                // — `File.asRequestBody` and `Path.asRequestBody(fileSystem, …)`. A `java.nio.file.Path`
+                // is neither, so it crosses with `toOkioPath()`. The `FileSystem.SYSTEM` argument is
+                // the identity, not a choice: it is okio's name for "the real filesystem", which is
+                // the only one this application ever touches.
+                val requestBody = MultipartBody.Builder()
+                    .setType(MultipartBody.FORM)
+                    .addFormDataPart("audio", file.fileName.toString(), file.toOkioPath().asRequestBody(FileSystem.SYSTEM, mediaType))
+                    .build()
+
+                val requestBuilder = Request.Builder()
+                    .url(url.trimEnd('/') + "/transcribe")
+                    .post(requestBody)
+
+                when (gw.effectiveAuthType) {
+                    AuthType.NONE -> { /* no Authorization header */ }
+                    AuthType.BASIC -> if (!gw.username.isNullOrBlank()) {
+                        requestBuilder.header("Authorization", Credentials.basic(gw.username, gw.password ?: ""))
+                    }
+                    AuthType.API_KEY -> if (!gw.apiKey.isNullOrBlank()) {
+                        requestBuilder.header("Authorization", "Bearer ${gw.apiKey}")
+                    }
+                }
+
+                val call = client.newCall(requestBuilder.build())
+                currentCall = call
+                try {
+                    call.execute().use { response ->
+                        if (!response.isSuccessful) throw Exception("Server error: ${response.code}")
+                        val body = response.body.string()
+                        JSONObject(body).optString("text", "")
+                    }
+                } catch (e: Exception) {
+                    // A5: a user stop cancelled this attempt — abort the failover loop
+                    // immediately and don't mark the gateway unhealthy for a cancellation
+                    // it didn't cause (mirrors the tracked loops in AssistantServiceChat).
+                    if (call.isCanceled()) throw java.io.IOException("Cancelled")
+                    throw e
+                } finally {
+                    if (currentCall === call) currentCall = null
+                }
+            }
+
+            // Update status to working since we just had a successful call
+            withContext(Dispatchers.Main) {
+                val statusMap = _serverStatus.value.toMutableMap()
+                // M1: the shared resolver, so the entry this attempt actually used is the
+                // one whose status is updated (a name-based Backend URL used to leave the
+                // status dot untouched).
+                resolveGatewayConfig(_serverBases.value, url)?.let { statusMap[it.url] = "Online" }
+                _serverStatus.value = statusMap
+            }
+
+            // M3: an HTTP 200 with empty text is a SUCCESSFUL server interaction — the
+            // audio just contained no detectable speech (silence/ambient noise). The
+            // "Online" status was already applied above; returning the blank result
+            // here (instead of throwing) keeps this gateway off the failed-list and
+            // out of the failure cooldown, and ends the failover loop — other gateways
+            // would return the same empty result for the same quiet audio, and under
+            // the old throw each of them got failure-marked for it. The caller
+            // distinguishes blank from real text and surfaces the empty-turn message.
+            return result
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            // Mark failed with cooldown
+            withContext(Dispatchers.Main) {
+                val statusMap = _serverStatus.value.toMutableMap()
+                _serverBases.value.let { gateways ->
+                    // M1: resolved through the same shared resolver as the attempt above.
+                    resolveGatewayConfig(gateways, url)?.let { cfg ->
+                        val failureLabel = if (e is java.net.SocketTimeoutException || e is java.net.UnknownHostException) {
+                            "connection/timeout"
+                        } else {
+                            e.message?.take(30)
+                        }
+                        statusMap[cfg.url] = "failed: $failureLabel"
+                        serverFailCooldownUntilMillis[cfg.url] = System.currentTimeMillis() + FAILED_COOLDOWN_MS
+                    }
+                }
+                _serverStatus.value = statusMap
+            }
+            lastEx = e
+        }
+    }
+
+    throw lastEx ?: Exception("All transcription attempts failed")
+}
+
+// ---------------------------------------------------------------------------
+// Local RAG microservice integration — upload documents and check collection
+// size. The service runs alongside the gateway (same network) and is secured
+// with a self-signed cert + HTTP Basic Auth, so these calls go through the
+// TOFU-pinning `client` (same category as gateway/TTS infrastructure — first
+// connection triggers the standard cert-approval prompt) and authenticate with
+// the RAG service's own dedicated credentials stored in settings.
+// ---------------------------------------------------------------------------
+internal sealed class RagResult<out T> {
+    data class Success<T>(val value: T) : RagResult<T>()
+    data class Failure(val exception: Exception) : RagResult<Nothing>()
+}
+
+// Builds a request to the RAG service: normalizes the stored URL (defaulting
+// to https:// — the service no longer accepts plain HTTP) and attaches the
+// RAG service's dedicated Basic-Auth credentials. Those live in their own
+// settings fields, decoupled from the gateway entries: the RAG server (:8882)
+// and the TTS gateway (:8880) are different endpoints even on the same host,
+// so URL-matching against _serverBases could never resolve the right creds.
+private fun AssistantService.buildRagRequestBuilder(ragServerUrl: String, path: String): Request.Builder {
+    val raw = ragServerUrl.trim()
+    val base = if (raw.startsWith("http")) raw.trimEnd('/') else "https://${raw.trimEnd('/')}"
+    val builder = Request.Builder().url(base + path)
+    val user = settingsManager.getRagUsername()
+    if (!user.isNullOrBlank()) {
+        builder.header("Authorization", Credentials.basic(user, settingsManager.getRagPassword() ?: ""))
+    }
+    return builder
+}
+
+internal suspend fun AssistantService.uploadKnowledgeDocument(
+    text: String,
+    sourceName: String,
+    ragServerUrl: String
+): RagResult<Unit> = withContext(Dispatchers.IO) {
+    val body = okhttp3.FormBody.Builder()
+        .add("text", text)
+        .add("source_name", sourceName)
+        .build()
+    val request = buildRagRequestBuilder(ragServerUrl, "/ingest").post(body).build()
+    try {
+        client.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) {
+                RagResult.Failure(Exception("RAG server returned HTTP ${response.code}: ${response.message}"))
+            } else {
+                RagResult.Success(Unit)
+            }
+        }
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        RagResult.Failure(Exception("Failed to upload document to RAG server: ${e.message}", e))
+    }
+}
+
+// Fire-and-forget RAG ingest on serviceScope: the upload must survive Settings-dialog
+// closure (the dialog-scoped rememberCoroutineScope used to cancel it mid-flight — the
+// HTTP request usually completed server-side, but the app-side outcome was silently
+// discarded). Progress/outcome is published via knowledgeUploadStatus, which the dialog
+// collects for display and which survives closure, so reopening Settings still shows
+// how each document ended up.
+internal fun AssistantService.uploadKnowledgeDocumentsToRag(files: List<Path>, ragUrl: String) {
+    files.forEach { source ->
+        serviceScope.launch {
+            // Fix #15: the knowledge-base source label must be the document's file NAME
+            // ("notes.txt"). The old chain (…substringAfterLast('/')…substringAfterLast('.'))
+            // additionally stripped the extension, labelling every upload "txt".
+            val name = source.fileName?.toString()?.takeIf { it.isNotBlank() } ?: "document"
+            try {
+                _knowledgeUploadStatus.value = "Uploading $name..."
+                val text = readAttachmentText(source)
+                when (val result = uploadKnowledgeDocument(text, name, ragUrl)) {
+                    is RagResult.Success -> _knowledgeUploadStatus.value = "Uploaded $name"
+                    is RagResult.Failure -> _knowledgeUploadStatus.value = "Failed: ${result.exception.message}"
+                }
+            } catch (e: Exception) {
+                if (e is CancellationException) throw e
+                _knowledgeUploadStatus.value = "Failed: ${e.message}"
+            }
+        }
+    }
+}
+
+internal suspend fun AssistantService.getKnowledgeCount(
+    ragServerUrl: String
+): RagResult<Int> = withContext(Dispatchers.IO) {
+    val request = buildRagRequestBuilder(ragServerUrl, "/health").get().build()
+    try {
+        client.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) {
+                RagResult.Failure(Exception("RAG server health check failed: HTTP ${response.code}"))
+            } else {
+                val bodyStr = response.body.string()
+                val count = try {
+                    JSONObject(bodyStr).optInt("documents_in_collection", 0)
+                } catch (e: Exception) {
+                    bodyStr.toIntOrNull() ?: 0
+                }
+                RagResult.Success(count)
+            }
+        }
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        RagResult.Failure(Exception("Failed to query RAG server: ${e.message}", e))
+    }
+}
+
+// Step 3 — RAG retrieval: fetch the top matches for the user's query from the
+// knowledge base. Same graceful-failure contract as fetchWebSearchContext:
+// returns "" when unconfigured, on HTTP failure, or on any exception, so the
+// chat proceeds normally without the injected context.
+internal suspend fun AssistantService.fetchRagContext(query: String): String {
+    val ragUrl = settingsManager.getRagServerUrl()
+    if (ragUrl.isNullOrBlank()) return ""
+    return try {
+        withContext(Dispatchers.IO) {
+            val requestBuilder = buildRagRequestBuilder(ragUrl, "/retrieve")
+            val body = MultipartBody.Builder().setType(MultipartBody.FORM)
+                .addFormDataPart("query", query)
+                .addFormDataPart("top_k", "3")
+                .build()
+            requestBuilder.post(body)
+            // Tracked in currentCall so context enrichment is stoppable too.
+            val call = client.newCall(requestBuilder.build())
+            currentCall = call
+            try {
+                call.execute().use { response ->
+                    if (!response.isSuccessful) return@withContext ""
+                    val json = JSONObject(response.body.string())
+                    val results = json.optJSONArray("results") ?: return@withContext ""
+                    if (results.length() == 0) return@withContext ""
+                    val sb = StringBuilder("RELEVANT INFORMATION FROM YOUR KNOWLEDGE BASE:\n")
+                    for (i in 0 until results.length()) {
+                        val r = results.getJSONObject(i)
+                        sb.append("- ${r.optString("text")} (source: ${r.optString("source")})\n")
+                    }
+                    sb.append("\nUse this information if relevant to answer the user's question.")
+                    sb.toString()
+                }
+            } finally {
+                if (currentCall === call) currentCall = null
+            }
+        }
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        logger.e("AssistantService", "RAG retrieval failed", e)
+        ""
+    }
+}
+
+fun AssistantService.approveCertificate(request: CertApprovalRequest) {
+    val certs = settingsManager.getTrustedCertificates().toMutableMap()
+    certs[request.host] = request.fingerprint
+    settingsManager.saveTrustedCertificates(certs)
+    _pendingCertApproval.value = null
+}
+
+fun AssistantService.denyCertificate() {
+    _pendingCertApproval.value = null
+}
+
+internal fun AssistantService.sha256Fingerprint(cert: X509Certificate): String {
+    val md = java.security.MessageDigest.getInstance("SHA-256")
+    return md.digest(cert.encoded).joinToString(":") { "%02X".format(it) }
+}

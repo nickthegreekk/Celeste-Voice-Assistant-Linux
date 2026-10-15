@@ -48,6 +48,14 @@ dependencies {
     testImplementation(libs.kotlinx.coroutines.test)
 }
 
+// `assets/silero_vad.onnx` rides on this module's classpath rather than being copied into
+// core/src/main/resources: the sync script puts it at the repository root, it is byte-identical
+// there, and the model is part of the seam-4 contract (PLAN.md §5 — "same classes, same
+// silero_vad.onnx"). One directory reference is better than a second copy that can drift.
+sourceSets.main {
+    resources.srcDir(rootProject.file("assets"))
+}
+
 tasks.withType<Test>().configureEach {
     useJUnit()
 }

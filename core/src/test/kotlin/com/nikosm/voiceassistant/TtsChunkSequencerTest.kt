@@ -1,9 +1,12 @@
 package com.nikosm.voiceassistant
 
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.nio.file.Path
@@ -30,6 +33,14 @@ class TtsChunkSequencerTest {
 
     private val noProgress: (Float, Int) -> Unit = { _, _ -> }
 
+    /**
+     * Counts how many times the `onStarted` hook fires. That hook is the SPEAKING window, and its
+     * whole contract is "once, on the first chunk" — so a count is what proves it. JUnit builds a
+     * fresh instance per test, so a field is enough and no reset is needed.
+     */
+    private var startedCount = 0
+    private val countStarts: () -> Unit = { startedCount++ }
+
     // ------------------------------------------------------------------------ the happy path
 
     @Test
@@ -41,6 +52,7 @@ class TtsChunkSequencerTest {
             chunks = listOf("one.", "two.", "three."),
             scope = this,
             synthesize = files(),
+            onStarted = countStarts,
             onProgress = noProgress,
             onEnd = { ends += it },
         )
@@ -75,6 +87,7 @@ class TtsChunkSequencerTest {
             chunks = listOf("one.", "two.", "three."),
             scope = this,
             synthesize = files(),
+            onStarted = countStarts,
             onProgress = noProgress,
             onEnd = { ends += it },
         )
@@ -109,6 +122,7 @@ class TtsChunkSequencerTest {
             chunks = listOf("one.", "two."),
             scope = this,
             synthesize = { i, _ -> chunk("a$i.wav") },
+            onStarted = countStarts,
             onProgress = noProgress,
             onEnd = { firstEnds += it },
         )
@@ -120,6 +134,7 @@ class TtsChunkSequencerTest {
             chunks = listOf("uno.", "dos."),
             scope = this,
             synthesize = { i, _ -> chunk("b$i.wav") },
+            onStarted = countStarts,
             onProgress = noProgress,
             onEnd = { },
         )
@@ -162,6 +177,7 @@ class TtsChunkSequencerTest {
                 chunks = listOf("one.", "two.", "three."),
                 scope = this,
                 synthesize = files(),
+            onStarted = countStarts,
                 onProgress = noProgress,
                 onEnd = { ends += it },
             )
@@ -187,6 +203,7 @@ class TtsChunkSequencerTest {
             chunks = listOf("one.", "two."),
             scope = this,
             synthesize = { index, _ -> if (index == 0) null else chunk("chunk$index.wav") },
+            onStarted = countStarts,
             onProgress = noProgress,
             onEnd = { ends += it },
         )
@@ -212,6 +229,7 @@ class TtsChunkSequencerTest {
             chunks = listOf("aaa.", "bbb.", "ccc."),
             scope = this,
             synthesize = files(),
+            onStarted = countStarts,
             onProgress = { fraction, total -> progress += fraction to total },
             onEnd = { },
         )
@@ -248,6 +266,7 @@ class TtsChunkSequencerTest {
             chunks = listOf("aaa.", "bbb."),
             scope = this,
             synthesize = files(),
+            onStarted = countStarts,
             onProgress = { fraction, total -> progress += fraction to total },
             onEnd = { },
         )
@@ -258,5 +277,127 @@ class TtsChunkSequencerTest {
         assertTrue("and no fraction either", progress.all { it.first == 0f })
 
         sequence.cancel()
+    }
+
+    // ------------------------------------------------- the awaitable end
+
+    @Test
+    fun `awaitEnd settles when the last chunk finishes, and only then`() = runTest {
+        // The live turn awaits this. Without it a caller reads `played` the instant start()
+        // returns — always empty — and reports every reply as "nothing was spoken".
+        val playback = FakeAudioPlayback()
+        val sequence = TtsChunkSequencer(playback).start(
+            chunks = listOf("one.", "two."),
+            scope = this,
+            synthesize = files(),
+            onStarted = countStarts,
+            onProgress = noProgress,
+            onEnd = { },
+        )
+        var awaited: PlaybackEnd? = null
+        val waiter = launch { awaited = sequence.awaitEnd() }
+        runCurrent()
+
+        assertFalse("the reply is still being spoken", waiter.isCompleted)
+        assertNull("and so it has no verdict yet", awaited)
+
+        playback.completeCurrent()
+        runCurrent()
+        assertFalse("one chunk in, still speaking", waiter.isCompleted)
+
+        playback.completeCurrent()
+        runCurrent()
+        assertTrue(waiter.isCompleted)
+        assertEquals(PlaybackEnd.Finished, awaited)
+    }
+
+    @Test
+    fun `a cancelled sequence releases whoever is awaiting its end, and says stopped`() = runTest {
+        // `finish` deliberately reports nothing for a cancelled sequence — a caller that was
+        // replaced must not hear about it — so if cancel() did not release the awaiter itself, a
+        // caller parked in awaitEnd() would never wake. That is every replay and every deferred
+        // Gateway turn: a Stop pressed mid-reply would strand the turn's coroutine for the life of
+        // the process.
+        //
+        // `Stopped`, not `Finished`: the reply was cut off, and a caller that read that as
+        // "finished" would treat a superseded utterance as a delivered one.
+        val playback = FakeAudioPlayback()
+        val sequence = TtsChunkSequencer(playback).start(
+            chunks = listOf("one.", "two."),
+            scope = this,
+            synthesize = files(),
+            onStarted = countStarts,
+            onProgress = noProgress,
+            onEnd = { },
+        )
+        var awaited: PlaybackEnd? = null
+        val waiter = launch { awaited = sequence.awaitEnd() }
+        runCurrent()
+
+        sequence.cancel()
+        runCurrent()
+
+        assertTrue("cancelling must not park the caller forever", waiter.isCompleted)
+        assertEquals(PlaybackEnd.Stopped, awaited)
+    }
+
+    // ------------------------------------------------- the SPEAKING window's hook
+
+    @Test
+    fun `the started hook fires once, as the first chunk begins, and never again`() = runTest {
+        // Upstream enters SPEAKING at exactly this moment and holds it across the whole sequence —
+        // one continuous window from the first word to the last. A hook that fired per chunk would
+        // flicker listening back on between every paragraph, and one that fired at sequence
+        // creation would claim to be speaking before any audio existed. Both are why the contract
+        // is written down on the hook rather than left to whoever edits it next.
+        val playback = FakeAudioPlayback()
+
+        TtsChunkSequencer(playback).start(
+            chunks = listOf("one.", "two.", "three."),
+            scope = this,
+            synthesize = files(),
+            onStarted = countStarts,
+            onProgress = noProgress,
+            onEnd = { },
+        )
+        runCurrent()
+
+        assertEquals("fires once the first chunk is about to play", 1, startedCount)
+        assertEquals("and that chunk is the one playing", listOf(chunk("chunk0.wav")), playback.played)
+
+        // All three chunks are completed — not two. A sequence left mid-utterance has a live
+        // progress poller, and `runTest` reports that as an unfinished coroutine, which is exactly
+        // how this test failed the first time it ran.
+        playback.completeCurrent()
+        runCurrent()
+        assertEquals("still one, halfway through", 1, startedCount)
+        playback.completeCurrent()
+        runCurrent()
+        playback.completeCurrent()
+        runCurrent()
+
+        assertEquals("three chunks, one SPEAKING window", 1, startedCount)
+        assertTrue("and the utterance finished", !playback.isPlaying)
+    }
+
+    @Test
+    fun `the started hook does not fire when the first chunk cannot be synthesised`() = runTest {
+        // Nothing was ever played, so nothing may announce that speaking began. The caller uses
+        // the hook to enter SPEAKING and pause the microphone; announcing it for an utterance that
+        // produced no audio would leave the microphone paused for silence.
+        val playback = FakeAudioPlayback()
+
+        TtsChunkSequencer(playback).start(
+            chunks = listOf("one.", "two."),
+            scope = this,
+            synthesize = { index, _ -> if (index == 0) null else chunk("chunk$index.wav") },
+            onStarted = countStarts,
+            onProgress = noProgress,
+            onEnd = { },
+        )
+        runCurrent()
+
+        assertEquals(0, startedCount)
+        assertTrue("and nothing played", playback.played.isEmpty())
     }
 }

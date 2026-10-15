@@ -55,7 +55,7 @@ class FakeAudioPlayback : AudioPlayback {
 
     val isPlaying: Boolean get() = current != null
 
-    override fun play(file: Path, onEnd: (PlaybackEnd) -> Unit): PlaybackHandle {
+    override fun play(file: Path, target: AudioDevice?, onEnd: (PlaybackEnd) -> Unit): PlaybackHandle {
         check(current == null) {
             "seam 2 allows one playback at a time, but a second was started while one was live"
         }
@@ -68,7 +68,12 @@ class FakeAudioPlayback : AudioPlayback {
         return handle
     }
 
-    override fun playPcm(samples: ByteArray, sampleRate: Int, onEnd: (PlaybackEnd) -> Unit): PlaybackHandle =
+    override fun playPcm(
+        samples: ByteArray,
+        sampleRate: Int,
+        target: AudioDevice?,
+        onEnd: (PlaybackEnd) -> Unit
+    ): PlaybackHandle =
         throw UnsupportedOperationException("the chunk sequencer plays files, never raw PCM")
 
     override fun stopAll() {

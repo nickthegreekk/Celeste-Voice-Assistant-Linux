@@ -462,6 +462,15 @@ prints the resolved paths and audio devices, `tools/sync-from-android.sh`, `docs
 
 [2026-10-15: `AppEnv` is designed HERE, not in M0.5. M0.5 resolved the XDG paths in `:platform` and the selftest exercised them; the interface itself is derived by reading what the ported files actually ask of `Context` — paths, the logger the `android.util.Log` shim routes into, the process launcher from D6, device info — rather than by guessing a shape a milestone early. Promoting the resolved-paths holder into `:core` is the mechanical first step, and `AppEnv` takes it as a parameter, so `:core` never sees a `:platform` type.]
 [Revised mid-M1, 2026-10-15: M1.1-M1.3 were all foundation - AppEnv, AppLogger, SettingsStore, ImageCodec - and no ported :core file had landed yet. That is the same boundary-discovery pattern M0 showed, so M1 is re-estimated at 12-15 days. Do NOT re-baseline M2-M7 from it: these foundations are inherited by every later milestone, and only M2 audio seams are comparable new-code work.]
+[Cluster landed, 2026-10-15. The two hand-picked estimates were off in opposite directions and the
+real figures belong here: `AssistantService.kt` 3,371 → **3,114** (789 removed, 531 added) against a
+"~2,850" estimate, and `AssistantServiceChat.kt` 2,951 → **3,008** — it GREW by 57 lines. The second
+is the more useful correction: its Android surface turned out to be one `Uri` parameter list, eleven
+`BuildConfig.DEBUG` reads and two Base64 calls, so there was little to delete, while every deleted
+call needed a comment saying what had replaced it. A port that shrinks every file is a port that
+deleted the comments explaining it. Per-file removals and additions for all 22 files, plus a
+deleted-thing-by-deleted-thing table, are in docs/PROVENANCE.md.
+
 [Cluster inventory, 2026-10-15: about 8,000 lines - `AssistantService.kt` (3,371 to ~2,850), `Chat.kt` (2,951), `Audio.kt`
 (1,379 to ~600), `Gateway.kt` (655), `Context.kt` (484), plus `VADAudioRecorder.kt` (322, NEW) and `VADDetector.kt` (112)
 pulled in by real call sites in the service, `EspeakEngine.kt` (131 to ~80, its asset copier deleted since no Android

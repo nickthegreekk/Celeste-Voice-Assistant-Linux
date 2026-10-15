@@ -75,6 +75,8 @@ class SettingsManagerCorruptionTest {
         override val cacheDir: Path get() = root.resolve("cache")
         override val debugLogging: Boolean get() = false
         override val logger: AppLogger get() = StderrLogger
+        override val notifier: Notifier get() = throw UnsupportedOperationException("no settings test posts a notification")
+        override val scheduler: Scheduler get() = throw UnsupportedOperationException("no settings test arms a timer")
     }
 
     /**

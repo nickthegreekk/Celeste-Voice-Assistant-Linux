@@ -26,9 +26,18 @@
 # checked-in one-line file rather than a build-time `git rev-parse`, so a fresh clone and the
 # Debian container can print it without the upstream tree being present.
 #
+# There is a fourth list, PORT_SOURCES, and it is NOT a copy list. A PORT+ file (PLAN.md §7) is one
+# that must change — `Context` to AppEnv, `File` to Path, Android audio to a seam — so it can never
+# be byte-identical and can never be `--check`ed as if it were. But retyping 3,000 lines by hand
+# throws away the only thing that makes a port reviewable: the diff. `--seed` places the upstream
+# file verbatim as a STARTING COPY, and every adaptation after it is then a `git diff` against
+# upstream, comment for comment. The seeding leaves a file that does not compile; that is the point,
+# and it is why the mode is named differently from --group.
+#
 # Usage:
 #   tools/sync-from-android.sh --group m0       copy the files M0 needs, main and test
 #   tools/sync-from-android.sh --group m1       copy the files that arrive with AssistantService
+#   tools/sync-from-android.sh --seed <name>    place one PORT+ file as a starting copy to adapt
 #   tools/sync-from-android.sh --check          report drift, the pin, and what has not arrived yet
 #   tools/sync-from-android.sh --list           print the groups, the test resolution and the pin
 #
@@ -76,6 +85,20 @@ TEST_SOURCES=(
   "m0|ComfyWorkflowValidationTest.kt"
   "m0|ComfyPromptFillingTest.kt"
   "m0|ComfyFixtures.kt"
+  # The group is about what compiles together, not which milestone it belongs to: this one tests
+  # a pure function and needs no service, so it travels with the m0 set even though it arrived
+  # during M1. It is byte-identical — JUnit 4 only, no Android surface — and it is the executable
+  # specification for the script detector that decides which TTS voice a reply is spoken in.
+  "m0|ScriptLanguageDetectionTest.kt"
+)
+
+# PORT+ verdicts (PLAN.md §7) that are large enough that a diff beats a retype. These are seeded
+# with --seed and then hand-adapted; they are expected to differ from upstream forever, so --check
+# reports them but never counts them as drift. Every one must have a row in the adapted-files table
+# of docs/PROVENANCE.md (AGENTS.md §3).
+PORT_SOURCES=(
+  "AssistantService.kt"
+  "AssistantServiceChat.kt"
 )
 
 # GROUP|label|source|destination
@@ -86,13 +109,15 @@ COPY_DATA=(
 
 MODE=""
 GROUP=""
+SEED=""
 case "${1:-}" in
   "")         ;;
   --group)    MODE="copy"; GROUP="${2:-}"; [ -n "$GROUP" ] || { echo "--group needs m0 or m1" >&2; exit 2; } ;;
+  --seed)     MODE="seed"; SEED="${2:-}"; [ -n "$SEED" ] || { echo "--seed needs a file name" >&2; exit 2; } ;;
   --check)    MODE="check" ;;
   --list)     MODE="list" ;;
-  -h|--help)  sed -n '2,38p' "$0"; exit 0 ;;
-  *)          echo "usage: $0 --group m0|m1 | --check | --list" >&2; exit 2 ;;
+  -h|--help)  sed -n '2,45p' "$0"; exit 0 ;;
+  *)          echo "usage: $0 --group m0|m1 | --seed <name> | --check | --list" >&2; exit 2 ;;
 esac
 
 if [ -z "$MODE" ]; then
@@ -137,6 +162,52 @@ echo "upstream : $UPSTREAM"
 echo "commit   : $UPSTREAM_COMMIT"
 echo "mode     : ${MODE}${GROUP:+ (group $GROUP)}"
 echo
+
+if [ "$MODE" = "seed" ]; then
+  # The name must be one the plan classifies as PORT+, so this can never become a general-purpose
+  # copy escape hatch around the group lists.
+  listed=""
+  for name in "${PORT_SOURCES[@]}"; do
+    [ "$name" = "$SEED" ] && listed="yes"
+  done
+  if [ -z "$listed" ]; then
+    echo "refusing to seed: '$SEED' is not a PORT+ file (PLAN.md §7)." >&2
+    echo "PORT_SOURCES holds: ${PORT_SOURCES[*]}" >&2
+    echo "A COPY file arrives with --group; anything else is written by hand." >&2
+    exit 2
+  fi
+
+  src="$UPSTREAM_SRC/$SEED"
+  dst="$DEST_SRC/$SEED"
+  if [ ! -f "$src" ]; then
+    echo "MISSING UPSTREAM  $SEED (looked at $src)" >&2
+    exit 1
+  fi
+  # The one thing this mode must never do. A seed is a starting point; once adapted, the file is
+  # the only copy of work that exists nowhere else, and clobbering it would delete a port.
+  if [ -e "$dst" ]; then
+    echo "refusing to seed: $dst already exists." >&2
+    echo "A seed only ever creates a file. To see what the port has done to it:" >&2
+    echo "  diff -u '$src' '$dst'" >&2
+    exit 1
+  fi
+
+  mkdir -p "$(dirname "$dst")"
+  cp -p "$src" "$dst"
+  printf 'seeded            %s  <- %s\n' "$SEED" "${src#"$UPSTREAM"/}"
+  cat <<SEEDED
+
+That is a STARTING COPY, not a port. It is upstream's file verbatim and it does not compile.
+
+  1. It is PORT+ (PLAN.md §7), so it must change: Context -> AppEnv, Log -> the project logger,
+     File -> Path, ProcessBuilder nowhere in :core, Android audio to a seam.
+  2. Keep the comments and the constants. They record behaviour tuned against real use
+     (PLAN.md §6), and a diff that deletes one is a diff that has to say why.
+  3. Record the file in the adapted-files table of docs/PROVENANCE.md in the SAME commit.
+  4. From here on, review it with:  diff -u '$src' '$dst'
+SEEDED
+  exit 0
+fi
 
 problems=0
 taken=0; waiting=0
@@ -228,12 +299,28 @@ for entry in "${TEST_SOURCES[@]}"; do
   fi
 done
 
+# PORT+ files: reported, never counted. They are supposed to differ from upstream — that is what
+# "ported" means — so listing them beside the COPY files serves only to say which ones have started
+# and to keep their existence in front of whoever runs --check.
+if [ "$MODE" = "list" ] || [ "$MODE" = "check" ]; then
+  for name in "${PORT_SOURCES[@]}"; do
+    if [ "$MODE" = "list" ]; then
+      printf 'PORT+  %s\n' "$name"
+    elif [ -f "$DEST_SRC/$name" ]; then
+      printf 'ported            %s  (diff against upstream, never byte-identical)\n' "$name"
+    else
+      printf 'not yet ported    %s\n' "$name"
+    fi
+  done
+fi
+
 echo
 case "$MODE" in
   list)
     echo "m0 = the files that stand alone (PLAN.md §7a), main and test"
     echo "m1 = the files that need AssistantService.kt to exist first"
     echo "a test that needs retargeting stays OFF this list and goes in docs/TEST-MAP.md"
+    echo "PORT+ = seeded with --seed, then adapted by hand; never byte-identical, never drift"
     if [ -f "$PIN_FILE" ]; then
       echo "pin  $(tr -d '\r\n' < "$PIN_FILE")  ($PIN_FILE, read by --selftest)"
     else
@@ -281,6 +368,7 @@ NEXT
     fi
     if [ "$problems" -eq 0 ]; then
       echo "no drift: main $taken taken / $waiting to arrive, test $taken_test taken / $waiting_test to arrive"
+      echo "(PORT+ files are not counted: they are ported on purpose and cannot be byte-identical)"
       exit 0
     fi
     echo "$problems file(s) differ from upstream — COPY files must stay byte-identical" >&2

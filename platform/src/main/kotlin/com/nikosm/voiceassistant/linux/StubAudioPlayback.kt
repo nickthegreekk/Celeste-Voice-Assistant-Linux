@@ -1,6 +1,7 @@
 package com.nikosm.voiceassistant.linux
 
 import com.nikosm.voiceassistant.AppLogger
+import com.nikosm.voiceassistant.AudioDevice
 import com.nikosm.voiceassistant.AudioPlayback
 import com.nikosm.voiceassistant.PlaybackEnd
 import com.nikosm.voiceassistant.PlaybackHandle
@@ -40,10 +41,14 @@ class StubAudioPlayback(
     // supposed to ship.
     private val scope = CoroutineScope(Dispatchers.Default)
 
-    override fun play(file: Path, onEnd: (PlaybackEnd) -> Unit): PlaybackHandle = refuse(onEnd)
+    override fun play(file: Path, target: AudioDevice?, onEnd: (PlaybackEnd) -> Unit): PlaybackHandle = refuse(onEnd)
 
-    override fun playPcm(samples: ByteArray, sampleRate: Int, onEnd: (PlaybackEnd) -> Unit): PlaybackHandle =
-        refuse(onEnd)
+    override fun playPcm(
+        samples: ByteArray,
+        sampleRate: Int,
+        target: AudioDevice?,
+        onEnd: (PlaybackEnd) -> Unit
+    ): PlaybackHandle = refuse(onEnd)
 
     override fun stopAll() = Unit
 

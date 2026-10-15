@@ -28,6 +28,20 @@ interface ChunkSequence {
 
     /** The chunk files actually played, in order. Fills in as the sequence runs. */
     val played: List<Path>
+
+    /**
+     * Suspends until this sequence ends, and reports how it ended.
+     *
+     * A sequence is started, not awaited: [TtsChunkSequencer.start] hands it to a scope and returns.
+     * A caller that is itself a `suspend` function and has to act *after* the audio — deciding
+     * whether anything was spoken, reporting a failure at the point of use — needs this rather than
+     * reading [played] the instant [TtsChunkSequencer.start] returns, which is always empty.
+     *
+     * A cancelled sequence ends as [PlaybackEnd.Stopped] — never [PlaybackEnd.Finished]. That is the
+     * difference between "the reply was heard" and "something replaced it", and a caller that
+     * conflated the two would report a superseded utterance as a completed one.
+     */
+    suspend fun awaitEnd(): PlaybackEnd
 }
 
 /**
@@ -79,6 +93,19 @@ class TtsChunkSequencer(private val playback: AudioPlayback) {
      * [synthesize] is called once per chunk, in order, on [scope], and may run concurrently with
      * playback of an earlier chunk. Returning null means that chunk could not be produced.
      *
+     * [onStarted] fires **once, when the first chunk's playback begins** — and the "once, first
+     * chunk" is the whole contract, not an implementation detail. Upstream enters its SPEAKING
+     * state at exactly that moment and holds it across the entire sequence: one continuous window
+     * from the first word to the last, never SPEAKING→IDLE→SPEAKING between chunks. The state is
+     * what pauses the VAD and what the UI reads, so a version that fired per chunk would flicker
+     * listening back on between every 80-character paragraph, and a version that fired on
+     * sequence creation would claim to be speaking before any audio existed. Do not "fix" it to
+     * fire more often.
+     *
+     * It fires *after* chunk 0 has been synthesised and *before* [AudioPlayback.play] is called, so
+     * a caller reacting to it is setting up state for audio that is about to start rather than
+     * audio that already has.
+     *
      * Starting a sequence cancels whatever was running. Cancellation is not an error: the previous
      * sequence's [onEnd] receives [PlaybackEnd.Stopped].
      */
@@ -86,14 +113,16 @@ class TtsChunkSequencer(private val playback: AudioPlayback) {
         chunks: List<String>,
         scope: CoroutineScope,
         synthesize: suspend (index: Int, text: String) -> Path?,
+        onStarted: () -> Unit,
         onProgress: (fraction: Float, estimatedTotalMs: Int) -> Unit,
         onEnd: (PlaybackEnd) -> Unit,
+        target: AudioDevice? = null,
     ): ChunkSequence {
         // Cancel-previous happens BEFORE the new sequence exists, so the outgoing sequence's
         // teardown cannot observe or disturb its replacement.
         active?.cancel()
 
-        val sequence = Sequence(chunks, scope, synthesize, onProgress, onEnd)
+        val sequence = Sequence(chunks, scope, synthesize, onStarted, onProgress, onEnd, target)
         active = sequence
         sequence.begin()
         return sequence
@@ -103,8 +132,16 @@ class TtsChunkSequencer(private val playback: AudioPlayback) {
         private val chunks: List<String>,
         private val scope: CoroutineScope,
         private val synthesize: suspend (Int, String) -> Path?,
+        private val onStarted: () -> Unit,
         private val onProgress: (Float, Int) -> Unit,
         private val onEnd: (PlaybackEnd) -> Unit,
+        /**
+         * The sink every chunk of this sequence plays into, from seam 3. Upstream re-derived it
+         * per chunk from `earpieceMode.value` when it re-set the `AudioAttributes` on the recycled
+         * player; here it is decided once by the caller that owns the setting and held for the
+         * sequence, which is the same answer without the mid-sequence reread.
+         */
+        private val target: AudioDevice?,
     ) : ChunkSequence {
 
         /** One slot per chunk; the synthesis loop fills it, the playback loop awaits it. */
@@ -138,6 +175,11 @@ class TtsChunkSequencer(private val playback: AudioPlayback) {
 
         override val played: List<Path> get() = synchronized(playedFiles) { playedFiles.toList() }
 
+        /** Completed exactly once by whichever of [finish] and [cancel] gets there first. */
+        private val endSignal = CompletableDeferred<PlaybackEnd>()
+
+        override suspend fun awaitEnd(): PlaybackEnd = endSignal.await()
+
         fun begin() {
             job = scope.launch { run() }
         }
@@ -151,6 +193,11 @@ class TtsChunkSequencer(private val playback: AudioPlayback) {
             ready.forEach { it.complete(null) }
             currentHandle?.stop()
             job?.cancel()
+            // A cancelled sequence has still ended: a caller suspended in awaitEnd() must be
+            // released rather than parked forever on a report that is deliberately not coming.
+            // `finish` reports nothing for a cancelled sequence, so this is where that caller is
+            // told — and `Stopped`, not `Finished`, because no reply was heard through.
+            endSignal.complete(PlaybackEnd.Stopped)
         }
 
         private suspend fun run() {
@@ -208,6 +255,11 @@ class TtsChunkSequencer(private val playback: AudioPlayback) {
                     return
                 }
 
+                // Once, for the first chunk only, and immediately before its playback starts.
+                // See the contract on `start`: upstream holds one SPEAKING window across the
+                // whole sequence, so firing per chunk would flicker the VAD and the UI.
+                if (index == 0) onStarted()
+
                 when (val end = playOne(seqScope, path, index)) {
                     is PlaybackEnd.Finished -> Unit            // fall through to the next chunk
                     is PlaybackEnd.Failed -> {
@@ -238,7 +290,7 @@ class TtsChunkSequencer(private val playback: AudioPlayback) {
             return suspendCancellableCoroutine { continuation ->
                 var poll: Job? = null
 
-                val handle = playback.play(path) { end ->
+                val handle = playback.play(path, target) { end ->
                     poll?.cancel()
                     if (continuation.isActive) continuation.resume(end)
                 }
@@ -281,6 +333,10 @@ class TtsChunkSequencer(private val playback: AudioPlayback) {
         }
 
         private fun finish(end: PlaybackEnd) {
+            // Release an awaiter first, unconditionally: it is waiting on *this sequence*, not on
+            // the status of the guard below, and no path through here may leave it suspended.
+            // `complete` on the already-completed signal is a no-op, so the cancel path is safe.
+            endSignal.complete(end)
             // A cancelled sequence has already ended as far as its caller is concerned; a second
             // report would be the duplicate the guard exists to prevent.
             if (cancelled) return

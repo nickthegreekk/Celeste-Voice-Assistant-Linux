@@ -13,6 +13,63 @@ not stop for it. Stop only for the four cases listed in AGENTS.md §10.
 
 ---
 
+## 2026-10-15 — `AssistantService.cacheDir` stays a `java.io.File`
+
+Two byte-identical COPY files force the type: `AssistantServiceComfy.kt` builds `File(cacheDir, …)` and then
+calls `name`, `renameTo` and `delete()` on the result, and `AssistantServiceImageGen.kt` takes a `File` into
+`publishGeneratedImage` and stores `imageFile.absolutePath`. A `Path` member makes six lines of files this port
+may not edit fail to compile. Rejected: demoting those two files to ADAPT, which would trade two byte-identical
+files for one nicer type inside a third — the port is not changing this member so much as declining to change
+it, since `Context.cacheDir` returns a `File` and the member has always been one. `AppEnv.cacheDir` remains the
+seam's `Path` (AGENTS.md §4) and this is a `File` view of it; the thirteen `:core` call sites that want a `Path`
+say `.toPath()`. → PLAN.md §5, docs/PROVENANCE.md
+
+## 2026-10-15 — Seam 10 lands in M1, and a stubbed declaration is the wrong shape for a forced call
+
+`AssistantServiceSpontaneous.kt` is byte-identical and calls `isSpontaneouslyArmed`, `armSpontaneousWork` and
+`disarmSpontaneousWork` three times each — so the seam rule ("a seam is introduced with its first caller") puts
+seam 10's interface and a `StubScheduler` in M1, not M4. Rejected: borrowing the three declarations with stub
+bodies. A borrow whose stub returns a plausible wrong value is not inert — `isSpontaneouslyArmed` answering
+`false` forever is exactly the condition that function exists to detect, and answering it wrongly makes
+`refreshSpontaneousSchedule` restart a healthy chain's countdown on every service start. A `Stub*` announces
+itself in the log and in the grep; a stubbed declaration looks like real code. The generalisation is now in §5.
+→ PLAN.md §5 (seam 10), §10
+
+## 2026-10-15 — `AppEnv` carries a seam only when an un-editable caller forces it — and exactly two are forced
+
+`notifier` and `scheduler` are the only seams on `AppEnv`, and they are the same case twice: a byte-identical
+COPY file hands over `applicationContext` and nothing else, so whatever those calls need has to be reachable
+from the argument's type. Every other seam is a constructor parameter on `AssistantService`. Rejected: a
+forwarding property per seam "for symmetry", which would rebuild the god-object `Context` was. → PLAN.md D5
+
+## 2026-10-15 — A stub checkpoint is a set, not a count
+
+One `Stub*` per seam whose callers landed while its implementation belongs to a later milestone, each naming
+that milestone. The count went three → four → five as callers landed, which is why a number was the wrong way
+to state it: the set is checked by reading the names, and a milestone that adds a caller for a later
+implementation adds a stub rather than changing a total. Current: 1, 2, 3 and 6 for M2; 10 for M4.
+→ PLAN.md §5
+
+## 2026-10-15 — `Toast` reaches the UI as a `StateFlow<String?>`
+
+Eighteen call sites in the settings and backup paths showed a transient message; Compose has no toast, and §9
+substitutes a snackbar, which the UI draws. So what crosses the module boundary is the string plus a
+`consume()` — a `StateFlow<String?>` and not a channel, because a consumer must be able to read the current
+value without having been subscribed at the instant it was set, which is how everything else in this service
+reaches the UI. `LENGTH_SHORT`/`LENGTH_LONG` deliberately does not cross: it is a two-second difference in how
+long an OS toast lingers, and a desktop snackbar's dwell is the UI's business. → PLAN.md §9
+
+## 2026-10-15 — A PORT+ file is seeded, not retyped
+
+`tools/sync-from-android.sh --seed <name>` places one PORT+ file as a verbatim starting copy, so the port is
+reviewable as an unedited `diff -u` against upstream instead of being retyped from reading. `AssistantService.kt`
+is 3,372 lines and its port reads 789 removed / 531 added; retyping would have discarded that diff and put
+transcription errors into a file only the compiler partly checks. Two constraints make it safe: `PORT_SOURCES`
+must stay disjoint from `COPY_SOURCES` (a file that is byte-identical forever must never be seedable), and the
+seeded content is a working-tree step, never a commit — the port replaces it before the cluster commit lands, so
+`:core` never holds the Android original. Rejected: a second copy path outside the script, which is the door
+AGENTS.md §1 exists to close. → PLAN.md §7a, AGENTS.md §1
+
 ## 2026-10-15 — A grep is evidence of text, not of behaviour
 
 Three times a grep-derived claim went into the plan and the compiler disproved it. Three COPY files call

@@ -3,6 +3,8 @@ package com.nikosm.voiceassistant.linux
 import com.nikosm.voiceassistant.AppEnv
 import com.nikosm.voiceassistant.AppLogger
 import com.nikosm.voiceassistant.LogSink
+import com.nikosm.voiceassistant.Notifier
+import com.nikosm.voiceassistant.Scheduler
 import com.nikosm.voiceassistant.StderrLogger
 import java.nio.file.Path
 
@@ -22,6 +24,13 @@ class LinuxAppEnv(
     private val paths: XdgPaths,
     override val debugLogging: Boolean,
     override val logger: AppLogger = StderrLogger,
+    // Defaults to the real one, sharing the logger above so a notifier that cannot find
+    // `notify-send` says so through the same channel as everything else. Tests pass their own.
+    override val notifier: Notifier = NotifySendNotifier(logger),
+    // The stub is the default and not a temporary placeholder for a better one: M4 chooses between
+    // a coroutine and a systemd user timer, and until it does, this is the only implementation that
+    // exists. It logs once, at INFO, naming the milestone that replaces it.
+    override val scheduler: Scheduler = StubScheduler(logger),
 ) : AppEnv {
 
     override val configDir: Path get() = paths.configDir

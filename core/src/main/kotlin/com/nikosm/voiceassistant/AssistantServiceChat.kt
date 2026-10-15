@@ -1,0 +1,3007 @@
+package com.nikosm.voiceassistant
+
+// Same two survivors as `AssistantService.kt`, and for the same reasons — `android.util.Log`
+// resolves against the shim at `core/src/main/kotlin/android/util/Log.kt` (PLAN.md §7a), and
+// `androidx.compose.ui.graphics.Color` is part of the persisted settings schema because
+// `Models.kt` is byte-identical. `Uri`, `ContextCompat`, `PackageManager`, `Build` and
+// `android.util.Base64` are gone; what each became is in docs/PROVENANCE.md.
+import android.util.Log
+import androidx.compose.ui.graphics.Color
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
+import kotlinx.coroutines.withContext
+import okhttp3.Call
+import okhttp3.Credentials
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.MultipartBody
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.asRequestBody
+import okhttp3.RequestBody.Companion.toRequestBody
+import okhttp3.Response
+import okio.FileSystem
+import okio.Path.Companion.toOkioPath
+import org.json.JSONArray
+import org.json.JSONObject
+import java.io.File
+import java.net.URLDecoder
+import java.nio.file.Files
+import java.nio.file.Path
+import java.util.Base64
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.TimeUnit
+
+// ---- Plain-text attachment support ----
+// Files are read in-app, validated as plain text, and their content is injected into
+// the prompt text sent to the model — no multipart, no server-side extraction. This
+// works uniformly across Cloud, Direct-Ollama, and Gateway backends.
+private const val MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024 // 25 MB
+private const val ATTACHMENT_MB = MAX_ATTACHMENT_BYTES / (1024 * 1024)
+
+private class AttachmentException(message: String) : Exception(message)
+private class SafetyBlockedException(message: String) : Exception(message)
+
+private val plaintextMimeTypes = setOf(
+    "text/plain", "text/markdown", "text/x-markdown",
+    "application/json", "text/x-json",
+    "application/yaml", "text/yaml", "text/x-yaml",
+    "application/xml", "text/xml",
+    "text/html", "application/html",
+    "text/css",
+    "text/x-shellscript", "text/x-sh",
+    "text/x-python", "text/x-python-script",
+    "text/x-c", "text/x-csrc", "text/x-chdr", "text/x-c++", "text/x-c++src", "text/x-c++hdr",
+    "text/x-java-source",
+    "text/x-javascript", "application/javascript",
+    "text/x-ruby",
+    "text/x-sql",
+    "text/x-csharp",
+    "text/x-go-source",
+    "text/x-rust",
+    "text/x-php"
+)
+
+private val plaintextExtensions = setOf(
+    "txt", "md", "markdown", "json", "yaml", "yml", "xml", "html", "htm", "css",
+    "js", "py", "c", "h", "hpp", "cpp", "java", "kt", "rb", "sql", "cs", "go",
+    "rs", "php", "sh", "bash", "zsh", "log", "conf", "ini", "cfg", "toml", "env",
+    "properties", "csv", "tsv", "ts", "tsx", "jsx", "dockerfile", "makefile", "gitignore"
+)
+
+// L4: the extension-vs-basename decision behind isPlainTextAttachment, split out (and
+// internal) because it is the part that was wrong and it needs no Android surface — a Uri
+// cannot be built in a JVM unit test, a file name can. PlainTextAttachmentNameTest pins
+// this directly.
+internal fun isPlainTextFileName(fileName: String): Boolean {
+    val name = fileName.lowercase()
+    // L4: a name WITH a dot is matched by its extension (`notes.md` -> "md"); a name
+    // WITHOUT one is matched as a whole basename (`Dockerfile`, `Makefile`, and the
+    // dot-prefixed `.gitignore` via its "gitignore" entry). plaintextExtensions holds
+    // those extension-less entries literally, but the old lookup required a literal dot
+    // in the filename, so `substringAfterLast(".", "")` returned "" for "Dockerfile"
+    // and a real Dockerfile/Makefile was rejected as an unsupported attachment.
+    val dot = name.lastIndexOf('.')
+    val candidate = if (dot >= 0) name.substring(dot + 1) else name
+    return candidate in plaintextExtensions
+}
+
+/**
+ * Is this attachment a plain-text file the model can be handed directly?
+ *
+ * **The MIME lookup is gone, and that is a deletion rather than a simplification.**
+ * `contentResolver.getType(uri)` asked the `content://` provider that owned the file what its type
+ * was — the provider had the authority to say, and a file arriving from a share target had no name
+ * the application could trust. A `Path` from a file dialog is a real file with a real name, so the
+ * name is the answer, and `plaintextMimeTypes` — the whole twenty-entry set — is now unreachable.
+ * Its one caller was this line.
+ *
+ * The consequence is worth stating because it is a real narrowing: a text file with an unusual
+ * extension that a provider would have typed correctly is now refused. `plaintextExtensions` is
+ * the list that decides, and it is the list `PlainTextAttachmentNameTest` pins — a file that is
+ * genuinely plain text and refused belongs there, not in a revived MIME probe.
+ */
+internal fun AssistantService.isPlainTextAttachment(source: Path): Boolean =
+    isPlainTextFileName(source.fileName?.toString() ?: return false)
+
+// Reads an attachment as strict UTF-8 text, capped at MAX_ATTACHMENT_BYTES. Fails
+// cleanly (with a clear message) for unsupported types, oversized files, or non-UTF-8
+// content, rather than sending garbage bytes to the model.
+internal suspend fun AssistantService.readAttachmentText(source: Path): String = withContext(Dispatchers.IO) {
+    if (!isPlainTextAttachment(source)) {
+        throw AttachmentException(
+            "'$source' is not a supported plain-text file. Only text files (.txt, .md, .json, .yaml, code, etc.) can be attached."
+        )
+    }
+    // The streaming loop with its running total is upstream's, kept as it is: the cap has to be
+    // enforced *during* the read, because the file is chosen by the user and a 4 GB one must not be
+    // pulled into memory before being rejected. `Files.newInputStream` also throws where the
+    // resolver returned null, which is the case the trailing throw covered.
+    try {
+        Files.newInputStream(source).use { input ->
+            val out = java.io.ByteArrayOutputStream()
+            val chunk = ByteArray(64 * 1024)
+            var total = 0
+            while (true) {
+                val read = input.read(chunk)
+                if (read < 0) break
+                total += read
+                if (total > MAX_ATTACHMENT_BYTES) {
+                    throw AttachmentException("Attachment exceeds the $ATTACHMENT_MB MB size limit.")
+                }
+                out.write(chunk, 0, read)
+            }
+            val bytes = out.toByteArray()
+            if (!isValidUtf8(bytes)) {
+                throw AttachmentException("Attachment '$source' is not valid UTF-8 text.")
+            }
+            return@withContext String(bytes, Charsets.UTF_8)
+        }
+    } catch (e: AttachmentException) {
+        throw e
+    } catch (e: Exception) {
+        throw AttachmentException("Could not open attachment: $source (${e.message})")
+    }
+}
+
+// Validates that `bytes` is well-formed UTF-8. Kotlin's lossy decoder silently
+// substitutes invalid bytes; a round-trip re-encode detects malformed input, since
+// only valid UTF-8 encodes back to identical bytes.
+private fun isValidUtf8(bytes: ByteArray): Boolean {
+    val decoded = try { String(bytes, Charsets.UTF_8) } catch (e: Exception) { return false }
+    val reEncoded = decoded.toByteArray(Charsets.UTF_8)
+    if (reEncoded.size != bytes.size) return false
+    for (i in 0 until bytes.size) {
+        if (reEncoded[i] != bytes[i]) return false
+    }
+    return true
+}
+
+// Builds the "--- Attached file: X ---" sections for every attachment, throwing
+// AttachmentException on the first unreadable / unsupported / oversized file.
+private suspend fun AssistantService.buildAttachmentSections(attachments: List<Path>): String {
+    return withContext(Dispatchers.IO) {
+        buildString {
+            attachments.forEachIndexed { index, source ->
+                // `uri.lastPathSegment` was "the last component the URI names"; a path's file name
+                // is the same thing without the encoding. Both fall back to a positional placeholder
+                // because this string goes into the prompt and must always be something.
+                val name = source.fileName?.toString() ?: "file_$index"
+                val content = readAttachmentText(source)
+                append("--- Attached file: $name ---\n")
+                append(content)
+                append("\n--- End of $name ---\n\n")
+            }
+        }
+    }
+}
+
+// Returns the prompt text fed to the model: the user question plus injected attachment
+// content. This is the single mechanism that delivers extracted file text to all
+// backends. Empty attachments just pass the original text through.
+private suspend fun AssistantService.buildModelPrompt(text: String, attachments: List<Path>): String {
+    if (attachments.isEmpty()) return text
+    return "$text\n\n${buildAttachmentSections(attachments)}"
+}
+
+// A5: a user-initiated stop (Stop button -> currentCall.cancel()) surfaces as an
+// IOException in every flow: the gateway loops detect call.isCanceled() and rethrow
+// IOException("Cancelled"), while the cloud and direct-Ollama calls let OkHttp's own
+// IOException("Canceled") propagate directly. Recognising the shapes lets us skip the
+// spurious "Error: Cancelled" bubble and just return to idle.
+// internal (not private): the Phase 2 room turn loop classifies the same cancellations when
+// its own direct-Ollama turn unwinds, and must reach the identical conclusion about whether
+// a failed turn deserves an error bubble.
+internal fun isUserCancellation(e: Throwable): Boolean =
+    e is java.io.IOException && (e.message == "Cancelled" || e.message == "Canceled")
+
+// A3: a failed server becomes eligible for retry after a cooldown (e.g. 60 s) instead
+// of being excluded until a manual refresh. Server URL -> epoch ms of when the next
+// attempt is allowed. Held in a plain (non-reactive) field because the retry pool only
+// needs the most recent mark; UI display/logic are unaffected. M4: ConcurrentHashMap —
+// it is READ on Dispatchers.IO (isServerHealthyForRetry, from the failover pools built
+// inside withContext(IO) blocks) and WRITTEN on Main (the failure handlers), so the
+// map type itself provides the cross-thread safety a HashMap would lack. Values are
+// never null (epoch-ms stamps) and keys are non-null URLs, so ConcurrentHashMap's
+// null restrictions don't apply.
+internal val serverFailCooldownUntilMillis = ConcurrentHashMap<String, Long>()
+
+// A3: returns true if the server is currently OK to try. A server is allowed back once
+// FAILED_COOLDOWN_MS has elapsed since it was marked failed, and a status that isn't a
+// "failed" exclusion (null, "Online", or a non-failed string) is always tryable.
+internal fun AssistantService.isServerHealthyForRetry(url: String): Boolean {
+    if (_serverStatus.value[url]?.lowercase()?.contains("failed") != true) return true
+    return (serverFailCooldownUntilMillis[url] ?: 0L) < System.currentTimeMillis()
+}
+
+internal const val FAILED_COOLDOWN_MS = 60_000L // 60 seconds
+
+internal fun AssistantService.sendAudioToServer(file: Path, currentPersona: Persona) {
+    if (currentPersona.model.isBlank()) {
+        _messages.value = _messages.value + ChatMessage("assistant", "Please choose a model for this persona in its settings.", isError = true).stampedAt()
+        _state.value = AssistantState.IDLE
+        updateNotification("Ready to help")
+        return
+    }
+    serviceScope.launch {
+        val startTime = System.currentTimeMillis()
+        // A2/B1: capture the request identity (generation + persona). The response is
+        // applied only if both are still current when it arrives.
+        val generation = nextChatRequestSeq()
+        val personaName = currentPersona.name
+        // M2: record this turn as the owner of the THINKING state it is about to set.
+        // The ownership pair (owner generation + `_state == THINKING`) is what
+        // stopVadListening() consults, so toggling hands-free off cannot force IDLE
+        // underneath a live turn — and thereby cannot make that turn's own
+        // `_state == THINKING` finally guard fail, which used to leak the audio focus
+        // the turn retained through THINKING.
+        recordThinkingOwner(generation)
+        _state.value = AssistantState.THINKING
+        updateNotification("Thinking...")
+
+        val useDeviceVoice = currentPersona.voiceMode != VoiceMode.GATEWAY
+
+        if (currentPersona.isCloud && isCloudModel(currentPersona.model)) {
+            serviceScope.launch {
+                try {
+                    val transcribedText = transcribeWithGateway(file, currentPersona)
+                        ?: throw Exception("Could not transcribe audio. Check Gateway connection.")
+                    if (transcribedText.isBlank()) {
+                        // M3: the gateway responded fine — the audio just had no
+                        // detectable speech. Caller-level concern: surface the
+                        // empty-turn error without penalizing the server's
+                        // health/cooldown status.
+                        throw Exception("Empty transcription result")
+                    }
+                    // H1: the user's spoken turn must reach the transcript before the
+                    // response is requested, exactly as the gateway-voice (apply-time
+                    // append) and text-flow (append-before-send) call sites do.
+                    // performCloudChat only ever appends the ASSISTANT message, so a
+                    // cloud voice turn used to leave the question out of _messages and
+                    // out of the persisted history. That is not just a display gap:
+                    // buildCloudRequest assembles the next request FROM _messages, and
+                    // an Anthropic persona runs `history.dropWhile { it.role != "user" }`
+                    // over it — with an assistant-only history that dropped EVERYTHING,
+                    // so a cloud voice conversation had no memory between turns (and
+                    // Gemini/OpenAI personas lost the user side of the prior turn).
+                    // Same ownership gates as the failure path below, so a superseded or
+                    // persona-switched turn can never leave an orphaned user message.
+                    if (!isChatRequestCurrent(generation)) {
+                        // Stop / a newer request owns the transcript and the focus —
+                        // append nothing and skip the (now pointless, paid) model call.
+                        Log.d(
+                            "AssistantService",
+                            "Voice transcript discarded — superseded before it could be applied"
+                        )
+                        return@launch
+                    }
+                    if (!isChatContextCurrent(generation, personaName)) {
+                        // The active persona changed: never write this turn into another
+                        // persona's transcript. performCloudChat never runs here, so its finally
+                        // will not run either — which is why upstream released the focus at this
+                        // point. Deleted with the focus machinery (PLAN.md §9); there is nothing
+                        // outstanding to release, and the state this turn would have reset is
+                        // reset by whichever branch lands it.
+                        android.util.Log.d(
+                            "AssistantService",
+                            "Voice transcript discarded — active persona changed"
+                        )
+                        _state.value = AssistantState.IDLE
+                        updateNotification("Ready to help")
+                        return@launch
+                    }
+                    _messages.value = _messages.value + ChatMessage("user", transcribedText).stampedAt()
+                    saveSettings()
+                    // currentTurnInHistory = true: the user turn is now the last entry in
+                    // _messages, so buildCloudRequest drops exactly that entry from the
+                    // history slice and re-appends it as the current turn — it reaches
+                    // the model once, and the prior turns stay intact.
+                    //
+                    // Skills (Q1/Q7): voice is a first-class participant — the same
+                    // injection point the text flow uses, matched against the TRANSCRIPTION
+                    // (the user's actual words, which only exist after this point) and
+                    // forwarded as a turnContext, exactly as the text flow does. Before this
+                    // the voice path passed no turnContext at all, so a spoken turn silently
+                    // ignored every skill. Resolved here rather than at the top of
+                    // sendAudioToServer because the trigger text does not exist yet.
+                    performCloudChat(transcribedText, currentPersona, useDeviceVoice, startTime, currentTurnInHistory = true, generation = generation, turnContext = turnContextWithSkills(transcribedText, currentPersona))
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    if (!isChatRequestCurrent(generation)) {
+                        android.util.Log.d("AssistantService", "Voice chat request superseded by a newer request — discarding failure: ${e.message}")
+                    } else if (isUserCancellation(e)) {
+                        // A5: the user deliberately stopped this request — no error bubble.
+                        android.util.Log.d("AssistantService", "Voice chat request cancelled by user — no error bubble")
+                        // Transcription failed before performCloudChat existed, so its finally
+                        // never ran — which is why upstream released the focus here. Deleted with
+                        // the focus machinery (PLAN.md §9): "no indefinite ducking" is not a risk
+                        // where there is no ducking, and the error bubble above already landed
+                        // the turn.
+                        _state.value = AssistantState.IDLE
+                        updateNotification("Ready to help")
+                    } else {
+                        android.util.Log.e("AssistantService", "Cloud voice chat failed", e)
+                        if (isChatContextCurrent(generation, personaName)) {
+                            _messages.value = _messages.value + ChatMessage("assistant", "Error: ${e.message}", isError = true).stampedAt()
+                        } else {
+                            android.util.Log.d("AssistantService", "Persona changed during request — discarding failure message: ${e.message}")
+                        }
+                        // Same as above: a pre-performCloudChat failure runs no finally, so
+                        // upstream released the focus here — deleted with it (PLAN.md §9).
+                        _state.value = AssistantState.IDLE
+                        updateNotification("Ready to help")
+                    }
+                }
+            }
+            return@launch
+        }
+
+        // Hoisted so the Stage-1 streaming cancellation catch can persist the
+        // transcribed text alongside the kept partial response (D2).
+        var transcribedText: String = ""
+        // Focus-retention guard: stopRecording() now retains the recorder's
+        // focus through THINKING when the turn will speak. This flag marks
+        // whether playback was actually handed off — if the turn terminates
+        // without playing (server error, empty transcription, user cancel,
+        // persona switch), the finally below must release the retained focus
+        // (the original indefinite-duck bug). NOT set for superseded turns:
+        // a newer request then owns the flow and its focus lifecycle.
+        var playbackRequested = false
+        try {
+            val responseData = withContext(Dispatchers.IO) {
+                val rawModel = currentPersona.model
+                val (displayServer, actualModel) = if (rawModel.startsWith("[") && rawModel.contains("] ")) {
+                    rawModel.substring(1, rawModel.indexOf("]")) to rawModel.substringAfter("] ")
+                } else {
+                    null to rawModel
+                }
+
+                val rawBUrl = currentPersona.backendUrl.ifBlank {
+                    displayServer?.let { name -> _ollamaBaseUrls.value.find { it.name == name }?.url } ?: ""
+                }
+                // Guard: Never send a gateway URL (8880) as a backend_url parameter
+                val bUrl = if (rawBUrl.isBlank() || rawBUrl.contains(":8880")) "" else rawBUrl.trim().removeSuffix("/")
+
+                // IF IT'S A DIRECT OLLAMA CALL WITH VOICE INPUT
+                if (displayServer != null) {
+                     val ollamaBase = _ollamaBaseUrls.value.find { it.name == displayServer }?.url
+                     if (ollamaBase != null) {
+                         // 1. Transcribe via Gateway
+                         transcribedText = transcribeWithGateway(file, currentPersona)
+                             ?: throw Exception("Could not transcribe audio. Check Gateway connection.")
+                         if (transcribedText.isBlank()) {
+                             // M3: gateway healthy, audio had no detectable speech —
+                             // caller-level error, no server health penalty.
+                             throw Exception("Empty transcription result")
+                         }
+
+                         // 2. Chat with Ollama
+                         // Skills (Q1/Q7): same injection point as the text flow, matched
+                         // against the transcription and forwarded as a turnContext. This call
+                         // previously omitted turnContext entirely, so a spoken turn to a
+                         // direct-Ollama persona ignored every skill.
+                         val directRes = performDirectOllamaChat(ollamaBase, actualModel, transcribedText, currentPersona, currentTurnInHistory = false, generation = generation, turnContext = turnContextWithSkills(transcribedText, currentPersona))
+                         // Fix #5 (voice-flow follow-up): clean markdown for TTS on IO —
+                         // the cleaned variant feeds the on-device engines (5th element);
+                         // the chat bubble/history keep the original markdown. This branch
+                         // was missed when the consumer gained its 5th element, crashing
+                         // every voice turn to a direct-Ollama persona on the destructuring.
+                         val cleanedForTts = cleanTextForTts(directRes.first)
+
+                         // If it's a gateway voice mode, we need to fetch audio separately
+                         if (currentPersona.voiceMode == VoiceMode.GATEWAY) {
+                             val (audioBytes, wordTsJson) = synthesizeWithGateway(directRes.first, currentPersona)
+                             return@withContext listOf(transcribedText, directRes.first, directRes.second, audioBytes, cleanedForTts)
+                         }
+
+                         return@withContext listOf(transcribedText, directRes.first, directRes.second, directRes.third, cleanedForTts)
+                     }
+                }
+
+                // ELSE: CLOUD OR GATEWAY CALL (Existing combined logic)
+                // `file.extension` became a name lookup: a `java.nio.file.Path` has no extension
+                // accessor, and the suffix of the file name is what the resolver was reading anyway.
+                val mediaType = if (file.fileName.toString().substringAfterLast('.', "") == "wav") {
+                    "audio/wav".toMediaType()
+                } else {
+                    "audio/mp4".toMediaType()
+                }
+
+                val currentDateTime = getCurrentDateTimeString()
+                val requestBody = MultipartBody.Builder().setType(MultipartBody.FORM).apply {
+                    // OkHttp streams a file body through okio, so a `java.nio.file.Path` crosses with
+                    // `toOkioPath()` and an explicit `FileSystem.SYSTEM` — the same substitution
+                    // `AssistantServiceGateway.kt` needed for its /transcribe request.
+                    addFormDataPart("audio", file.fileName.toString(), file.toOkioPath().asRequestBody(FileSystem.SYSTEM, mediaType))
+                    addFormDataPart("model", actualModel)
+                    addFormDataPart("backend_url", bUrl)
+                    addFormDataPart("temperature", currentPersona.temperature.toString())
+                    addFormDataPart("top_p", currentPersona.topP.toString())
+                    addFormDataPart("top_k", currentPersona.topK.toString())
+                    addFormDataPart("repeat_penalty", currentPersona.repeatPenalty.toString())
+                    addFormDataPart("num_ctx", currentPersona.numCtx.toString())
+                    addFormDataPart("context_time", currentDateTime)
+                    if (currentPersona.isTranslator) {
+                        addFormDataPart("target_language", currentPersona.targetLanguage)
+                    }
+                }.build()
+
+                val allGateways = _serverBases.value
+
+                // S2: data (audio/transcripts) is only sent to the persona's configured
+                // backend unless the persona explicitly opts into gateway failover.
+                // M1: routed through the shared resolver, which keeps this path's
+                // match-by-name (the `[Name] model` tag) AND adds trailing-slash/trim
+                // normalization — the same resolution the gateway flows now use.
+                val preferredGateway = if (currentPersona.backendUrl.isNotBlank()) {
+                    resolveGatewayConfig(allGateways, currentPersona.backendUrl, displayServer)
+                } else null
+
+                val gwsToTry: List<ServerConfig> = if (currentPersona.allowGatewayFailover) {
+                    // A3: only gateways currently healthy (or past a failure cooldown) are
+                    // eligible for failover.
+                    val workingGateways = allGateways.filter { isServerHealthyForRetry(it.url) }
+                    buildList {
+                        preferredGateway?.let { add(it) }
+                        addAll(workingGateways.filter { it != preferredGateway })
+                    }
+                } else {
+                    when {
+                        preferredGateway != null -> listOf(preferredGateway)
+                        currentPersona.backendUrl.isBlank() -> throw Exception(
+                            "No gateway is configured for persona '${currentPersona.name}'. Set a Backend URL in its persona settings, or enable 'Allow Gateway Failover'."
+                        )
+                        else -> throw Exception(
+                            "Gateway '${currentPersona.backendUrl}' for persona '${currentPersona.name}' is not in the configured gateway list. Check Settings, or enable 'Allow Gateway Failover'."
+                        )
+                    }
+                }
+
+                if (gwsToTry.isEmpty()) {
+                    throw Exception("No working gateways available for voice processing.")
+                }
+
+                var lastEx: Exception? = null
+                for (gw in gwsToTry.distinct()) {
+                    val base = gw.url
+                    // Scale read timeout with maxTokens to handle long processing/reasoning
+                    val currentClient = getDynamicClient(currentPersona, useStandard = false)
+
+                    val requestBuilder = Request.Builder()
+                        .url(if (currentPersona.isTranslator) "$base/translate" else "$base/voice-chat")
+                        .post(requestBody)
+
+                    when (gw.effectiveAuthType) {
+                        AuthType.NONE -> { /* no Authorization header */ }
+                        AuthType.BASIC -> if (!gw.username.isNullOrBlank()) {
+                            requestBuilder.header("Authorization", Credentials.basic(gw.username, gw.password ?: ""))
+                        }
+                        AuthType.API_KEY -> if (!gw.apiKey.isNullOrBlank()) {
+                            requestBuilder.header("Authorization", "Bearer ${gw.apiKey}")
+                        }
+                    }
+
+                    val call = currentClient.newCall(requestBuilder.build())
+                    currentCall = call
+                    try {
+                        call.execute().use { response ->
+                            if (!response.isSuccessful) throw Exception("Server error: ${response.code}")
+
+                            val contentType = response.header("Content-Type") ?: ""
+                            val uText = response.decodeTextHeader("X-User-Text-B64", "(voice message)")
+                            _lastWorkingBase.value = base
+
+                            // Update status to working since we just had a successful call
+                            withContext(Dispatchers.Main) {
+                                val statusMap = _serverStatus.value.toMutableMap()
+                                _serverBases.value.find { it.url == base }?.let { statusMap[it.url] = "Online" }
+                                _serverStatus.value = statusMap
+                            }
+
+                            if (contentType.contains("application/json")) {
+                                val body = response.body.string()
+                                val json = JSONObject(body)
+                                val rText = json.optString("translated_text", "")
+                                val note = json.optString("note", "")
+                                val finalRText = if (note.isNotEmpty()) "$rText\n\n($note)" else rText
+                                val displayText = finalRText.ifBlank { "..." }
+                                // Fix #5: clean markdown for TTS here, on IO — the cleaned
+                                // variant feeds the on-device engines (5th element); the
+                                // chat bubble/history keep the original markdown.
+                                val cleanedForTts = cleanTextForTts(displayText)
+                                return@withContext listOf(uText, displayText, null, null, cleanedForTts)
+                            } else {
+                                val rText = response.decodeTextHeader("X-Translated-Text-B64",
+                                    response.decodeTextHeader("X-Response-Text-B64", "..."))
+                                val bytes = response.body.bytes()
+                                // Fix #5: clean markdown for TTS on IO (see the JSON branch).
+                                val cleanedForTts = cleanTextForTts(rText)
+                                return@withContext listOf(uText, rText, null, if (useDeviceVoice) null else bytes, cleanedForTts)
+                            }
+                        }
+                    } catch (e: Exception) {
+                        if (call.isCanceled()) throw java.io.IOException("Cancelled")
+
+                        // A3: mark failed (with cooldown). A 4xx means the server responded,
+                        // so it's reachable — worth keeping its message visible, but the
+                        // cooldown is the thing that actually gates re-entry to the pool.
+                        val failureLabel = if (e is okhttp3.internal.http2.StreamResetException || (e.message?.contains("HTTP ") == true || e.message?.contains("Server error:") == true)) {
+                            e.message?.take(30)
+                        } else if (e is java.net.ConnectException || e is java.net.SocketTimeoutException || e is java.net.UnknownHostException) {
+                            "connection/timeout"
+                        } else {
+                            e.message?.take(30)
+                        }
+                        withContext(Dispatchers.Main) {
+                            val statusMap = _serverStatus.value.toMutableMap()
+                            _serverBases.value.find { it.url == base }?.let { cfg ->
+                                statusMap[cfg.url] = "failed: $failureLabel"
+                                serverFailCooldownUntilMillis[cfg.url] = System.currentTimeMillis() + FAILED_COOLDOWN_MS
+                            }
+                            _serverStatus.value = statusMap
+                        }
+
+                        lastEx = e
+                    }
+                }
+                throw lastEx ?: Exception("All connection attempts failed")
+            }
+            // A2/B1: apply the response only if the context is unchanged.
+            if (!isChatRequestCurrent(generation)) {
+                android.util.Log.d("AssistantService", "Chat response discarded — superseded by a newer request (gen $generation)")
+                return@launch
+            }
+            // A6: this flow's network call has finished. Clear the in-flight reference
+            // before applying (or discarding for a persona change) so currentCall never
+            // points at a completed call. Safe here because no newer request exists,
+            // so currentCall cannot belong to another flow.
+            currentCall = null
+            if (!isChatContextCurrent(generation, personaName)) {
+                android.util.Log.d("AssistantService", "Chat response discarded — active persona changed (gen $generation)")
+                return@launch
+            }
+            val (uText, rText, reasoning, bytes, cleanedForTts) = responseData as List<Any?>
+            val responseTimeMs = System.currentTimeMillis() - startTime
+            val audioPath = if (bytes != null && !useDeviceVoice) {
+                val outFile = cacheDir.toPath().resolve("response_${System.currentTimeMillis()}.wav")
+                Files.write(outFile, bytes as ByteArray)
+                outFile.toString()
+            } else null
+
+            // Stage-1 streaming: when this turn streamed, the trailing assistant
+            // placeholder is already in the list (content built up during the
+            // stream) but the user turn is NOT (voice flow appends user+assistant
+            // together at apply). Swap: drop the placeholder, append user+final.
+            // H3: consume only OUR OWN placeholder (null ⇒ a newer turn owns it, or this
+            // one was superseded), and never clear a newer turn's published streaming text.
+            val streamedIdx = takeStreamedPlaceholderIfOwned(generation)
+            clearStreamingTextIfOwned(generation)
+            if (streamedIdx != null && streamedIdx < _messages.value.size) {
+                val base = _messages.value.toMutableList().also { it.removeAt(streamedIdx) }.toList()
+                _messages.value = base +
+                    ChatMessage("user", uText as String).stampedAt() +
+                    ChatMessage("assistant", rText as String, reasoning as? String, audioFilePath = audioPath, responseTimeMs = responseTimeMs).stampedAt()
+            } else {
+                _messages.value = _messages.value +
+                    ChatMessage("user", uText as String).stampedAt() +
+                    ChatMessage("assistant", rText as String, reasoning as? String, audioFilePath = audioPath, responseTimeMs = responseTimeMs).stampedAt()
+            }
+            saveSettings()
+
+            if (useDeviceVoice) {
+                playbackRequested = true
+                playResponse(currentPersona, deviceText = cleanedForTts as String)
+            } else if (audioPath != null) {
+                playbackRequested = true
+                playResponse(currentPersona, file = Path.of(audioPath))
+            } else if (currentPersona.voiceMode == VoiceMode.GATEWAY) {
+                // Stage-2 streaming TTS: gateway mode with deferred synthesis.
+                // The full text was NOT pre-synthesized; use the chunked
+                // sequential pipeline (synthesize chunk 0, play, synthesize
+                // chunk 1 while playing, etc.) for dramatically lower
+                // first-audio latency on long responses.
+                playbackRequested = true
+                playChunkedTtsGateway(rText as String, currentPersona, ttsGeneration)
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: StreamCancelledByUserException) {
+            // D2: Stop interrupted a mid-stream voice turn — keep the partial as
+            // genuine history: user turn + partial assistant message (the voice
+            // flow's apply would have appended both).
+            // H3: ownership FIRST. This block used to be guarded only by the persona
+            // name, so a superseded turn's stop-unwind could append its stale partial
+            // into the newer turn's transcript AND unconditionally clear the newer
+            // turn's placeholder index + published streaming text — which left the
+            // newer turn's own bubble to be appended AGAIN at apply (the duplicated
+            // bubble pair). A turn that no longer owns the request touches nothing.
+            if (!isChatRequestCurrent(generation)) {
+                android.util.Log.d("AssistantService", "Voice stream cancelled — superseded by a newer request; partial discarded")
+            } else if (currentPersonaName == personaName && e.partialContent.isNotBlank()) {
+                val streamedIdx = takeStreamedPlaceholderIfOwned(generation)
+                val base = if (streamedIdx != null && streamedIdx < _messages.value.size) {
+                    _messages.value.toMutableList().also { it.removeAt(streamedIdx) }.toList()
+                } else _messages.value
+                _messages.value = base +
+                    ChatMessage("user", transcribedText).stampedAt() +
+                    ChatMessage("assistant", e.partialContent, e.partialThinking.ifBlank { null }).stampedAt()
+                saveSettings()
+            } else {
+                removeBlankPlaceholderSvc(generation)
+            }
+            releaseStreamedPlaceholderIfOwned(generation)
+            clearStreamingTextIfOwned(generation)
+            android.util.Log.d("AssistantService", "Voice stream cancelled by user — partial kept (${e.partialContent.length} chars)")
+            currentCall = null
+        } catch (e: StreamPersonaChangedException) {
+            // Partial already written back into the previous persona's persisted
+            // history inside performDirectOllamaChat — nothing to apply here.
+            // H3: still only release OUR OWN placeholder / published streaming text.
+            releaseStreamedPlaceholderIfOwned(generation)
+            clearStreamingTextIfOwned(generation)
+            android.util.Log.d("AssistantService", "Voice stream cancelled — persona changed; partial kept in previous persona history")
+            currentCall = null
+        } catch (e: Exception) {
+            if (!isChatRequestCurrent(generation)) {
+                android.util.Log.d("AssistantService", "Chat request superseded by a newer request — discarding failure: ${e.message}")
+            } else if (isUserCancellation(e)) {
+                // A5: the user deliberately stopped this request — no error bubble.
+                android.util.Log.d("AssistantService", "Chat request cancelled by user — no error bubble")
+                currentCall = null
+            } else {
+                android.util.Log.e("AssistantService", "Chat failed", e)
+                if (isChatContextCurrent(generation, personaName)) {
+                    _messages.value = _messages.value + ChatMessage("assistant", "Error: ${e.message ?: "Unknown error"}", isError = true).stampedAt()
+                } else {
+                    android.util.Log.d("AssistantService", "Persona changed during request — discarding failure message: ${e.message}")
+                }
+                currentCall = null
+            }
+        } finally {
+            // H3: every one of these is ownership-gated — a stale turn unwinding here
+            // must not delete a newer turn's in-progress placeholder or blank its
+            // published streaming text (see the helper block in AssistantService.kt).
+            removeBlankPlaceholderSvc(generation)
+            releaseStreamedPlaceholderIfOwned(generation)
+            clearStreamingTextIfOwned(generation)
+            if (_state.value == AssistantState.THINKING && isChatRequestCurrent(generation)) {
+                // Deleted here: the audio-focus retention this flag existed to manage (PLAN.md §9).
+                //
+                // Upstream *retained* the focus request through THINKING when playback was going to
+                // follow, and released it here when it was not — so that other applications' music did
+                // not un-duck for the two to five seconds of transcription and then duck again. There
+                // is no ducking on this platform and no focus to release, so `abandonAssistantFocus()`
+                // and the `playbackRequested` flag that gated it are both gone: the flag had exactly
+                // one reader, and it was the release.
+                //
+                // What the flag was protecting is still enforced, one branch down: a turn that ends
+                // here leaves THINKING and lands in IDLE.
+                // M2: this turn is leaving THINKING — it no longer owns the state, so a
+                // later hands-free-off toggle must not treat the stale owner as live.
+                clearThinkingOwnerIfOwned(generation)
+                _state.value = AssistantState.IDLE
+                updateNotification("Ready to help")
+            }
+        }
+    }
+}
+
+// ─── Image Vision Support (Fix: stage 1) ───────────────────────────────────
+// Reads an app-owned image file and returns its base64-encoded bytes.
+//
+// `android.util.Base64.NO_WRAP` is `java.util.Base64.getEncoder()`: NO_WRAP is the standard
+// alphabet with no line breaks, which is exactly what the basic encoder emits. A vision request
+// body is JSON, so a wrapped payload would be a corrupt request rather than a cosmetic difference.
+private suspend fun encodeImageToBase64(path: String?): String? {
+    if (path.isNullOrBlank()) return null
+    return withContext(Dispatchers.IO) {
+        try {
+            val file = Path.of(path)
+            if (!Files.exists(file)) return@withContext null
+            Base64.getEncoder().encodeToString(Files.readAllBytes(file))
+        } catch (e: Exception) {
+            Log.e("Vision", "Failed to encode image at $path", e)
+            null
+        }
+    }
+}
+
+internal fun AssistantService.sendTextMessageToServer(inputText: String, currentPersona: Persona, attachments: List<Path> = emptyList(), imagePath: String? = null, turnContext: TurnContext = TurnContext.Default) {
+    if (inputText.isBlank() && attachments.isEmpty() && imagePath == null) return
+    val startTime = System.currentTimeMillis()
+    _voiceDuration.value = 0
+
+    // Skills (Q1/Q7): resolve this turn's matched skill instructions ONCE, before the launch,
+    // and fold them into the turn's systemPromptSuffix. The user's own message stays
+    // byte-for-byte unchanged — trigger matching never rewrites what they typed (Q4). The
+    // suffix is a one-turn construct: it is never appended to _messages, so it cannot reach
+    // the transcript or the next turn (Q2). Resolving before the launch also means a turn
+    // that is superseded before it starts never produces skill text at all.
+    val turnContext = turnContextWithSkills(inputText, currentPersona, turnContext)
+
+    serviceScope.launch {
+        // Phase 0: this turn's transcript writes (the user turn, the error bubbles, the
+        // streamed partial and the final assistant message) all go through one sink, so a
+        // room turn runs this exact pipeline against its own transcript. Resolved at
+        // launch scope: inside serviceScope.launch, bare `this` binds to the CoroutineScope.
+        val sink = turnContext.sinkOrDefault(this@sendTextMessageToServer)
+
+        // A9: the display/history user message shows a concise filename list
+        sink.append(ChatMessage("user",
+            if (attachments.isNotEmpty())
+                "$inputText\n\n(Attached: ${attachments.mapNotNull { it.fileName?.toString() }.joinToString(", ")})"
+            else inputText,
+            imagePath = imagePath
+        ))
+        saveSettings()
+
+        if (currentPersona.isImageGenerator || isImageGenerationRequest(inputText)) {
+            val imagePrompt = if (isImageGenerationRequest(inputText)) extractImageGenerationPrompt(inputText) else inputText
+            performImageGeneration(imagePrompt.ifBlank { inputText }, currentPersona)
+            return@launch
+        }
+
+        if (currentPersona.model.isBlank()) {
+            sink.append(ChatMessage("assistant", "Please choose a model for this persona in its settings.", isError = true))
+            return@launch
+        }
+
+        val useDeviceVoice = currentPersona.voiceMode != VoiceMode.GATEWAY
+
+        // A2/B1: capture the request identity (generation + persona)
+        val generation = nextChatRequestSeq()
+        val personaName = currentPersona.name
+
+        var playbackRequested = false
+
+        if (currentPersona.isCloud && isCloudModel(currentPersona.model)) {
+            performCloudChat(inputText, currentPersona, useDeviceVoice, startTime, currentTurnInHistory = true, generation = generation, imagePath = imagePath, turnContext = turnContext)
+            return@launch
+        }
+
+        // M2: this turn owns the THINKING state it sets here (see stopVadListening()).
+        recordThinkingOwner(generation)
+        _state.value = AssistantState.THINKING
+        updateNotification("Thinking...")
+        try {
+            val responseData = withContext(Dispatchers.IO) {
+                val rawModel = currentPersona.model
+                val (displayServer, actualModel) = if (rawModel.startsWith("[") && rawModel.contains("] ")) {
+                    rawModel.substring(1, rawModel.indexOf("]")) to rawModel.substringAfter("] ")
+                } else {
+                    null to rawModel
+                }
+
+                val rawBUrl = currentPersona.backendUrl.ifBlank {
+                    displayServer?.let { name -> _ollamaBaseUrls.value.find { it.name == name }?.url } ?: ""
+                }
+                // Guard: Never send a gateway URL (8880) as a backend_url parameter
+                val bUrl = if (rawBUrl.isBlank() || rawBUrl.contains(":8880")) "" else rawBUrl.trim().removeSuffix("/")
+
+                // If it's a direct Ollama call, we can call Ollama directly!
+                if (displayServer != null) {
+                     val ollamaBase = _ollamaBaseUrls.value.find { it.name == displayServer }?.url
+                     if (ollamaBase != null) {
+                         val directRes = performDirectOllamaChat(ollamaBase, actualModel, inputText, currentPersona, attachments = attachments, imagePath = imagePath, currentTurnInHistory = true, generation = generation, turnContext = turnContext)
+                         // Fix #5: clean markdown for TTS on IO — the cleaned variant feeds
+                         // the on-device engines; the chat bubble/history keep the original.
+                         val cleanedForTts = cleanTextForTts(directRes.first)
+
+                         // If it's a gateway voice mode: Stage-2 streaming TTS
+                         if (currentPersona.voiceMode == VoiceMode.GATEWAY) {
+                             return@withContext listOf(directRes.first, directRes.second, null, cleanedForTts)
+                         }
+
+                         return@withContext listOf(directRes.first, directRes.second, directRes.third, cleanedForTts)
+                     }
+                }
+
+                val currentDateTime = getCurrentDateTimeString()
+                val modelText = buildModelPrompt(inputText, attachments)
+                val requestBuilder = MultipartBody.Builder().setType(MultipartBody.FORM).apply {
+                    addFormDataPart("text", "Current date and time: $currentDateTime\n\nQuestion: $modelText")
+                    addFormDataPart("model", actualModel)
+                    addFormDataPart("backend_url", bUrl)
+                    addFormDataPart("temperature", currentPersona.temperature.toString())
+                    addFormDataPart("top_p", currentPersona.topP.toString())
+                    addFormDataPart("top_k", currentPersona.topK.toString())
+                    addFormDataPart("repeat_penalty", currentPersona.repeatPenalty.toString())
+                    addFormDataPart("num_ctx", currentPersona.numCtx.toString())
+                    if (currentPersona.isTranslator) {
+                        addFormDataPart("target_language", currentPersona.targetLanguage)
+                    }
+                }
+                val requestBody = requestBuilder.build()
+
+                val allGateways = _serverBases.value
+
+                // S2: data (prompts/attachments) is only sent to the persona's configured
+                // backend unless the persona explicitly opts into gateway failover.
+                val preferredGateway = if (currentPersona.backendUrl.isNotBlank()) {
+                    allGateways.find { it.name == displayServer || it.url == currentPersona.backendUrl }
+                } else null
+
+                val gwsToTry: List<ServerConfig> = if (currentPersona.allowGatewayFailover) {
+                    // A3: only gateways currently healthy (or past a failure cooldown) are
+                    // eligible for failover.
+                    val workingGateways = allGateways.filter { isServerHealthyForRetry(it.url) }
+                    buildList {
+                        preferredGateway?.let { add(it) }
+                        addAll(workingGateways.filter { it != preferredGateway })
+                    }
+                } else {
+                    when {
+                        preferredGateway != null -> listOf(preferredGateway)
+                        currentPersona.backendUrl.isBlank() -> throw Exception(
+                            "No gateway is configured for persona '${currentPersona.name}'. Set a Backend URL in its persona settings, or enable 'Allow Gateway Failover'."
+                        )
+                        else -> throw Exception(
+                            "Gateway '${currentPersona.backendUrl}' for persona '${currentPersona.name}' is not in the configured gateway list. Check Settings, or enable 'Allow Gateway Failover'."
+                        )
+                    }
+                }
+
+                if (gwsToTry.isEmpty()) {
+                    throw Exception("No working servers available. Check your connection in Settings.")
+                }
+
+                // C2: context enrichment (news / web search / RAG) is loop-invariant —
+                // fetch it once, before the retry loop, instead of re-running SearXNG
+                // queries and RAG retrievals on every failed gateway attempt. This also
+                // guarantees identical injected context across failover attempts.
+                val searchContext = if (isNewsRequest(inputText)) {
+                    fetchNewsContext()
+                } else if (currentPersona.webSearchEnabled) {
+                    fetchWebSearchContext(inputText)
+                } else ""
+
+                // Step 3 — RAG retrieval: prepend uploaded-document matches alongside
+                // any web search context. Graceful: "" when unconfigured or on failure.
+                val ragContext = if (currentPersona.ragEnabled) fetchRagContext(inputText) else ""
+                val contextPrefix = listOf(searchContext, ragContext).filter { it.isNotEmpty() }.joinToString("\n\n")
+
+                var lastEx: Exception? = null
+                for (gw in gwsToTry.distinct()) {
+                    val base = gw.url
+                    // Scale read timeout with maxTokens to handle long processing/reasoning
+                    val currentClient = getDynamicClient(currentPersona, useStandard = false)
+
+                    val finalRequestBody = if (contextPrefix.isNotEmpty()) {
+                        val promptContext = "$contextPrefix\n\n"
+
+                        // Rebuild request body with search context PREPENDED to input text
+                        MultipartBody.Builder().setType(MultipartBody.FORM).apply {
+                            addFormDataPart("text", "${promptContext}Current date and time: $currentDateTime\n\nQuestion: $modelText")
+                            addFormDataPart("model", actualModel)
+                            addFormDataPart("backend_url", bUrl)
+                            addFormDataPart("temperature", currentPersona.temperature.toString())
+                            addFormDataPart("top_p", currentPersona.topP.toString())
+                            addFormDataPart("top_k", currentPersona.topK.toString())
+                            addFormDataPart("repeat_penalty", currentPersona.repeatPenalty.toString())
+                            addFormDataPart("num_ctx", currentPersona.numCtx.toString())
+
+                            if (currentPersona.isTranslator) {
+                                addFormDataPart("target_language", currentPersona.targetLanguage)
+                            }
+
+                            }.build()
+                    } else requestBody
+
+                    val requestBuilder = Request.Builder()
+                        .url(if (currentPersona.isTranslator) "$base/translate" else "$base/text-chat")
+                        .post(finalRequestBody)
+
+                    if (!gw.username.isNullOrBlank()) {
+                        requestBuilder.header("Authorization", Credentials.basic(gw.username, gw.password ?: ""))
+                    }
+
+                    val call = currentClient.newCall(requestBuilder.build())
+                    currentCall = call
+                    try {
+                        call.execute().use { response ->
+                            if (!response.isSuccessful) throw Exception("Server error: ${response.code}")
+
+                            val contentType = response.header("Content-Type") ?: ""
+                            _lastWorkingBase.value = base
+
+                            // Update status to working
+                            withContext(Dispatchers.Main) {
+                                val statusMap = _serverStatus.value.toMutableMap()
+                                val matched = _serverBases.value.find { it.url == base } ?:
+                                              _ollamaBaseUrls.value.find { it.url == base }
+                                matched?.let { statusMap[it.url] = "Online" }
+                                _serverStatus.value = statusMap
+                            }
+
+                            if (contentType.contains("application/json")) {
+                                val body = response.body.string()
+                                val json = JSONObject(body)
+                                // The /translate JSON shape has 'translated_text'
+                                val rText = if (json.has("translated_text")) {
+                                    val txt = json.getString("translated_text")
+                                    val note = json.optString("note", "")
+                                    if (note.isNotEmpty()) "$txt\n\n($note)" else txt
+                                } else {
+                                    response.decodeTextHeader("X-Response-Text-B64", "...")
+                                }
+                                // Fix #5: clean markdown for TTS on IO — the cleaned variant
+                                // feeds the on-device engines (4th element); the chat
+                                // bubble/history keep the original markdown.
+                                val cleanedForTts = cleanTextForTts(rText)
+                                return@withContext listOf(rText, null, null, cleanedForTts)
+                            } else {
+                                val rText = response.decodeTextHeader("X-Translated-Text-B64",
+                                    response.decodeTextHeader("X-Response-Text-B64", "..."))
+                                val bytes = response.body.bytes()
+                                // Fix #5: clean markdown for TTS on IO (see the JSON branch).
+                                val cleanedForTts = cleanTextForTts(rText)
+                                return@withContext listOf(rText, null, if (useDeviceVoice) null else bytes, cleanedForTts)
+                            }
+                        }
+                    } catch (e: Exception) {
+                        if (call.isCanceled()) throw java.io.IOException("Cancelled")
+
+                        // A3: mark failed (with cooldown).
+                        val failureLabel = if (e is okhttp3.internal.http2.StreamResetException || (e.message?.contains("HTTP ") == true || e.message?.contains("Server error:") == true)) {
+                            e.message?.take(30)
+                        } else if (e is java.net.ConnectException || e is java.net.SocketTimeoutException || e is java.net.UnknownHostException) {
+                            "connection/timeout"
+                        } else {
+                            e.message?.take(30)
+                        }
+                        withContext(Dispatchers.Main) {
+                            val statusMap = _serverStatus.value.toMutableMap()
+                            val matched = _serverBases.value.find { it.url == base } ?:
+                                          _ollamaBaseUrls.value.find { it.name == base || it.url == base }
+                            matched?.let { cfg ->
+                                statusMap[cfg.url] = "failed: $failureLabel"
+                                serverFailCooldownUntilMillis[cfg.url] = System.currentTimeMillis() + FAILED_COOLDOWN_MS
+                            }
+                            _serverStatus.value = statusMap
+                        }
+
+                        lastEx = e
+                    }
+                }
+                throw lastEx ?: Exception("All connection attempts failed")
+            }
+            // A2/B1: apply the response only if the context is unchanged.
+            if (!isChatRequestCurrent(generation)) {
+                android.util.Log.d("AssistantService", "Chat response discarded — superseded by a newer request (gen $generation)")
+                return@launch
+            }
+            // A6: this flow's network call has finished. Clear the in-flight reference
+            // before applying (or discarding for a persona change) so currentCall never
+            // points at a completed call. Safe here because no newer request exists,
+            // so currentCall cannot belong to another flow.
+            currentCall = null
+            if (!isChatContextCurrent(generation, personaName)) {
+                android.util.Log.d("AssistantService", "Chat response discarded — active persona changed (gen $generation)")
+                return@launch
+            }
+            val (rText, reasoning, bytes, cleanedForTts) = responseData as List<Any?>
+            val responseTimeMs = System.currentTimeMillis() - startTime
+            val audioPath = if (bytes != null && !useDeviceVoice) {
+                val outFile = cacheDir.toPath().resolve("response_${System.currentTimeMillis()}.wav")
+                Files.write(outFile, bytes as ByteArray)
+                outFile.toString()
+            } else null
+
+            // Stage-1 streaming: when this turn streamed, the trailing assistant
+            // placeholder is already in the list with the content built up —
+            // finalize it IN PLACE (single final write; never a second append).
+            // H3: consume/finalize only OUR OWN placeholder (null ⇒ a newer turn owns it,
+            // or this one was superseded — fall back to a plain append, never a wrong-index
+            // in-place finalize).
+            val streamedIdx = takeStreamedPlaceholderIfOwned(generation)
+            clearStreamingTextIfOwned(generation)
+            if (streamedIdx != null && streamedIdx < sink.size()) {
+                sink.updateAt(streamedIdx) { m -> m.copy(
+                    text = rText as String,
+                    reasoning = reasoning as? String,
+                    audioFilePath = audioPath,
+                    responseTimeMs = responseTimeMs
+                ) }
+            } else {
+                sink.append(ChatMessage(
+                    "assistant", rText as String, reasoning as? String,
+                    audioFilePath = audioPath, responseTimeMs = responseTimeMs
+                ))
+            }
+            saveSettings()
+
+            if (useDeviceVoice) {
+                playbackRequested = true
+                playResponse(currentPersona, deviceText = cleanedForTts as String)
+            } else if (audioPath != null) {
+                playbackRequested = true
+                playResponse(currentPersona, file = Path.of(audioPath))
+            } else if (currentPersona.voiceMode == VoiceMode.GATEWAY) {
+                // Stage-2 streaming TTS: gateway mode with deferred synthesis.
+                // The full text was NOT pre-synthesized; use the chunked
+                // sequential pipeline (synthesize chunk 0, play, synthesize
+                // chunk 1 while playing, etc.) for dramatically lower
+                // first-audio latency on long responses.
+                playbackRequested = true
+                playChunkedTtsGateway(rText as String, currentPersona, ttsGeneration)
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: StreamCancelledByUserException) {
+            // D2: Stop interrupted a mid-stream text turn — the trailing
+            // placeholder already holds the partial text (updated per chunk);
+            // persist it as genuine history. No TTS (partial only).
+            // H3: ownership first (see the voice flow) — a superseded turn must not
+            // persist its stale partial, and must not clear a newer turn's in-flight
+            // placeholder/published text.
+            if (!isChatRequestCurrent(generation)) {
+                android.util.Log.d("AssistantService", "Stream cancelled — superseded by a newer request; partial discarded")
+            } else if (currentPersonaName == personaName && e.partialContent.isNotBlank()) {
+                saveSettings()
+            } else {
+                removeBlankPlaceholderSvc(generation)
+            }
+            releaseStreamedPlaceholderIfOwned(generation)
+            clearStreamingTextIfOwned(generation)
+            android.util.Log.d("AssistantService", "Stream cancelled by user — partial kept (${e.partialContent.length} chars)")
+            currentCall = null
+        } catch (e: StreamPersonaChangedException) {
+            // Partial already written back into the previous persona's persisted
+            // history inside performDirectOllamaChat — nothing to apply here.
+            // H3: still ownership-gated, so an unwind from an older turn can never
+            // clear a newer turn's in-flight placeholder or published text.
+            releaseStreamedPlaceholderIfOwned(generation)
+            clearStreamingTextIfOwned(generation)
+            android.util.Log.d("AssistantService", "Stream cancelled — persona changed; partial kept in previous persona history")
+            currentCall = null
+        } catch (e: Exception) {
+            if (!isChatRequestCurrent(generation)) {
+                android.util.Log.d("AssistantService", "Chat request superseded by a newer request — discarding failure: ${e.message}")
+            } else if (isUserCancellation(e)) {
+                // A5: the user deliberately stopped this request — no error bubble.
+                android.util.Log.d("AssistantService", "Chat request cancelled by user — no error bubble")
+                currentCall = null
+            } else {
+                android.util.Log.e("AssistantService", "Chat failed", e)
+                if (isChatContextCurrent(generation, personaName)) {
+                    sink.append(ChatMessage("assistant", "Error: ${e.message ?: "Unknown error"}", isError = true))
+                } else {
+                    android.util.Log.d("AssistantService", "Persona changed during request — discarding failure message: ${e.message}")
+                }
+                currentCall = null
+            }
+        } finally {
+            // H3: ownership-gated everywhere — an unwinding OLDER turn must never
+            // remove/clear a NEWER turn's placeholder (that was the duplicated-bubble
+            // path). Non-owner is a no-op; the owner clears once.
+            removeBlankPlaceholderSvc(generation)
+            releaseStreamedPlaceholderIfOwned(generation)
+            clearStreamingTextIfOwned(generation)
+            if (_state.value == AssistantState.THINKING && isChatRequestCurrent(generation)) {
+                // Deleted here: the audio-focus retention this flag existed to manage (PLAN.md §9).
+                //
+                // Upstream *retained* the focus request through THINKING when playback was going to
+                // follow, and released it here when it was not — so that other applications' music did
+                // not un-duck for the two to five seconds of transcription and then duck again. There
+                // is no ducking on this platform and no focus to release, so `abandonAssistantFocus()`
+                // and the `playbackRequested` flag that gated it are both gone: the flag had exactly
+                // one reader, and it was the release.
+                //
+                // What the flag was protecting is still enforced, one branch down: a turn that ends
+                // here leaves THINKING and lands in IDLE.
+                // M2: leaving THINKING — release state ownership (see stopVadListening()).
+                clearThinkingOwnerIfOwned(generation)
+                _state.value = AssistantState.IDLE
+                updateNotification("Ready to help")
+            }
+        }
+    }
+}
+
+internal fun AssistantService.fetchModels(config: ServerConfig? = null) {
+    val targets = if (config != null) listOf(config) else _ollamaBaseUrls.value
+    if (targets.isEmpty()) return
+    incrementModelFetchCount()
+
+    serviceScope.launch(Dispatchers.IO) {
+        // L3: the in-flight counter was incremented above, so EVERY exit from this
+        // coroutine must release it. The completion block at the end of the body can throw
+        // (and a cancellation skips it entirely), which used to leave _isLoadingModels stuck
+        // true — the spinner would spin for the rest of the session. Mirroring
+        // fetchCloudModels, the whole body is wrapped in try/finally with a single
+        // Main-confined decrement point. No catch clause is needed here: the per-target loop
+        // already contains its own failures, so nothing else in this body is expected to
+        // throw, and swallowing surprises silently would hide them.
+        try {
+
+            // B3 (chat) fix: do NOT snapshot _serverStatus/_fetchedLocalModels at coroutine
+            // start and write them back wholesale at the end — two overlapping fetchModels
+            // calls for different servers would then let the second-finishing call clobber
+            // the first's results with its own stale snapshot. Instead, each iteration
+            // collects results for JUST its own targets, and the completion block updates
+            // only those specific entries in the LIVE state (read-modify-write), so a
+            // concurrent call for another server keeps its own updates untouched.
+            val perTargetResults = linkedMapOf<String, Pair<String, List<String>?>>() // url -> (status, models or null)
+    
+            for (target in targets) {
+                perTargetResults[target.url] = "Could not connect to server" to null
+                var base = target.url.trim().removeSuffix("/")
+                if (base.endsWith("/v1")) base = base.removeSuffix("/v1")
+                if (base.endsWith("/api")) base = base.removeSuffix("/api")
+    
+                val endpoints = listOf("$base/api/tags", "$base/v1/models")
+                var success = false
+                var lastErrorMessage = "Could not connect to server"
+    
+                for (url in endpoints) {
+                    if (success) break
+                    try {
+                        val requestBuilder = Request.Builder().url(url)
+                        if (!target.username.isNullOrBlank()) {
+                            requestBuilder.header("Authorization", Credentials.basic(target.username, target.password ?: ""))
+                        }
+    
+                        fastClient.newCall(requestBuilder.build()).execute().use { response ->
+                            if (response.isSuccessful) {
+                                val body = response.body.string()
+                                val json = JSONObject(body)
+                                val serverModels = mutableListOf<String>()
+    
+                                if (url.endsWith("/api/tags")) {
+                                    val modelsArray = json.optJSONArray("models")
+                                    if (modelsArray != null) {
+                                        for (i in 0 until modelsArray.length()) {
+                                            serverModels.add(modelsArray.getJSONObject(i).getString("name"))
+                                        }
+                                        success = true
+                                    }
+                                } else {
+                                    val dataArray = json.optJSONArray("data")
+                                    if (dataArray != null) {
+                                        for (i in 0 until dataArray.length()) {
+                                            serverModels.add(dataArray.getJSONObject(i).getString("id"))
+                                        }
+                                        success = true
+                                    }
+                                }
+                                if (success) {
+                                    perTargetResults[target.url] = "Online" to serverModels.map { "[${target.name}] $it" }
+                                }
+                            } else {
+                                lastErrorMessage = when (response.code) {
+                                    401 -> "Unauthorized"
+                                    else -> "Server error: ${response.code}"
+                                }
+                            }
+                        }
+                    } catch (e: Exception) {
+                        lastErrorMessage = "failed: offline"
+                    }
+                }
+                if (!success) {
+                    perTargetResults[target.url] = lastErrorMessage to null
+                }
+            }
+    
+            withContext(Dispatchers.Main) {
+                // B3: apply only our targets' entries into the LIVE maps, never a stale
+                // full-map snapshot, so an overlapping fetch for a different server's
+                // results are preserved.
+                var localModelsMap = _fetchedLocalModels.value.toMutableMap()
+                for ((url, result) in perTargetResults) {
+                    val (status, models) = result
+                    val targetName = targets.firstOrNull { it.url == url }?.name ?: continue
+                    if (models != null) {
+                        localModelsMap[targetName] = models
+                    } else {
+                        localModelsMap.remove(targetName)
+                    }
+                    var statusMap = _serverStatus.value.toMutableMap()
+                    statusMap[url] = status
+                    _serverStatus.value = statusMap
+                }
+                _fetchedLocalModels.value = localModelsMap
+                _availableModels.value = localModelsMap.values.flatten().distinct()
+            }
+        } finally {
+            // L3/M1: the single decrement point for every exit of this coroutine — normal
+            // completion, a throw, or a cancellation. Unlike fetchCloudModels this one is
+            // reached with the counter Main-confined by construction (increment on Main,
+            // decrement here on Main).
+            withContext(Dispatchers.Main) { decrementModelFetchCount() }
+        }
+    }
+}
+
+private fun AssistantService.isCloudModel(model: String): Boolean {
+    val m = model.trim()
+    if (!m.startsWith("[") || !m.contains("] ")) return false
+    val providerName = m.substring(1, m.indexOf("]"))
+
+    // Check if the provider name matches any of our registered cloud/custom APIs
+    return _cloudApis.value.any { it.name == providerName } ||
+           _customCloudApis.value.any { it.name == providerName }
+}
+
+internal fun AssistantService.performCloudChat(text: String, persona: Persona, useDeviceVoice: Boolean = false, startTime: Long, currentTurnInHistory: Boolean, generation: Long, attachments: List<Path> = emptyList(), imagePath: String? = null, turnContext: TurnContext = TurnContext.Default, allowPlayback: Boolean = true): Job {
+    return serviceScope.launch {
+        // M2: this turn owns the THINKING state it sets here (see stopVadListening()).
+        recordThinkingOwner(generation)
+        _state.value = AssistantState.THINKING
+        updateNotification("Thinking (Cloud)...")
+        // Focus-retention guard (same contract as sendAudioToServer): a voice
+        // turn that reaches here retained its focus through THINKING — release
+        // it in the finally below if playback was never handed off.
+        var playbackRequested = false
+        // Phase 0: resolved ONCE, at launch scope, so the failure path below writes its
+        // error bubble to the same transcript as the success path (a room turn must never
+        // drop a failure into the single-chat conversation). (Explicit receiver label:
+        // inside serviceScope.launch, bare `this` binds to the CoroutineScope.)
+        val sink = turnContext.sinkOrDefault(this@performCloudChat)
+        try {
+            val responseData = withContext(Dispatchers.IO) {
+                val providerName = if (persona.model.startsWith("[") && persona.model.contains("] ")) {
+                    persona.model.substring(1, persona.model.indexOf("]"))
+                } else ""
+
+                val apiSetting = (_cloudApis.value + _customCloudApis.value).find { it.name == providerName }
+                    ?: throw Exception("No config for provider '$providerName'")
+
+                if (apiSetting.apiKey.isBlank() && apiSetting.icon != "C") throw Exception("API Key for ${apiSetting.name} is missing")
+                val request = buildCloudRequest(apiSetting, persona, text, currentTurnInHistory, attachments, imagePath, turnContext)
+                // A6: track the call so the Stop button can cancel cloud requests too
+                // (previously execute() was called on an untracked Call).
+                val call = getDynamicClient(persona).newCall(request)
+                currentCall = call
+                try {
+                    call.execute().use { response ->
+                        val bodyStr = response.body.string()
+                        if (!response.isSuccessful) {
+                            val detail = try { JSONObject(bodyStr).optJSONObject("error")?.optString("message") } catch (e: Exception) { null }
+                            throw Exception("Error ${response.code}: ${detail ?: bodyStr.take(200)}")
+                        }
+                        val (responseText, reasonText, usage) = parseCloudResponse(apiSetting, persona, bodyStr)
+                        withContext(Dispatchers.Main) {
+                            val currentUsage = _sessionUsage.value
+                            _sessionUsage.value = UsageInfo(currentUsage.promptTokens + usage.promptTokens, currentUsage.completionTokens + usage.completionTokens, currentUsage.totalTokens + usage.totalTokens, currentUsage.cost + usage.cost)
+                            _totalCost.value += usage.cost
+                            saveSettings()
+                        }
+                        // Fix #5: clean markdown for TTS here, on IO — the cleaned variant
+                        // feeds the on-device engines (3rd element); the chat bubble/history
+                        // keep the original markdown.
+                        val cleanedForTts = cleanTextForTts(responseText)
+                        Triple(responseText, reasonText, cleanedForTts)
+                    }
+                } finally {
+                    // A6: clear the in-flight reference on success AND failure — but only
+                    // if it's still this flow's call (a newer request may have replaced it).
+                    if (currentCall === call) currentCall = null
+                }
+            }
+            val responseTimeMs = System.currentTimeMillis() - startTime
+            // A2/B1: apply only if this is still the newest request for this persona.
+            if (!isChatRequestCurrent(generation)) {
+                android.util.Log.d("AssistantService", "Cloud response discarded — superseded by a newer request (gen $generation)")
+                return@launch
+            }
+            // Phase 2: the active-persona half of the context check is a single-chat
+            // question — a room speaker is never the active persona, so asking it would
+            // discard every room reply. The round's generation (checked just above) is
+            // the room turn's ownership test.
+            if (turnContext.isSingleChat && !isChatContextCurrent(generation, persona.name)) {
+                android.util.Log.d("AssistantService", "Cloud response discarded — active persona changed (gen $generation)")
+                return@launch
+            }
+            // Phase 0: cloud turns are non-streaming, so the apply block only ever
+            // appends — but it writes to the same sink the rest of the turn uses
+            // (resolved at launch scope above).
+            // Phase 2 (allowPlayback): a room round is text-only, so allowPlayback=false
+            // suppresses BOTH playback branches below — and, with the gateway branch, the
+            // synthesis request itself — and the reply lands as a plain text bubble
+            // attributed to the speaker. No call site passes useDeviceVoice together with
+            // allowPlayback=false today; the flag is checked on both branches anyway so no
+            // future caller can leak a playResponse call out of a room round. The default
+            // (true) leaves every pre-existing call site behaviorally identical.
+            if (useDeviceVoice && allowPlayback) {
+                sink.append(ChatMessage("assistant", responseData.first, responseData.second, responseTimeMs = responseTimeMs))
+                saveSettings()
+                playbackRequested = true
+                playResponse(persona, deviceText = responseData.third)
+            } else if (persona.voiceMode == VoiceMode.GATEWAY && allowPlayback) {
+                // M1: synthesis authenticates with the persona's gateway entry, so
+                // resolve it first and make a resolution failure VISIBLE. Previously an
+                // unmatched Backend URL fell back to a credential-less config, the
+                // request 401'd, synthesizeWithGateway swallowed it as "no audio" and
+                // the reply was appended but silently never spoken — a paid turn with
+                // no audio and no explanation. The text still lands in the transcript
+                // (nothing is thrown here), followed by an error bubble naming the
+                // misconfiguration.
+                val ttsGatewayResolved = findGatewayConfig(persona.backendUrl) != null
+                val (audioBytes, _) = synthesizeWithGateway(responseData.first, persona)
+                val audioPath = if (audioBytes != null) {
+                    val outFile = cacheDir.toPath().resolve("response_${System.currentTimeMillis()}.wav")
+                    Files.write(outFile, audioBytes)
+                    outFile.toString()
+                } else null
+
+                sink.append(ChatMessage("assistant", responseData.first, responseData.second, audioFilePath = audioPath, responseTimeMs = responseTimeMs))
+                saveSettings()
+
+                if (audioPath != null) {
+                    playbackRequested = true
+                    playResponse(persona, file = Path.of(audioPath))
+                } else if (!ttsGatewayResolved) {
+                    // No synthesis request was sent at all — say why, at the point of use.
+                    sink.append(ChatMessage(
+                        "assistant",
+                        "Error: no configured gateway matches this persona's Backend URL " +
+                            "'${persona.backendUrl}', so the reply could not be spoken. Fix the Backend URL in " +
+                            "the persona settings (or add the gateway in Servers), then resend.",
+                        isError = true
+                    ))
+                    saveSettings()
+                }
+            } else {
+                sink.append(ChatMessage("assistant", responseData.first, responseData.second, responseTimeMs = responseTimeMs))
+                saveSettings()
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            if (!isChatRequestCurrent(generation)) {
+                android.util.Log.d("AssistantService", "Cloud chat request superseded — discarding failure: ${e.message}")
+            } else if (isUserCancellation(e)) {
+                // A5: the user deliberately stopped this request — no error bubble.
+                android.util.Log.d("AssistantService", "Cloud chat request cancelled by user — no error bubble")
+            } else {
+                // Phase 2: for a room turn the context question is the round's generation
+                // (already checked above), not the active persona — the failure bubble is
+                // attributed by the room sink, which is bound to the speaker.
+                if (!turnContext.isSingleChat || isChatContextCurrent(generation, persona.name)) {
+                    sink.append(ChatMessage("assistant", "Error: ${e.message}", isError = true))
+                } else {
+                    android.util.Log.d("AssistantService", "Persona changed during cloud request — discarding failure message: ${e.message}")
+                }
+            }
+        } finally {
+            if (_state.value == AssistantState.THINKING && isChatRequestCurrent(generation)) {
+                // Deleted here: the audio-focus retention this flag existed to manage (PLAN.md §9).
+                //
+                // Upstream *retained* the focus request through THINKING when playback was going to
+                // follow, and released it here when it was not — so that other applications' music did
+                // not un-duck for the two to five seconds of transcription and then duck again. There
+                // is no ducking on this platform and no focus to release, so `abandonAssistantFocus()`
+                // and the `playbackRequested` flag that gated it are both gone: the flag had exactly
+                // one reader, and it was the release.
+                //
+                // What the flag was protecting is still enforced, one branch down: a turn that ends
+                // here leaves THINKING and lands in IDLE.
+                // M2: leaving THINKING — release state ownership (see stopVadListening()).
+                clearThinkingOwnerIfOwned(generation)
+                _state.value = AssistantState.IDLE
+                updateNotification("Ready to help")
+            }
+        }
+    }
+}
+
+// Phase 0 (multi-persona Rooms groundwork): what ONE turn is allowed to see as
+// context. The defaults reproduce the historical single-chat behavior exactly —
+// history comes from the active persona's _messages transcript and no extra
+// system-prompt text is added — so every existing call site (text flow, voice
+// flow, cloud) is behaviorally unchanged. A room turn passes its own transcript
+// and its room-preamble suffix here instead; backend routing itself is untouched
+// and stays a property of the Persona.
+internal data class TurnContext(
+    val history: List<ChatMessage>? = null,
+    val systemPromptSuffix: String = "",
+    // Phase 0: where this turn's own transcript writes land. Null ⇒ the single-chat
+    // `_messages` transcript, i.e. exactly the pre-Rooms behavior. A room turn passes
+    // its own sink so the identical pipeline writes into the room transcript.
+    val sink: TurnSink? = null
+) {
+    /**
+     * Phase 2: true when this turn writes into the single-chat transcript, i.e. exactly
+     * when "the ACTIVE persona is still this turn's persona" (`isChatContextCurrent`) is
+     * the right question to ask before applying a response.
+     *
+     * A room turn supplies its own [sink] and its speaker is by definition NOT the active
+     * persona, so that guard is false for it by construction and would discard every room
+     * reply (and, in the streaming path, abort the stream mid-flight). Ownership for a
+     * room turn is decided by its round generation alone (`isChatRequestCurrent`), which
+     * is bumped by Stop and by every newer round.
+     */
+    val isSingleChat: Boolean get() = sink == null
+
+    companion object {
+        val Default = TurnContext()
+    }
+}
+
+internal suspend fun AssistantService.performDirectOllamaChat(baseUrl: String, model: String, text: String, persona: Persona, currentTurnInHistory: Boolean, generation: Long, attachments: List<Path> = emptyList(), imagePath: String? = null, turnContext: TurnContext = TurnContext.Default): Triple<String, String?, ByteArray?> {
+    // Resolve backend URL: fallback if empty or mistakenly pointing to a gateway (8880)
+    val stripped = baseUrl.trim()
+    val resolvedBackend = if (stripped.isBlank() || stripped.contains(":8880")) {
+        _ollamaBaseUrls.value.firstOrNull()?.url ?: ""
+    } else {
+        stripped.removeSuffix("/")
+    }
+
+    if (resolvedBackend.isBlank()) throw Exception("No Ollama server configured")
+
+    val url = if (resolvedBackend.endsWith("/api/chat")) resolvedBackend else "${resolvedBackend.trimEnd('/')}/api/chat"
+    val json = JSONObject()
+    json.put("model", model)
+    // Stage-1 streaming: NDJSON deltas so the UI can render the response as it
+    // is generated. Each line carries message.content (and message.thinking
+    // for reasoning models); the final line carries done=true plus usage stats.
+    json.put("stream", true)
+
+    // A-attachments: the model-facing prompt includes extracted file content. The
+    // original `text` is still used for search/news below.
+    val modelText = buildModelPrompt(text, attachments)
+
+    val msgsArray = org.json.JSONArray()
+    if (persona.isTranslator) {
+        msgsArray.put(JSONObject().put("role", "system").put("content", "You are a translation engine. Translate the user's text into the requested target language. Return ONLY the translation, no explanations, no extra commentary."))
+        msgsArray.put(JSONObject().put("role", "user").put("content", "Translate the following text to ${persona.targetLanguage}: $modelText"))
+    } else {
+        // Context injection
+        val finalSystemPrompt = composeSystemPrompt(
+            persona = persona,
+            currentDateTime = getCurrentDateTimeString(),
+            searchContext = if (isNewsRequest(text)) {
+                fetchNewsContext()
+            } else if (persona.webSearchEnabled) {
+                fetchWebSearchContext(text)
+            } else "",
+            // Step 3 — RAG retrieval: prepend uploaded-document matches alongside
+            // any web search context. Graceful: "" when unconfigured or on failure.
+            ragContext = if (persona.ragEnabled) fetchRagContext(text) else "",
+            // Phase 0: room preamble (if any) rides at the END of the persona's own
+            // system prompt — the persona's prompt keeps governing its response — and
+            // is appended BEFORE the budget math so resolveHistoryBudget accounts for it.
+            suffix = buildList {
+                add(turnContext.systemPromptSuffix)
+                // Only on the stamped Direct-Ollama path, and only there: buildCloudRequest
+                // composes no such suffix, so a cloud or gateway request stays byte-identical.
+                if (persona.stampsHistoryWithTimestamps(ollamaServerNames(), cloudProviderNames())) {
+                    add(MODEL_STAMP_INSTRUCTION)
+                }
+            }.filter { it.isNotBlank() }.joinToString("\n\n")
+        )
+
+        // Add system prompt first
+        // S4: contains the full system prompt (plus injected search/news context) — debug only.
+        if (appEnv.debugLogging) android.util.Log.d("AssistantService", "DEBUG SYSTEM PROMPT: $finalSystemPrompt")
+        msgsArray.put(JSONObject().put("role", "system").put("content", finalSystemPrompt))
+
+        // Budget-aware history selection
+        val contextWindow = persona.numCtx // Fix #3 (sibling): was hardcoded 8192 — keep the client-side trim in sync with the num_ctx this request sends to the server
+        val reservedOutput = persona.maxTokens.coerceAtLeast(1024)
+        // Fix #6 (numCtx overflow): shared budget math + pre-flight refusal — see
+        // resolveHistoryBudget(). Throws (and sends nothing) when the system prompt,
+        // this message/attachment and the reserved output alone already exceed the
+        // window, since no history trimming can make such a request fit.
+        val budget = resolveHistoryBudget(contextWindow, reservedOutput, finalSystemPrompt, modelText)
+
+        // A1: positional slice — the caller says whether the current user turn is
+        // already the last entry in _messages (text flow appends it before the
+        // request; the voice flow does not). No text-content matching.
+        val allNonError = (turnContext.history ?: _messages.value).filter { !it.isError }
+        val historySource = if (currentTurnInHistory && allNonError.isNotEmpty()) allNonError.dropLast(1) else allNonError
+
+        // Per-message timestamps, for a LOCAL model only. This request is assembled BY the app
+        // and its history reaches the model with no idea when anything was said; a local model
+        // is also the one that can actually be helped by knowing "that was three days ago".
+        //
+        // Applied HERE — before `budgetedHistory`, never after — so each prefix is counted by
+        // the same token estimate as the text it prefixes. That is the whole point of the
+        // placement: an overlong history is trimmed harder to make room for the stamps, exactly
+        // as it is for the words, instead of quietly going over the window. The fixed-part
+        // refusal in `resolveHistoryBudget` above is untouched by this (it measures the system
+        // prompt and the current message, neither of which is stamped).
+        //
+        // The gate is `stampsHistoryWithTimestamps` — the SAME direct-Ollama distinction Rooms
+        // and Spontaneous messages read (`Persona.requestRouting`), not a second local-vs-cloud
+        // test that could drift from the router.
+        //
+        // And the EXCLUSION is structural, not a flag: this is the Direct-Ollama builder.
+        // `buildCloudRequest`, the other budgeted builder, never calls this, so a cloud
+        // persona's history cannot pick the prefixes up by anything being forgotten here.
+        val stampedHistorySource =
+            if (persona.stampsHistoryWithTimestamps(ollamaServerNames(), cloudProviderNames())) {
+                historySource.map { it.copy(text = it.historyTextWithTimestamp()) }
+            } else {
+                historySource
+            }
+
+        val history = budgetedHistory(stampedHistorySource, budget)
+
+        android.util.Log.d("AssistantService", "Ollama Budget: history=${history.size}, budget=$budget")
+        history.forEachIndexed { i, msg -> android.util.Log.d("AssistantService", "DEBUG history[$i] role=${msg.role} preview=${msg.text.take(100)}") }
+
+        history.forEach { msg ->
+            msgsArray.put(JSONObject().put("role", msg.role).put("content", msg.text))
+        }
+
+        // A1: the current user turn is ALWAYS appended — repeated inputs must reach
+        // the model as new turns even when identical text exists earlier in history.
+        val currentMsg = JSONObject().put("role", "user").put("content", modelText)
+        val base64Image = encodeImageToBase64(imagePath)
+        if (base64Image != null) {
+            currentMsg.put("images", JSONArray().put(base64Image))
+        }
+        msgsArray.put(currentMsg)
+    }
+
+    json.put("messages", msgsArray)
+
+    val payload = json.toString()
+    if (appEnv.debugLogging) {
+        Log.d("Vision", "Direct Ollama payload: ${payload.take(500)}... [length: ${payload.length}]")
+    }
+
+    val options = JSONObject()
+    options.put("temperature", persona.temperature)
+    options.put("top_p", persona.topP)
+    options.put("top_k", persona.topK)
+    options.put("repeat_penalty", persona.repeatPenalty)
+    options.put("num_ctx", persona.numCtx)
+    // Debug-only: per-request reasoning trace (fires once per direct-Ollama completion).
+    // Kept gated — useful with the thinking-aware read-timeout multiplier in getDynamicClient.
+    if (appEnv.debugLogging) android.util.Log.d("AssistantService", "DEBUG: persona.name=${persona.name} enableThinking=${persona.enableThinking} isKnownThinking=${isKnownThinkingModel(model)}")
+    options.put("think", persona.enableThinking && isKnownThinkingModel(model))
+    options.put("num_predict", persona.maxTokens)
+
+    json.put("options", options)
+
+    val requestBuilder = Request.Builder()
+        .url(url)
+        .post(json.toString().toRequestBody("application/json".toMediaType()))
+
+    _ollamaBaseUrls.value.find { it.url == resolvedBackend }?.let { config ->
+        when (config.effectiveAuthType) {
+            AuthType.NONE -> { /* no Authorization header */ }
+            AuthType.BASIC -> if (!config.username.isNullOrBlank()) {
+                requestBuilder.header("Authorization", Credentials.basic(config.username, config.password ?: ""))
+            }
+            AuthType.API_KEY -> if (!config.apiKey.isNullOrBlank()) {
+                requestBuilder.header("Authorization", "Bearer ${config.apiKey}")
+            }
+        }
+    }
+
+    // A6: track direct-Ollama calls so the Stop button cancels them too (previously
+    // execute() was called on an untracked Call, so direct-Ollama never cancelled).
+    val call = getDynamicClient(persona).newCall(requestBuilder.build())
+    currentCall = call
+    try {
+        call.execute().use { response ->
+            if (!response.isSuccessful) throw Exception("Ollama error: ${response.code}")
+
+            // Stage-1 streaming: read the NDJSON line by line. Each line carries
+            // an incremental message.content delta (and message.thinking deltas
+            // for reasoning models); the final line carries done=true plus
+            // usage stats (eval_count / prompt_eval_count / total_duration).
+            // Those stats are logged only — nothing in the app currently
+            // consumes them (context budget is client-side estimateTokens;
+            // cost tracking is cloud-API-only), so moving them to the last
+            // NDJSON line breaks nothing.
+            val source = response.body.source()
+            val content = StringBuilder()
+            val thinkingBuf = StringBuilder()
+            var placeholderAppended = false
+            // Phase 0: this turn's transcript writes go to the sink its TurnContext
+            // names (the single-chat `_messages` for every pre-existing call site).
+            // (Explicit receiver label: bare `this` would bind to an enclosing
+            // withContext/lambda receiver, not the service.)
+            val sink = turnContext.sinkOrDefault(this@performDirectOllamaChat)
+
+            fun appendPlaceholderIfNeeded() {
+                if (placeholderAppended) return
+                val idx = sink.append(ChatMessage("assistant", ""))
+                // H3: record this generation as the placeholder's owner, so a
+                // superseded turn unwinding later cannot claim/clear it.
+                adoptStreamedPlaceholder(generation, idx)
+                placeholderAppended = true
+            }
+
+            fun updatePlaceholder() {
+                // H3: only ever update OUR OWN placeholder — a stale turn must not
+                // rewrite a newer turn's in-progress bubble (that produced the
+                // "content jumps to the other turn's partial text" symptom).
+                if (!ownsStreamedPlaceholderSvc(generation)) return
+                val idx = streamedPlaceholderIndex ?: return
+                sink.updateAt(idx) { it.copy(
+                    // displaySafeStreamedReply, not the raw buffer: this is the ONLY path
+                    // that could ever put a model-written stamp on screen mid-stream, and
+                    // it holds the text while a stamp is still forming so "[Oct 3, 20"
+                    // never blinks in and out. Complete stamps are stripped here, so the
+                    // bubble never shows the doubled stamp the reporter saw either.
+                    text = displaySafeStreamedReply(content.toString()),
+                    reasoning = thinkingBuf.toString().ifBlank { null }
+                ) }
+            }
+
+            fun removeBlankPlaceholder() {
+                // H3: gated on recorded ownership — the old unconditional body cleared
+                // streamedPlaceholderIndex even when the index belonged to a newer
+                // turn, which stranded that turn's empty bubble in the transcript.
+                // Recorded (not currency) so this turn can still drop its OWN blank
+                // bubble on a mid-stream network failure even if it was superseded.
+                if (!ownsStreamedPlaceholderRecord(generation)) return
+                val idx = streamedPlaceholderIndex ?: return
+                if (sink.peek(idx)?.text?.isBlank() == true) {
+                    sink.removeAt(idx)
+                }
+                releaseStreamedPlaceholderIfOwned(generation)
+            }
+
+            try {
+                while (true) {
+                    val line = source.readUtf8Line() ?: break
+                    if (line.isBlank()) continue
+                    val obj = JSONObject(line)
+                    if (obj.optBoolean("done", false)) {
+                        if (appEnv.debugLogging) android.util.Log.d(
+                            "AssistantService",
+                            "Ollama stream done: eval_count=${obj.optInt("eval_count", -1)}, " +
+                                "prompt_eval_count=${obj.optInt("prompt_eval_count", -1)}, " +
+                                "total_duration_ms=${obj.optLong("total_duration", -1L) / 1_000_000L}"
+                        )
+                        break
+                    }
+                    val msgObj = obj.optJSONObject("message") ?: continue
+                    val chunk = msgObj.optString("content", "")
+                    val thinkChunk = if (persona.enableThinking) msgObj.optString("thinking", "") else ""
+                    if (chunk.isEmpty() && thinkChunk.isEmpty()) continue
+
+                    // Per-chunk generation guard: Stop pressed or a newer request
+                    // started mid-stream — cancel and surface the partial to the
+                    // caller (D2: the partial is kept as real history).
+                    if (!isChatRequestCurrent(generation)) {
+                        call.cancel()
+                        throw StreamCancelledByUserException(stripLeadingModelStamps(content.toString()), thinkingBuf.toString())
+                    }
+                    // Per-chunk persona guard: persona switched mid-stream —
+                    // cancel; the partial is written back into the OLD persona's
+                    // persisted history so no empty stub is stranded there.
+                    // Phase 2: single-chat only — a room turn's speaker is never the
+                    // active persona, so this question is meaningless for it (the round's
+                    // generation is what decides whether the turn may still write).
+                    if (turnContext.isSingleChat && !isChatContextCurrent(generation, persona.name)) {
+                        call.cancel()
+                        val idx = streamedPlaceholderIndexIfRecorded(generation)
+                        if (idx != null) {
+                            val saved = settingsManager.getPersonaMessages(persona.name) ?: emptyList()
+                            if (idx < saved.size) {
+                                if (content.isBlank()) {
+                                    settingsManager.savePersonaMessages(persona.name, saved.filterIndexed { i, _ -> i != idx })
+                                } else {
+                                    settingsManager.savePersonaMessages(persona.name, saved.mapIndexed { i, m ->
+                                        if (i == idx) m.copy(text = stripLeadingModelStamps(content.toString()), reasoning = thinkingBuf.toString().ifBlank { null }) else m
+                                    })
+                                }
+                            }
+                        }
+                        // H3: ownership-gated clears (defensive — generation is still
+                        // current in this branch, but every placeholder write/clear now
+                        // funnels through the owned helpers).
+                        releaseStreamedPlaceholderIfOwned(generation)
+                        clearStreamingTextIfOwned(generation)
+                        throw StreamPersonaChangedException(stripLeadingModelStamps(content.toString()), thinkingBuf.toString())
+                    }
+
+                    content.append(chunk)
+                    if (thinkChunk.isNotEmpty()) thinkingBuf.append(thinkChunk)
+
+                    // Progressive display: update the overlay AND the in-place
+                    // trailing message. NOTE: _messages updates here are the
+                    // streaming placeholder only — the single final append still
+                    // happens in the caller's apply block, guarded as always.
+                    appendPlaceholderIfNeeded()
+                    updatePlaceholder()
+                    // H3: publish the overlay text only while OUR generation still owns
+                    // the slot — a superseded turn must not flash its partial over a
+                    // newer turn's bubble (per-chunk guard above already throws, this
+                    // closes the race between that check and this write). Recording the
+                    // owner here is what lets the matching clear be ownership-gated.
+                    if (isChatRequestCurrent(generation)) publishStreamingText(generation, content.toString())
+                }
+            } catch (e: java.io.IOException) {
+                if (call.isCanceled()) {
+                    // Stop pressed mid-read: hand the partial back so the
+                    // caller's cancellation branch can persist it (D2).
+                    clearStreamingTextIfOwned(generation)
+                    throw StreamCancelledByUserException(stripLeadingModelStamps(content.toString()), thinkingBuf.toString())
+                }
+                // Generic stream failure (network drop mid-generation): drop a
+                // blank placeholder, keep any partial text in place, and let
+                // the error-bubble flow handle the failure.
+                removeBlankPlaceholder()
+                clearStreamingTextIfOwned(generation)
+                throw e
+            }
+
+            // Stripped once, here, so what is STORED is the clean reply: the placeholder
+            // was only ever showing displaySafeStreamedReply, and this returned string is
+            // what the caller writes to the transcript (and what a cancelled stream keeps
+            // as its partial). Old messages are left alone — no silent rewrite.
+            return Triple(stripLeadingModelStamps(content.toString()), thinkingBuf.toString().ifBlank { null }, null)
+        }
+    } finally {
+        // A6: clear the in-flight reference on success AND failure — but only if it's
+        // still this flow's call (a newer request may have replaced currentCall).
+        if (currentCall === call) currentCall = null
+    }
+}
+
+// Stage-1 streaming: the NDJSON loop surfaces these instead of a bare
+// IOException so the caller can persist the partial response (D2) — user-stop
+// keeps the partial (persona-unchanged guard applies at the catch site);
+// persona-switch writes the partial back into the previous persona's persisted
+// history inside performDirectOllamaChat and discards here.
+internal class StreamCancelledByUserException(val partialContent: String, val partialThinking: String) : java.io.IOException("Cancelled")
+internal class StreamPersonaChangedException(val partialContent: String, val partialThinking: String) : java.io.IOException("Persona changed mid-stream")
+
+private suspend fun AssistantService.buildCloudRequest(api: CloudApiSetting, persona: Persona, text: String, currentTurnInHistory: Boolean, attachments: List<Path> = emptyList(), imagePath: String? = null, turnContext: TurnContext = TurnContext.Default): Request {
+    val mediaType = "application/json; charset=utf-8".toMediaType()
+    val json = JSONObject()
+    
+    val finalSystemPrompt = composeSystemPrompt(
+        persona = persona,
+        currentDateTime = getCurrentDateTimeString(),
+        searchContext = if (isNewsRequest(text)) {
+            fetchNewsContext()
+        } else if (persona.webSearchEnabled) {
+            fetchWebSearchContext(text)
+        } else "",
+        // Step 3 — RAG retrieval: prepend uploaded-document matches alongside
+        // any web search context. Graceful: "" when unconfigured or on failure.
+        ragContext = if (persona.ragEnabled) fetchRagContext(text) else "",
+        // Phase 0: same room-preamble placement as the direct-Ollama path — appended to
+        // the persona's own prompt and applied BEFORE resolveHistoryBudget below, so the
+        // budget math and the overflow refusal see the real system prompt.
+        suffix = turnContext.systemPromptSuffix
+    )
+
+    // A-attachments: the model-facing prompt includes extracted file content. The
+    // original `text` is still used for search/news above.
+    val modelText = buildModelPrompt(text, attachments)
+
+    // Budget-aware history selection
+    val contextWindow = persona.numCtx // Fix #3: was hardcoded 128000 — the persona's own Context Window Size setting is now the trimming budget 
+    val reservedOutput = persona.maxTokens.coerceAtLeast(1024)
+    // Fix #6 (numCtx overflow): same shared budget math + pre-flight refusal as the
+    // direct-Ollama path — see resolveHistoryBudget(). A cloud request whose fixed
+    // parts don't fit the persona's Context Window Size is refused the same way.
+    val budget = resolveHistoryBudget(contextWindow, reservedOutput, finalSystemPrompt, modelText)
+    
+    // A1: positional slice — the caller says whether the current user turn is already
+    // the last entry in _messages (text flow appends it; voice flow does not). No
+    // text-content matching is used to decide what to drop.
+    val allNonError = (turnContext.history ?: _messages.value).filter { !it.isError }
+    val historySource = if (currentTurnInHistory && allNonError.isNotEmpty()) allNonError.dropLast(1) else allNonError
+    val history = budgetedHistory(historySource, budget)
+
+    android.util.Log.d("AssistantService", "Cloud Budget: history=${history.size}, budget=$budget")
+
+    val actualModel = persona.model.substringAfter("] ")
+    val baseUrl = api.baseUrl.trim().removeSuffix("/")
+
+    val base64Image = encodeImageToBase64(imagePath)
+
+    return when (api.icon) {
+        "A" -> {
+            json.put("model", actualModel).put("max_tokens", persona.maxTokens).put("system", finalSystemPrompt)
+            val msgArray = org.json.JSONArray()
+            // Anthropic requires the conversation to start with 'user' and strictly
+            // alternate roles. A1: same-role turns are MERGED (never silently
+            // skipped), and the current user turn is always appended below.
+            var lastRole = ""
+            fun appendAnthropicTurn(role: String, turnText: String, imgB64: String? = null) {
+                if (turnText.isBlank() && imgB64 == null) return
+                if (role == lastRole && msgArray.length() > 0 && imgB64 == null) {
+                    val prev = msgArray.getJSONObject(msgArray.length() - 1)
+                    val content = prev.get("content")
+                    if (content is String) {
+                        prev.put("content", content + "\n\n" + turnText)
+                    } else if (content is JSONArray) {
+                        content.put(JSONObject().put("type", "text").put("text", "\n\n" + turnText))
+                    }
+                } else {
+                    val msgObj = JSONObject().put("role", role)
+                    if (imgB64 != null) {
+                        val contentArr = JSONArray()
+                        contentArr.put(JSONObject().put("type", "image").put("source", JSONObject().put("type", "base64").put("media_type", "image/jpeg").put("data", imgB64)))
+                        contentArr.put(JSONObject().put("type", "text").put("text", turnText))
+                        msgObj.put("content", contentArr)
+                    } else {
+                        msgObj.put("content", turnText)
+                    }
+                    msgArray.put(msgObj)
+                    lastRole = role
+                }
+            }
+            history.dropWhile { it.role != "user" }.forEach { msg -> appendAnthropicTurn(msg.role, msg.text) }
+            // A1: the current user turn always reaches the model.
+            appendAnthropicTurn("user", modelText, base64Image)
+            json.put("messages", msgArray)
+            Request.Builder().url("$baseUrl/v1/messages").header("x-api-key", api.apiKey).header("anthropic-version", "2023-06-01").header("content-type", "application/json").post(json.toString().toRequestBody(mediaType)).build()
+        }
+        "G" -> {
+            val contents = org.json.JSONArray()
+            // Gemini requires user/model alternation too. A1: same-role turns are
+            // merged as extra parts (never skipped), and the current user turn is
+            // always appended below.
+            fun appendGeminiTurn(role: String, turnText: String, imgB64: String? = null) {
+                if (turnText.isBlank() && imgB64 == null) return
+                val geminiRole = if (role == "assistant") "model" else "user"
+                val parts = JSONArray()
+                if (imgB64 != null) {
+                    parts.put(JSONObject().put("inline_data", JSONObject().put("mime_type", "image/jpeg").put("data", imgB64)))
+                }
+                parts.put(JSONObject().put("text", turnText))
+
+                if (contents.length() > 0) {
+                    val last = contents.getJSONObject(contents.length() - 1)
+                    if (last.getString("role") == geminiRole) {
+                        val lastParts = last.getJSONArray("parts")
+                        for (i in 0 until parts.length()) {
+                            lastParts.put(parts.get(i))
+                        }
+                        return
+                    }
+                }
+                contents.put(JSONObject().put("role", geminiRole).put("parts", parts))
+            }
+            history.forEach { appendGeminiTurn(it.role, it.text) }
+            // A1: the current user turn always reaches the model.
+            appendGeminiTurn("user", modelText, base64Image)
+            json.put("contents", contents)
+
+            val genConfig = JSONObject()
+            genConfig.put("maxOutputTokens", persona.maxTokens)
+            json.put("generationConfig", genConfig)
+
+            // Add system instruction for Gemini if needed
+            val sysInst = JSONObject().put("parts", org.json.JSONArray().put(JSONObject().put("text", finalSystemPrompt)))
+            json.put("system_instruction", sysInst)
+
+            // S3: pass the key via the x-goog-api-key header
+            Request.Builder()
+                .url("$baseUrl/v1beta/models/$actualModel:generateContent")
+                .header("x-goog-api-key", api.apiKey)
+                .post(json.toString().toRequestBody(mediaType))
+                .build()
+        }
+        else -> {
+            json.put("model", actualModel).put("max_tokens", persona.maxTokens)
+            val msgs = org.json.JSONArray().put(JSONObject().put("role", "system").put("content", finalSystemPrompt))
+            history.forEach { msgs.put(JSONObject().put("role", it.role).put("content", it.text)) }
+            
+            val currentMsg = JSONObject().put("role", "user")
+            if (base64Image != null) {
+                val contentArr = JSONArray()
+                contentArr.put(JSONObject().put("type", "text").put("text", modelText))
+                contentArr.put(JSONObject().put("type", "image_url").put("image_url", JSONObject().put("url", "data:image/jpeg;base64,$base64Image")))
+                currentMsg.put("content", contentArr)
+            } else {
+                currentMsg.put("content", modelText)
+            }
+            msgs.put(currentMsg)
+            
+            json.put("messages", msgs)
+            val payload = json.toString()
+            if (appEnv.debugLogging) {
+                Log.d("Vision", "Request payload: ${payload.take(500)}... [length: ${payload.length}]")
+            }
+            val url = if (baseUrl.endsWith("/chat/completions")) baseUrl else "$baseUrl/chat/completions"
+            Request.Builder().url(url).header("Authorization", "Bearer ${api.apiKey}").post(json.toString().toRequestBody(mediaType)).build()
+        }
+    }
+}
+
+private fun AssistantService.parseCloudResponse(api: CloudApiSetting, persona: Persona, body: String): Triple<String, String?, UsageInfo> {
+    // S4: logs the first 500 chars of the model response (conversation content) — debug only.
+    if (appEnv.debugLogging) android.util.Log.d("UsageTracking", "Parsing response from ${api.name}: ${body.take(500)}")
+    val json = JSONObject(body)
+    var text = ""; var reasoning: String? = null; var pTokens = 0; var cTokens = 0
+    when (api.icon) {
+        "A" -> {
+            // Anthropic Messages API: content is an array of blocks. Extended-thinking
+            // Claude models emit a "thinking" block before the "text" block — reading
+            // index 0 alone would grab the wrong block or throw on .getString("text").
+            // Iterate all blocks: concatenate text blocks, capture thinking into reasoning.
+            val content = json.getJSONArray("content")
+            val textParts = mutableListOf<String>()
+            for (i in 0 until content.length()) {
+                val block = content.getJSONObject(i)
+                when (block.optString("type")) {
+                    "text" -> textParts.add(block.optString("text"))
+                    "thinking" -> reasoning = block.optString("thinking")
+                }
+            }
+            text = textParts.joinToString("")
+            if (json.has("usage")) {
+                val usage = json.getJSONObject("usage")
+                pTokens = usage.optInt("input_tokens", 0)
+                cTokens = usage.optInt("output_tokens", 0)
+            }
+        }
+        "G" -> {
+            // Gemini: check for safety-blocked responses before parsing candidates.
+            // Blocked prompt: top-level promptFeedback.blockReason is present.
+            // Blocked response: candidates may be empty, or candidates[0].finishReason == "SAFETY".
+            if (json.has("promptFeedback")) {
+                val feedback = json.optJSONObject("promptFeedback")
+                val reason = feedback?.optString("blockReason")
+                if (!reason.isNullOrBlank()) {
+                    throw SafetyBlockedException("Gemini blocked the prompt: $reason")
+                }
+            }
+            val candidates = json.optJSONArray("candidates")
+            if (candidates == null || candidates.length() == 0) {
+                throw SafetyBlockedException("Gemini returned no candidates (possibly blocked by safety filters)")
+            }
+            val candidate = candidates.optJSONObject(0)
+            val finishReason = candidate?.optString("finishReason")
+            if (finishReason == "SAFETY") {
+                throw SafetyBlockedException("Gemini response blocked by safety filters")
+            }
+            // Multi-part parsing: iterate all parts and concatenate text parts,
+            // rather than assuming a single part at index 0.
+            val content = candidate?.optJSONObject("content")
+            val parts = content?.optJSONArray("parts")
+            val textParts = mutableListOf<String>()
+            if (parts != null) {
+                for (i in 0 until parts.length()) {
+                    val part = parts.optJSONObject(i)
+                    val partText = part?.optString("text")
+                    if (!partText.isNullOrBlank()) {
+                        textParts.add(partText)
+                    }
+                }
+            }
+            text = textParts.joinToString("")
+            if (json.has("usageMetadata")) {
+                val usage = json.getJSONObject("usageMetadata")
+                pTokens = usage.optInt("promptTokenCount", 0)
+                cTokens = usage.optInt("candidatesTokenCount", 0)
+            }
+        }
+        else -> {
+            val choices = json.getJSONArray("choices")
+            val message = choices.getJSONObject(0).getJSONObject("message")
+            text = message.getString("content")
+            reasoning = if (persona.enableThinking && message.has("reasoning_content")) message.getString("reasoning_content") else null
+            if (json.has("usage")) {
+                val usage = json.getJSONObject("usage")
+                pTokens = usage.optInt("prompt_tokens", 0)
+                cTokens = usage.optInt("completion_tokens", 0)
+            }
+        }
+    }
+    val cost = calculateCost(persona, pTokens, cTokens)
+    android.util.Log.d("UsageTracking", "Extracted Tokens: p=$pTokens, c=$cTokens, cost=$cost")
+    return Triple(text, reasoning, UsageInfo(pTokens, cTokens, pTokens + cTokens, cost))
+}
+
+internal fun AssistantService.isKnownThinkingModel(modelName: String): Boolean {
+    val name = modelName.lowercase()
+    // "v4-pro": DeepSeek's R1 line is being delisted (completes 2026-10-10 per
+    // DeepSeek's announcement) and V4-Pro's built-in Thinking mode is the official
+    // R1 replacement. Deliberately NOT matched: the flash/vision variants
+    // (deepseek-v4-flash, deepseek-v4-flash-vision-exp) — they are the fast/
+    // non-reasoning tier and Ollama rejects think:true for them.
+    return name.contains("deepseek-r1") || name.contains("deepseek-reasoner") || name.contains("-r1") ||
+        name.contains("v4-pro")
+}
+
+// L6: the OpenRouter pricing table is keyed by the provider's own model ids
+// ("anthropic/claude-3-5-sonnet-20241022"), while the active persona's model label is the
+// app's display form ("[Anthropic] claude-3-5-sonnet-latest"). Matching the two is a
+// keyword heuristic and stays one (the cost is display/telemetry only), but it used to be
+// non-deterministic: `maxByOrNull` keeps the FIRST maximum, so whenever two entries scored
+// the same — "openai/gpt-4o" and "openai/gpt-4o-mini" both match the bare label "gpt-4o"
+// on the tokens "gpt" and "4o" — the winner was decided by map iteration order, i.e. one
+// model's prices could be charged to another. It also threw on a hand-typed label with an
+// unclosed bracket ("[foo"), inside the response path. Extracted (internal, no Android
+// surface) so PricingMatchTest can pin the ordering down with a synthetic table.
+internal fun matchPricingEntry(
+    pricingMap: Map<String, ModelPricing>,
+    modelLabel: String
+): Pair<String, ModelPricing>? {
+    val actualModelId = modelLabel.substringAfter("] ").lowercase().trim()
+    val closingBracket = modelLabel.indexOf(']')
+    val provider = if (modelLabel.startsWith("[") && closingBracket > 1) {
+        modelLabel.substring(1, closingBracket).lowercase().trim()
+    } else ""
+
+    val ignored = setOf("latest", "chat", "v1", "v2", "v3", "online")
+    val modelParts = actualModelId.split("-", ".", "_").filter { it.isNotBlank() && it !in ignored }
+    val vendorParts = provider.split("-", ".", "_").filter { it.isNotBlank() && it !in ignored }
+    val normalize = { part: String -> part.replace("-", "").replace("_", "").replace(".", "") }
+    val modelTokens = modelParts.map(normalize).filter { it.isNotBlank() }
+    val allParts = (modelTokens + vendorParts.map(normalize)).filter { it.isNotBlank() }
+    if (allParts.isEmpty()) return null
+
+    // "/" is deliberately kept in the normalized id: it separates the provider prefix from
+    // the model portion, which is what the specificity test below compares against.
+    val normalizedModelId = modelTokens.joinToString("")
+
+    return pricingMap.entries
+        .map { entry ->
+            val normalizedId = normalize(entry.key.lowercase())
+            PricingCandidate(
+                key = entry.key,
+                pricing = entry.value,
+                // Scoring is unchanged: how many of the label's tokens appear anywhere in
+                // the entry's id, needing at least two hits unless the label is one token.
+                score = allParts.count { normalizedId.contains(it) },
+                normalizedId = normalizedId
+            )
+        }
+        .filter { it.score >= minOf(2, allParts.size) }
+        .maxWithOrNull(
+            compareBy<PricingCandidate> { it.score }
+                // The entry that IS this model beats one that merely shares tokens: an exact
+                // match of the model portion, then an entry containing the whole label.
+                .thenBy {
+                    val entryModelId = it.normalizedId.substringAfterLast("/")
+                    when {
+                        entryModelId == normalizedModelId -> 2
+                        it.normalizedId.contains(normalizedModelId) -> 1
+                        else -> 0
+                    }
+                }
+                // Fewer qualifiers wins, so a dated/annotated entry loses to the canonical
+                // one ("openai/gpt-4o" over "openai/gpt-4o-mini-2024-07-18").
+                .thenBy { -it.normalizedId.length }
+                // Final, total tie-break — the answer no longer depends on map order.
+                .thenByDescending { it.key }
+        )
+        ?.let { it.key to it.pricing }
+}
+
+private data class PricingCandidate(
+    val key: String,
+    val pricing: ModelPricing,
+    val score: Int,
+    val normalizedId: String
+)
+
+private fun AssistantService.calculateCost(persona: Persona, promptTokens: Int, completionTokens: Int): Double {
+    val model = persona.model.lowercase()
+    val actualModelId = persona.model.substringAfter("] ").lowercase().trim()
+
+    // Attempt best-effort match with OpenRouter pricing using keyword scoring
+    val matchedEntry = matchPricingEntry(settingsManager.getModelPricing(), persona.model)
+    if (matchedEntry != null) {
+        val (matchedKey, pricing) = matchedEntry
+        val cost = (promptTokens * pricing.prompt) + (completionTokens * pricing.completion)
+        android.util.Log.d("UsageTracking", "Cost calc using dynamic rate for $actualModelId ($matchedKey=${pricing}): $cost")
+        return cost
+    }
+
+    // Fallback to hardcoded values (unit: USD per 1M tokens)
+    val (iP, oP) = when {
+        model.contains("claude-3-5-sonnet") -> 3.0 to 15.0
+        model.contains("claude-3-5-haiku") -> 0.25 to 1.25
+        model.contains("gpt-4o-mini") -> 0.15 to 0.60
+        model.contains("gpt-4o") -> 5.0 to 15.0
+        model.contains("deepseek") -> 0.27 to 1.10
+        model.contains("gemini-1.5-flash") -> 0.075 to 0.30
+        model.contains("gemini-1.5-pro") -> 3.5 to 10.5
+        model.contains("llama-3.1-8b") -> 0.05 to 0.05
+        model.contains("llama-3.1-70b") -> 0.60 to 0.60
+        else -> 0.01 to 0.01 // Minimal fallback for unknown cloud models
+    }
+    val cost = (promptTokens * iP / 1_000_000.0) + (completionTokens * oP / 1_000_000.0)
+    android.util.Log.d("UsageTracking", "Cost calc for $model (fallback): p=$promptTokens ($iP), c=$completionTokens ($oP) -> total=$cost")
+    return cost
+}
+
+fun AssistantService.syncOpenRouterPricing(force: Boolean = false) {
+    if (!force && _lastPriceSyncTimestamp.value != 0L && System.currentTimeMillis() - _lastPriceSyncTimestamp.value < 24 * 60 * 60 * 1000) {
+        return
+    }
+
+    serviceScope.launch(Dispatchers.IO) {
+        try {
+            val request = Request.Builder().url("https://openrouter.ai/api/v1/models").build()
+            publicClient.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) return@launch
+                val body = response.body.string()
+                val json = JSONObject(body)
+                val data = json.getJSONArray("data")
+                val newPricing = mutableMapOf<String, ModelPricing>()
+                
+                for (i in 0 until data.length()) {
+                    val entry = data.getJSONObject(i)
+                    val id = entry.getString("id")
+                    val pricing = entry.optJSONObject("pricing") ?: continue
+                    val prompt = pricing.optString("prompt", "0").toDoubleOrNull() ?: 0.0
+                    val completion = pricing.optString("completion", "0").toDoubleOrNull() ?: 0.0
+                    newPricing[id] = ModelPricing(prompt, completion)
+                }
+                
+                settingsManager.saveModelPricing(newPricing)
+                val now = System.currentTimeMillis()
+                withContext(Dispatchers.Main) {
+                    _lastPriceSyncTimestamp.value = now
+                    settingsManager.saveLastPriceSyncTimestamp(now)
+                }
+                
+                android.util.Log.d("PricingSync", "Synced ${newPricing.size} models from OpenRouter")
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            android.util.Log.e("PricingSync", "Sync failed", e)
+        }
+    }
+}
+
+private fun Response.decodeTextHeader(name: String, fallback: String): String {
+    val encoded = this.header(name) ?: return fallback
+    return try {
+        URLDecoder.decode(encoded, "UTF-8")
+    } catch (e: Exception) {
+        fallback
+    }
+}
+
+internal suspend fun AssistantService.performImageGeneration(prompt: String, currentPersona: Persona) {
+    // Deleted here: the `ACCESS_LOCAL_NETWORK` permission gate (PLAN.md §9).
+    //
+    // The whole block is Android 16's runtime permission for reaching a server on the local
+    // network, and the comment it carried explains why it was narrowly scoped — the permission is
+    // unknown to older `PackageManager`s, so an ungated check reported DENIED and failed every
+    // generation on Android 12–15. There is no permission to hold here: a desktop process opens a
+    // socket to `127.0.0.1` or to a LAN address because the user configured that address, which is
+    // the "network call the user configured" AGENTS.md §5 permits. Nothing later restores this, so
+    // it carries no `DEFERRED TO M<n>` marker — it is a decision, not a deferral.
+    val startTime = System.currentTimeMillis()
+    _state.value = AssistantState.THINKING
+    updateNotification("Generating image...")
+    try {
+        // Which entry: the persona's OWN pin when it is an image-generator persona and still
+        // matches a configured entry, else the FIRST entry of the ACTIVE backend. A normal
+        // persona's Backend URL is where its CHAT goes — an Ollama base, a gateway, a cloud
+        // provider — and is deliberately NOT consulted here; feeding it to the image resolver is
+        // what used to fail every inline "create an image of …" with "not configured for this
+        // persona". One resolver + one header builder for every image-gen request (see
+        // AssistantServiceImageGen.kt), so a generation is authenticated exactly like Test
+        // Connection.
+        val config = when (
+            val resolution = resolveImageGenConfig(
+                _imageGenBases.value,
+                _activeImageGenBackend.value,
+                imageGenPinnedUrl(currentPersona)
+            )
+        ) {
+            is ImageGenResolution.Resolved -> resolution.config
+            is ImageGenResolution.NoEntryForActiveBackend ->
+                throw Exception(noEntryForActiveImageBackendMessage(resolution.backend))
+        }
+
+        // ComfyUI is submit-then-poll, A1111 is one request. Both end in the same shared tail, so
+        // everything downstream (deletion, eviction, Regenerate, save-to-gallery) is unchanged.
+        if (config.backendType == ImageGenBackend.COMFYUI) {
+            // Which template: the persona's own Image Character when it picked one, else the
+            // entry's workflow. Resolved through the ONE precedence function, so the character
+            // binds to WHO is speaking while the server and its credentials stay the entry's.
+            performComfyImageGeneration(
+                prompt = prompt,
+                config = config,
+                startTime = startTime,
+                workflow = resolveImageWorkflow(
+                    currentPersona.imageWorkflowId,
+                    _imageWorkflows.value,
+                    config.comfyWorkflow
+                )
+            )
+            return
+        }
+
+        val jsonBody = buildA1111Txt2ImgBody(prompt)
+
+        val requestBody = jsonBody.toRequestBody("application/json; charset=utf-8".toMediaType())
+        val request = imageGenRequestBuilder(config, IMAGE_GEN_TXT2IMG_PATH)
+            .post(requestBody)
+            .build()
+
+        val responseString = withContext(Dispatchers.IO) {
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) {
+                    if (response.code == 401 || response.code == 403) throw ImageGenAuthException()
+                    // A 404/405 that answers ComfyUI's /system_stats means this A1111-typed entry is
+                    // pointed at a ComfyUI server: say so instead of "Image generation failed: HTTP 404".
+                    val mismatch = imageGenBackendMismatchHint(config, response.code)
+                    if (mismatch != null) throw ImageGenBackendMismatchException(mismatch)
+                    throw Exception("Image generation failed: HTTP ${response.code} ${response.message}")
+                }
+                response.body.string()
+            }
+        }
+
+        val jsonObject = JSONObject(responseString)
+        val imagesArray = jsonObject.getJSONArray("images")
+        val base64Image = imagesArray.getString(0)
+        val pureBase64 = if (base64Image.contains(",")) base64Image.substringAfter(",") else base64Image
+        // `Base64.DEFAULT` becomes the MIME decoder, not the basic one — the same split
+        // `SettingsManager.kt` makes for the same reason. DEFAULT is Android's Android-specific
+        // tolerant mode, and the payload here comes from a server rather than from this
+        // application: A1111 and the OpenAI-compatible providers wrap long base64 at 76 columns,
+        // and a basic decoder throws on the line breaks rather than skipping them.
+        val imageBytes = Base64.getMimeDecoder().decode(pureBase64)
+
+        // A `File`, not a `Path`: `publishGeneratedImage` is in a byte-identical COPY file and takes
+        // one, so this is where the A1111 path meets the type the image-generation copy uses. The
+        // write below goes back through `Files`, which is `:core`'s own convention.
+        val cacheFile = File(cacheDir, "gen_${System.currentTimeMillis()}.png")
+        withContext(Dispatchers.IO) {
+            Files.newOutputStream(cacheFile.toPath()).use { it.write(imageBytes) }
+        }
+
+        publishGeneratedImage(prompt, cacheFile, startTime)
+    } catch (e: CancellationException) {
+        // Stop cancels this coroutine. It must unwind as a cancellation — not be swallowed here and
+        // turned into an "Image generation error" bubble for a turn the user explicitly stopped.
+        throw e
+    } catch (e: ImageGenBackendMismatchException) {
+        // "This address looks like ComfyUI; add it under ComfyUI servers" is already the whole
+        // instruction, so it is shown as the bubble itself, not prefixed with "Image generation
+        // error:". Same idle/notify/bubble/save tail as every other failure.
+        _state.value = AssistantState.IDLE
+        updateNotification("Ready to help")
+        _messages.value = _messages.value + ChatMessage(
+            role = "assistant",
+            text = e.diagnosis,
+            isError = true
+        ).stampedAt()
+        saveSettings()
+    } catch (e: ImageGenAuthException) {
+        // A specific, actionable bubble: the raw status alone ("HTTP 401") does not tell the
+        // user where to fix it. Deliberately does not log the pushback body or the header.
+        _state.value = AssistantState.IDLE
+        updateNotification("Ready to help")
+        _messages.value = _messages.value + ChatMessage(
+            role = "assistant",
+            text = IMAGE_GEN_AUTH_FAILURE_MESSAGE,
+            isError = true
+        ).stampedAt()
+        saveSettings()
+    } catch (e: Exception) {
+        _state.value = AssistantState.IDLE
+        updateNotification("Ready to help")
+        val errorMsg = e.message ?: "Unknown error during image generation"
+        _messages.value = _messages.value + ChatMessage(
+            role = "assistant",
+            text = "Image generation error: $errorMsg",
+            isError = true
+        ).stampedAt()
+        saveSettings()
+    }
+}
+
+fun AssistantService.regenerateImageMessage(index: Int) {
+    val messagesList = _messages.value
+    if (index !in messagesList.indices) return
+    val msg = messagesList[index]
+    val prompt = msg.text
+    if (prompt.isBlank()) return
+    msg.generatedImagePath?.let { path ->
+        runCatching { Files.deleteIfExists(Path.of(path)) }
+    }
+    serviceScope.launch {
+        val currentList = _messages.value.toMutableList()
+        if (index in currentList.indices) {
+            currentList.removeAt(index)
+            _messages.value = currentList
+            saveSettings()
+        }
+        currentPersona?.let { performImageGeneration(prompt, it) }
+    }
+}
+
+private val suggestionClient = OkHttpClient.Builder()
+    .connectTimeout(45, TimeUnit.SECONDS)
+    .readTimeout(45, TimeUnit.SECONDS)
+    .writeTimeout(45, TimeUnit.SECONDS)
+    .build()
+
+suspend fun AssistantService.fetchSuggestedReplies(persona: Persona): List<String> {
+    val recentMsgs = _messages.value.filter { !it.isError }.takeLast(6)
+    if (recentMsgs.isEmpty()) return emptyList()
+
+    val systemInstruction = """
+You write suggested chat messages on behalf of the USER, who is talking to an AI assistant. Given the conversation, write messages the USER could send to the assistant next.
+Rules:
+- Write in the user's voice, addressed to the assistant. Never write as the assistant. Never address or question the user.
+- Never write offers or questions like 'Would you like…', 'Do you want…', 'Shall I…', 'Let me know…', 'I can…'. Those are things the assistant says.
+- If the assistant's last message asks the user a question or offers something, at least one suggestion must answer it from the user's side (e.g. 'Yes, show me an example').
+- Vary the intent: accept or answer, ask about a specific detail, go deeper, simplify, or apply it.
+- Same language as the conversation. Under 25 words each. One per line. No numbering, quotes or commentary.
+
+Example:
+Assistant's last message: "...Would you like a code example?"
+Good output:
+Yes, show me a short code example
+How does this differ from the older approach?
+Explain the second point more simply
+
+Wrong (assistant voice), never do this:
+Would you like me to explain further?
+Do you want a summary?
+    """.trimIndent()
+
+    fun buildPrompt(retry: Boolean): String {
+        return buildString {
+            appendLine("<conversation>")
+            recentMsgs.forEachIndexed { index, m ->
+                val role = if (m.role == "user") "User" else "Assistant"
+                val isLast = index == recentMsgs.size - 1
+                val text = if (isLast && role == "Assistant") {
+                    val raw = m.text
+                    if (raw.length > 800) "…" + raw.takeLast(800) else raw
+                } else {
+                    val raw = m.text
+                    if (raw.length > 300) raw.take(300) + "…" else raw
+                }
+                appendLine("$role: $text")
+            }
+            appendLine("</conversation>")
+            appendLine()
+            if (retry) {
+                appendLine("Your previous output was written as the assistant. Write only what the USER would say.")
+            }
+            appendLine("Write 3 messages the USER would send next. Output only the 3 messages, one per line.")
+        }
+    }
+
+    return withContext(Dispatchers.IO) {
+        Log.d(
+            SUGGESTED_REPLIES_TAG,
+            "suggestedReplies/start: persona=\"${persona.name}\" model=\"${persona.model}\" " +
+                "cloud=${isCloudModel(persona.model)} contextMessages=${recentMsgs.size} " +
+                "lastRole=${recentMsgs.lastOrNull()?.role}"
+        )
+        suspend fun executeCall(promptText: String): String {
+            return if (isCloudModel(persona.model)) {
+                val providerName = if (persona.model.startsWith("[") && persona.model.contains("] ")) {
+                    persona.model.substring(1, persona.model.indexOf("]"))
+                } else ""
+                val apiSetting = (_cloudApis.value + _customCloudApis.value).find { it.name == providerName }
+                    ?: throw Exception("No config for provider")
+
+                val actualModel = persona.model.substringAfter("] ")
+                val baseUrl = apiSetting.baseUrl.trim().removeSuffix("/")
+                val mediaType = "application/json; charset=utf-8".toMediaType()
+                val json = JSONObject()
+
+                when (apiSetting.icon) {
+                    "A" -> {
+                        json.put("model", actualModel).put("max_tokens", 300).put("system", systemInstruction)
+                        json.put("messages", JSONArray().put(JSONObject().put("role", "user").put("content", promptText)))
+                        val req = Request.Builder().url("$baseUrl/v1/messages").header("x-api-key", apiSetting.apiKey).header("anthropic-version", "2023-06-01").header("content-type", "application/json").post(json.toString().toRequestBody(mediaType)).build()
+                        suggestionClient.newCall(req).execute().use { resp ->
+                            if (!resp.isSuccessful) throw Exception("Anthropic error: ${resp.code}")
+                            val bodyStr = resp.body.string()
+                            val resJson = JSONObject(bodyStr)
+                            val content = resJson.getJSONArray("content")
+                            val sb = StringBuilder()
+                            for (i in 0 until content.length()) {
+                                val block = content.getJSONObject(i)
+                                if (block.optString("type") == "text") sb.append(block.optString("text"))
+                            }
+                            sb.toString()
+                        }
+                    }
+                    "G" -> {
+                        val contents = JSONArray().put(JSONObject().put("role", "user").put("parts", JSONArray().put(JSONObject().put("text", promptText))))
+                        json.put("contents", contents)
+                        json.put("generationConfig", JSONObject().put("maxOutputTokens", 300))
+                        json.put("system_instruction", JSONObject().put("parts", JSONArray().put(JSONObject().put("text", systemInstruction))))
+                        val req = Request.Builder().url("$baseUrl/v1beta/models/$actualModel:generateContent").header("x-goog-api-key", apiSetting.apiKey).post(json.toString().toRequestBody(mediaType)).build()
+                        suggestionClient.newCall(req).execute().use { resp ->
+                            if (!resp.isSuccessful) throw Exception("Gemini error: ${resp.code}")
+                            val bodyStr = resp.body.string()
+                            val resJson = JSONObject(bodyStr)
+                            val candidate = resJson.getJSONArray("candidates").getJSONObject(0)
+                            val parts = candidate.getJSONObject("content").getJSONArray("parts")
+                            val sb = StringBuilder()
+                            for (i in 0 until parts.length()) {
+                                sb.append(parts.getJSONObject(i).optString("text"))
+                            }
+                            sb.toString()
+                        }
+                    }
+                    else -> {
+                        json.put("model", actualModel).put("max_tokens", 300)
+                        val msgs = JSONArray()
+                            .put(JSONObject().put("role", "system").put("content", systemInstruction))
+                            .put(JSONObject().put("role", "user").put("content", promptText))
+                        json.put("messages", msgs)
+                        val url = if (baseUrl.endsWith("/chat/completions")) baseUrl else "$baseUrl/chat/completions"
+                        val req = Request.Builder().url(url).header("Authorization", "Bearer ${apiSetting.apiKey}").post(json.toString().toRequestBody(mediaType)).build()
+                        suggestionClient.newCall(req).execute().use { resp ->
+                            if (!resp.isSuccessful) throw Exception("OpenAI error: ${resp.code}")
+                            val bodyStr = resp.body.string()
+                            val resJson = JSONObject(bodyStr)
+                            resJson.getJSONArray("choices").getJSONObject(0).getJSONObject("message").optString("content")
+                        }
+                    }
+                }
+            } else {
+                // Backend routing mirrors the normal chat path: `[Name] model` with
+                // Name in the Ollama server list goes DIRECT to that entry's
+                // /api/chat with the entry's own credentials (same lookup as
+                // sendTextMessageToServer:713-714, same auth as
+                // performDirectOllamaChat:1409-1419). Otherwise the persona's
+                // configured gateway resolves through the shared M1 resolver
+                // (normalization plus name match) and its credentials ride along.
+                // Neither path ever sends a credential-less request: null means
+                // refuse visibly. The old code gated the gateway branch on
+                // `ollamaBase.contains(":8880") || voiceMode == GATEWAY`, so a
+                // voice persona (`Assistant (Voice)`, GATEWAY voice for TTS) whose
+                // tag DID match an Ollama entry still fell into the gateway
+                // branch — and that branch then picked `_serverBases.firstOrNull()`
+                // with NO auth header, 401'ing 23-72ms after the prompt was built.
+                val route = resolveSuggestedRepliesRoute(
+                    persona.model,
+                    persona.backendUrl,
+                    _ollamaBaseUrls.value,
+                    _serverBases.value
+                )
+                val actualModel = persona.model.trim().let {
+                    if (it.startsWith("[") && it.contains("] ")) it.substringAfter("] ") else it
+                }
+                if (appEnv.debugLogging) {
+                    val targetHost = when (route) {
+                        is SuggestedRepliesRoute.DirectOllama -> route.config.url
+                        is SuggestedRepliesRoute.Gateway -> route.config.url
+                        null -> "<unresolved>"
+                    }.substringAfter("://").substringBefore(":").substringBefore("/")
+                    val kind = when (route) {
+                        is SuggestedRepliesRoute.DirectOllama -> "ollama"
+                        is SuggestedRepliesRoute.Gateway -> "gateway"
+                        null -> "none"
+                    }
+                    // DEBUG only: sits next to conversation text in the prompt logs.
+                    Log.d(
+                        SUGGESTED_REPLIES_TAG,
+                        "suggestedReplies/backend: kind=$kind host=$targetHost model=$actualModel"
+                    )
+                }
+
+                when (route) {
+                    is SuggestedRepliesRoute.Gateway -> {
+                    val gw = route.config
+                    val base = gw.url.trimEnd('/')
+                    val requestBody = MultipartBody.Builder().setType(MultipartBody.FORM).apply {
+                        addFormDataPart("text", "$systemInstruction\n\n$promptText")
+                        addFormDataPart("model", actualModel)
+                        addFormDataPart("backend_url", persona.backendUrl)
+                        addFormDataPart("max_tokens", "300")
+                    }.build()
+                    val requestBuilder = Request.Builder().url("$base/text-chat").post(requestBody)
+                    // The resolved entry's credentials — a gateway that requires
+                    // auth 401s without them. Never send the request bare.
+                    suggestedRepliesAuthHeader(gw)?.let {
+                        requestBuilder.header("Authorization", it)
+                    }
+                    suggestionClient.newCall(requestBuilder.build()).execute().use { response ->
+                        if (!response.isSuccessful) {
+                            // DEBUG-gated (S4): the gateway's error body can echo user
+                            // text back. Metadata (status/model/url) stays ungated.
+                            if (appEnv.debugLogging) {
+                                val errorBody = runCatching { response.body.string() }.getOrNull().orEmpty()
+                                Log.e(
+                                    SUGGESTED_REPLIES_TAG,
+                                    "suggestedReplies: gateway /text-chat FAILED — HTTP ${response.code} " +
+                                        "model=$actualModel url=$base/text-chat body: ${errorBody.take(500)}"
+                                )
+                            } else {
+                                Log.e(
+                                    SUGGESTED_REPLIES_TAG,
+                                    "suggestedReplies: gateway /text-chat FAILED — HTTP ${response.code} " +
+                                        "model=$actualModel url=$base/text-chat"
+                                )
+                            }
+                            throw Exception("Gateway error: ${response.code}")
+                        }
+                        val body = response.body.string()
+                        val json = JSONObject(body)
+                        json.optString("response").ifBlank { json.optString("text") }
+                    }
+                }
+                    is SuggestedRepliesRoute.DirectOllama -> {
+                    val ollamaCfg = route.config
+                    val resolvedBackend = ollamaCfg.url.trim().removeSuffix("/").removeSuffix("/api/chat")
+                    val url = "$resolvedBackend/api/chat"
+                    val json = JSONObject().apply {
+                        put("model", actualModel)
+                        put("stream", false)
+                        put("options", JSONObject().put("num_predict", 300).put("temperature", 0.7).put("think", false))
+                        put("messages", JSONArray().apply {
+                            put(JSONObject().put("role", "system").put("content", systemInstruction))
+                            put(JSONObject().put("role", "user").put("content", promptText))
+                        })
+                    }
+                    val requestBody = json.toString().toRequestBody("application/json; charset=utf-8".toMediaType())
+                    val requestBuilder = Request.Builder().url(url).post(requestBody)
+                    // The entry's own credentials — same auth as
+                    // performDirectOllamaChat:1409-1419. A server that requires
+                    // basic auth 401s without them. Never send the request bare.
+                    suggestedRepliesAuthHeader(ollamaCfg)?.let {
+                        requestBuilder.header("Authorization", it)
+                    }
+                    val request = requestBuilder.build()
+                    Log.d(SUGGESTED_REPLIES_TAG, "suggestedReplies: POST $url (model=$actualModel, prompt=${promptText.length} chars)")
+                    suggestionClient.newCall(request).execute().use { response ->
+                        if (!response.isSuccessful) {
+                            // DEBUG-gated (S4): the server's error body can echo
+                            // conversation text back (it was the clue for the
+                            // llama.cpp long-prompt crash). Metadata
+                            // (status/model/url/counts) stays ungated.
+                            if (appEnv.debugLogging) {
+                                // The server's own words are the only clue for a backend crash
+                                // (e.g. llama.cpp aborting on a long prompt), so log the body
+                                // before surfacing the bare status code as the exception.
+                                val errorBody = runCatching { response.body.string() }.getOrNull().orEmpty()
+                                Log.e(
+                                    SUGGESTED_REPLIES_TAG,
+                                    "suggestedReplies: Ollama /api/chat FAILED — HTTP ${response.code} model=$actualModel " +
+                                        "promptChars=${promptText.length} url=$url body: ${errorBody.take(500)}"
+                                )
+                            } else {
+                                Log.e(
+                                    SUGGESTED_REPLIES_TAG,
+                                    "suggestedReplies: Ollama /api/chat FAILED — HTTP ${response.code} model=$actualModel " +
+                                        "promptChars=${promptText.length} url=$url"
+                                )
+                            }
+                            throw Exception("Ollama error: ${response.code}")
+                        }
+                        val bodyStr = response.body.string()
+                        val jsonObj = JSONObject(bodyStr)
+                        jsonObj.optJSONObject("message")?.optString("content") ?: jsonObj.optString("response")
+                    }
+                }
+                    null -> throw Exception(
+                        "No backend configured for persona '${persona.name}'. " +
+                            "Set its server in persona settings (a `[Name] model` tag needs a matching Ollama server entry)."
+                    )
+                }
+            }
+        }
+
+        val prompt1 = buildPrompt(false)
+        // DEBUG-gated (S4): the prompt embeds conversation text.
+        if (appEnv.debugLogging) {
+            Log.d(SUGGESTED_REPLIES_TAG, "suggestedReplies/attempt1: prompt (${prompt1.length} chars):\n$prompt1")
+        }
+        val raw1 = executeCall(prompt1)
+        val attempt1 = parseAndFilterSuggestedRepliesDetailed(raw1)
+        logSuggestedRepliesParse("suggestedReplies/attempt1", raw1, attempt1)
+        if (attempt1.kept.size >= 2) {
+            Log.d(SUGGESTED_REPLIES_TAG, "suggestedReplies/attempt1: ${attempt1.kept.size} usable line(s) — stricter retry NOT fired")
+            return@withContext attempt1.kept.take(3)
+        }
+
+        Log.w(
+            SUGGESTED_REPLIES_TAG,
+            "suggestedReplies/attempt1: only ${attempt1.kept.size} usable line(s) (need >=2) — " +
+                "stricter retry FIRED (raw length ${raw1.length}, parsed ${attempt1.parsed.size}, dropped ${attempt1.dropped.size})"
+        )
+        val prompt2 = buildPrompt(true)
+        // DEBUG-gated (S4): the prompt embeds conversation text.
+        if (appEnv.debugLogging) {
+            Log.d(SUGGESTED_REPLIES_TAG, "suggestedReplies/attempt2: prompt (${prompt2.length} chars):\n$prompt2")
+        }
+        val raw2 = executeCall(prompt2)
+        val attempt2 = parseAndFilterSuggestedRepliesDetailed(raw2)
+        logSuggestedRepliesParse("suggestedReplies/attempt2", raw2, attempt2)
+        if (attempt2.kept.isEmpty()) {
+            Log.w(
+                SUGGESTED_REPLIES_TAG,
+                "suggestedReplies/attempt2: 0 usable line(s) — returning empty, UI will show FAILED " +
+                    "(raw length ${raw2.length}, parsed ${attempt2.parsed.size}, dropped ${attempt2.dropped.size})"
+            )
+        }
+        attempt2.kept.take(3)
+    }
+}
+
+
+// Fix #6 (numCtx overflow): the ONE place the client-side history budget is computed,
+// shared by the two budgeted request builders — performDirectOllamaChat and
+// buildCloudRequest. The gateway/multipart paths deliberately don't come through here:
+// they hand the request to the server, which manages its own context window.
+//
+// The budget is what is left for history once the parts that cannot be trimmed are
+// accounted for: the output tokens reserved for the reply, the system prompt (plus any
+// injected news/search/RAG context) and the current message (with attachment text already
+// inlined by buildModelPrompt). When those fixed parts alone already exceed the persona's
+// Context Window Size, the budget goes negative — forcing a history floor there would ADD
+// history on top of an already-overflowing request and make server-side truncation worse,
+// not better, so zero history remains the fallback for a budget of exactly 0.
+//
+// A negative budget, however, cannot be fixed by dropping history: by definition no
+// history is involved yet. Previously that request was sent anyway and the server
+// silently truncated the system prompt, the message or the attachment, leaving the user
+// with a degraded or nonsensical answer and no explanation. So instead we refuse to send
+// it and say exactly what happened and what to change. The cause is deliberately not
+// distinguished — a long system prompt, a long message, a large attachment or any
+// combination of them are one and the same problem here, and take the same fix — which is
+// why the check lives in this single shared helper rather than at each call site.
+internal fun AssistantService.resolveHistoryBudget(contextWindow: Int, reservedOutput: Int, systemPrompt: String, modelText: String): Int {
+    val systemPromptTokens = estimateTokens(systemPrompt)
+    val modelTextTokens = estimateTokens(modelText)
+    val promptTokens = systemPromptTokens + modelTextTokens
+    val rawBudget = contextWindow - reservedOutput - promptTokens
+    if (rawBudget < 0) {
+        val fixedTokens = promptTokens + reservedOutput
+        android.util.Log.w("AssistantService", "numCtx overflow — refusing request: contextWindow=$contextWindow, reservedOutput=$reservedOutput, systemPrompt=$systemPromptTokens, currentMessage=$modelTextTokens, fixedTotal=$fixedTokens tokens")
+        throw Exception(
+            "Your message and system prompt (~$fixedTokens tokens) exceed this persona's Context Window Size ($contextWindow). " +
+                "Try a shorter message, a smaller attachment, or increase Context Window Size in this persona's settings."
+        )
+    }
+    return rawBudget
+}
+
+internal fun AssistantService.estimateTokens(text: String): Int = (text.length / 4.0).toInt().coerceAtLeast(1)
+
+// ---------------------------------------------------------------------------
+// Shared request assembly (extracted for the spontaneous-message path).
+//
+// These two are the parts of request assembly that were duplicated verbatim between
+// performDirectOllamaChat and buildCloudRequest. Hoisting them is what lets the
+// spontaneous turn assemble a request the same way WITHOUT going anywhere near the
+// streaming pipeline: it shares the RULES (prompt composition order, budget trimming,
+// the overflow refusal) and none of the H3 placeholder / chat-generation machinery.
+// ---------------------------------------------------------------------------
+
+/**
+ * The system prompt one budgeted request will send: date and time, then the persona's own
+ * prompt, then any web-search/news and RAG context, then the turn's one-shot suffix.
+ *
+ * **The order is load-bearing and must not be rearranged.** The suffix is appended LAST and
+ * *before* the budget math at the call site, which is exactly what makes injected text
+ * (a skill, a room preamble, or the spontaneous framing) count toward the token window
+ * instead of silently overrunning it.
+ *
+ * Pure: the caller fetches the search/RAG context, because those are suspend calls and this
+ * has to stay callable from anywhere.
+ */
+internal fun composeSystemPrompt(
+    persona: Persona,
+    currentDateTime: String,
+    searchContext: String,
+    ragContext: String,
+    suffix: String
+): String {
+    val contextPrefix = listOf(searchContext, ragContext).filter { it.isNotEmpty() }.joinToString("\n\n")
+    val withContext = if (contextPrefix.isNotEmpty()) "$contextPrefix\n\n" else ""
+    val suffixPart = if (suffix.isNotBlank()) "\n\n$suffix" else ""
+    return "$withContext" + "Current date and time: $currentDateTime\n\n${persona.systemPrompt}" + suffixPart
+}
+
+/**
+ * The tail of [source] that fits [budget], walked from the NEWEST message backwards so the
+ * most recent turns always win.
+ *
+ * Extracted from the two request builders so the trimming rule exists once: a message keeps
+ * its place only if adding it does not push the running estimate past the budget, and the
+ * walk stops at the first that would (it does not skip it and continue).
+ */
+internal fun AssistantService.budgetedHistory(source: List<ChatMessage>, budget: Int): List<ChatMessage> {
+    var usedTokens = 0
+    val kept = mutableListOf<ChatMessage>()
+    for (i in source.indices.reversed()) {
+        val msg = source[i]
+        val tokens = estimateTokens(msg.text)
+        if (usedTokens + tokens > budget) break
+        kept.add(0, msg)
+        usedTokens += tokens
+    }
+    return kept
+}
+
+// ---------------------------------------------------------------------------------
+// Model catalog cache (models screen, step 1)
+// ---------------------------------------------------------------------------------
+//
+// Runs BESIDE the existing `fetchModels` above, which is untouched: it keeps its flat
+// `List<String>`, its "[Server] model" prefixing and its own status writes. Step 4 retires
+// it. Four states per server ([ModelCatalogState]), keyed by server URL, with no TTL and no
+// polling - a refresh happens only when the user asks for one.
+
+private const val MODEL_SHOW_CONCURRENCY = 4
+
+/** The cache entry for [serverUrl], or [ModelCatalogState.NotLoaded]. */
+internal fun AssistantService.modelCatalogFor(serverUrl: String): ModelCatalogState =
+    _modelCatalog.value[serverUrl] ?: ModelCatalogState.NotLoaded
+
+/**
+ * One short-timeout client for the whole process.
+ *
+ * 3s/5s on purpose: this enrichment runs in the background of a list the user is already
+ * reading, so a slow server must never make the screen feel stuck. The 15s/120s
+ * `fastClient` defaults are tuned for chat and are the wrong shape here.
+ *
+ * Deliberately a single process-wide client and NOT a map keyed by the service. The suite
+ * destroys and recreates `AssistantService` constantly (ServiceIsolationRule quiesces it
+ * around every test), and keying a cache by the service retains each dead instance along
+ * with its own connection pool and dispatcher threads for the life of the process - which
+ * shows up much later as resource exhaustion and an instrumentation run that aborts
+ * part-way through, far from the cause.
+ *
+ * OkHttpClient is thread-safe and is designed to be shared, so one instance is correct.
+ */
+private val modelShowClient: OkHttpClient by lazy {
+    OkHttpClient.Builder()
+        .connectTimeout(3, TimeUnit.SECONDS)
+        .readTimeout(5, TimeUnit.SECONDS)
+        .retryOnConnectionFailure(false)
+        .build()
+}
+
+/** Guards the per-server fetch so a double-open cannot launch two. */
+private val modelCatalogInFlight = ConcurrentHashMap.newKeySet<String>()
+
+/**
+ * Per-URL generation, bumped by [dropModelCatalog].
+ *
+ * Deleting or re-pointing a server cannot cancel a fetch that is already on the wire: its
+ * coroutine will finish and write its result back, resurrecting a cache entry for a server
+ * the user just removed. Each fetch captures the generation it started under and only
+ * applies its result if that generation is still current, so a late write is dropped rather
+ * than undoing the delete.
+ */
+private val modelCatalogGeneration = ConcurrentHashMap<String, Long>()
+
+private fun generationFor(url: String): Long = modelCatalogGeneration[url] ?: 0L
+
+/** Read-modify-write one server's entry in the live map (never a stale snapshot). */
+private fun AssistantService.updateCatalog(
+    url: String,
+    transform: (ModelCatalogState) -> ModelCatalogState
+) {
+    val next = _modelCatalog.value.toMutableMap()
+    next[url] = transform(next[url] ?: ModelCatalogState.NotLoaded)
+    _modelCatalog.value = next
+}
+
+/**
+ * Drop a server's cached catalog. Called on delete AND on a URL change (edit), because
+ * the key IS the URL: keeping the entry would show another server's models.
+ */
+internal fun AssistantService.dropModelCatalog(serverUrl: String) {
+    // Bump FIRST: any fetch already in flight for this URL is now stale, and must not be
+    // able to write its result back over the deletion.
+    modelCatalogGeneration.merge(serverUrl, 1L, Long::plus)
+    modelCatalogInFlight.remove(serverUrl)
+    val next = _modelCatalog.value.toMutableMap()
+    if (next.remove(serverUrl) != null) {
+        _modelCatalog.value = next
+    }
+}
+
+/** Same credential rule `fetchModels` uses: basic auth when a username is set. */
+private fun authorized(builder: Request.Builder, target: ServerConfig): Request.Builder {
+    if (!target.username.isNullOrBlank()) {
+        builder.header("Authorization", Credentials.basic(target.username, target.password ?: ""))
+    }
+    return builder
+}
+
+/**
+ * `GET {base}/api/tags`, then `GET {base}/v1/models` — same endpoint order as `fetchModels`.
+ *
+ * The two attempts are reported apart ([ModelListOutcome]) because they fail differently and
+ * the reason reaches the user.
+ *
+ * **A SUCCESSFUL `/api/tags` is the answer, including an empty one.** `200` with
+ * `{"models":[]}` means this server has no models, so it is returned as `Listed(emptyList())`
+ * and `/v1/models` is NOT consulted: that endpoint exists for a gateway that speaks only the
+ * OpenAI shape, and such a gateway does not have `/api/tags` at all — it answers 404, which
+ * is the case that falls through. Falling through on an empty success would mean letting a
+ * second, differently-shaped endpoint overrule a first one that plainly worked.
+ *
+ * **Unreachable only when BOTH fail at transport level.** If either produced an HTTP
+ * response, that response is the more specific answer and its status is reported: a server
+ * answering 500 is not an unreachable server, and saying "couldn't reach" about one sends
+ * the user looking at the network instead of at the error the server actually reported.
+ */
+private fun AssistantService.requestModels(base: String, target: ServerConfig): ModelListOutcome {
+    val tags = requestModelList("$base/api/tags", target) { parseTagsModelsOrNull(it) }
+    // A successful LIST is final, INCLUDING an empty one -- that is a server with nothing
+    // installed. A Malformed body is not a list at all, so the other endpoint still gets
+    // its turn (a gateway answers 404 here anyway, which falls through the same way).
+    if (tags is ModelListOutcome.Listed) return tags
+
+    // The /v1/models shape carries ids only, so those come back with capabilities NULL
+    // (not reported) rather than empty, and /api/show then fills them in.
+    val openAi = requestModelList("$base/v1/models", target) { parseOpenAiModelsOrNull(it) }
+    if (openAi is ModelListOutcome.Listed) return openAi
+
+    // Both attempts failed. Rank what they told us, most informative first:
+    //   1. a status from /api/tags -- the primary endpoint answering with an error;
+    //   2. a 200 that was not a model list -- a real anomaly, and more telling than the
+    //      404 that /v1/models gives on any server that is not an OpenAI-shaped gateway;
+    //   3. a status from /v1/models;
+    //   4. unreachable -- only when NEITHER produced any HTTP response at all.
+    return when {
+        tags is ModelListOutcome.HttpError -> tags
+        tags is ModelListOutcome.Malformed || openAi is ModelListOutcome.Malformed ->
+            ModelListOutcome.Malformed
+        openAi is ModelListOutcome.HttpError -> openAi
+        else -> ModelListOutcome.Unreachable
+    }
+}
+
+/**
+ * One endpoint attempt, classified.
+ *
+ * A non-2xx status keeps its code; a 2xx whose body will not parse as a model list is
+ * [ModelListOutcome.Malformed]; anything that threw (refused, DNS, timeout) is
+ * [ModelListOutcome.Unreachable]. The catch-all matches what the previous `runCatching`
+ * over this call swallowed, minus the swallowing: it used to turn all three into an empty
+ * list, which then read as "this server has no models".
+ */
+private fun AssistantService.requestModelList(
+    url: String,
+    target: ServerConfig,
+    parse: (String) -> List<ModelEntry>?
+): ModelListOutcome = runCatching {
+    modelShowClient.newCall(
+        authorized(Request.Builder().url(url).get(), target).build()
+    ).execute().use { response ->
+        if (!response.isSuccessful) {
+            ModelListOutcome.HttpError(response.code)
+        } else {
+            val entries = parse(response.body.string())
+            if (entries == null) ModelListOutcome.Malformed else ModelListOutcome.Listed(entries)
+        }
+    }
+}.getOrElse { ModelListOutcome.Unreachable }
+
+/** `POST {base}/api/show` for one model. Returns null on any failure. */
+private fun AssistantService.requestShow(
+    base: String,
+    target: ServerConfig,
+    name: String
+): ModelEntry? {
+    val body = JSONObject().apply { put("model", name) }.toString()
+        .toRequestBody("application/json".toMediaType())
+    return runCatching {
+        modelShowClient.newCall(
+            authorized(Request.Builder().url("$base/api/show").post(body), target).build()
+        ).execute().use { response ->
+            if (!response.isSuccessful) null else parseShowModel(response.body.string(), name)
+        }
+    }.getOrNull()
+}
+
+/**
+ * Fetch (or refresh) one server's catalog: `/api/tags` for the list, then `/api/show`
+ * for EVERY model on it.
+ *
+ * `show` is enrichment, not a fallback - see the header of ModelCatalog.kt for the
+ * measurements behind that. It runs [MODEL_SHOW_CONCURRENCY] at a time so a 15-model
+ * server does not open 15 sockets, and one model's failure leaves that model on its tags
+ * values while the rest load normally.
+ *
+ * A refresh that fails KEEPS the previous entries, marked stale. Only a first fetch that
+ * never succeeded yields [ModelCatalogState.Failed].
+ */
+internal fun AssistantService.fetchModelCatalog(target: ServerConfig, force: Boolean = false) {
+    val url = target.url
+    if (!force && modelCatalogFor(url) is ModelCatalogState.Loaded) return
+    if (!modelCatalogInFlight.add(url)) return
+
+    updateCatalog(url) { if (it !is ModelCatalogState.Loaded) ModelCatalogState.Loading else it }
+    val generation = generationFor(url)
+
+    serviceScope.launch(Dispatchers.IO) {
+        try {
+            val base = ollamaBaseUrl(target.url)
+
+            // Only a FAILURE keeps the last good list, marked stale. A successful empty
+            // answer is not a failure and replaces the list, so un-installing or deleting
+            // the last model on a server empties the picker rather than leaving models that
+            // are no longer there on screen with a "couldn't reach" note attached.
+            suspend fun failFetch(reason: String) {
+                val previous = modelCatalogFor(url)
+                if (generation != generationFor(url)) return
+                updateCatalog(url) {
+                    if (previous is ModelCatalogState.Loaded) {
+                        previous.copy(stale = true, degradedReason = reason)
+                    } else {
+                        ModelCatalogState.Failed(reason, System.currentTimeMillis())
+                    }
+                }
+            }
+
+            val listed: List<ModelEntry> = when (val outcome = requestModels(base, target)) {
+                is ModelListOutcome.Listed -> outcome.entries
+                is ModelListOutcome.HttpError -> {
+                    failFetch(httpErrorReason(outcome.status))
+                    return@launch
+                }
+                ModelListOutcome.Malformed -> {
+                    failFetch(UNEXPECTED_RESPONSE_REASON)
+                    return@launch
+                }
+                ModelListOutcome.Unreachable -> {
+                    failFetch(UNREACHABLE_REASON)
+                    return@launch
+                }
+            }
+
+            if (listed.isEmpty()) {
+                // The server answered, and its answer was "no models". Same generation
+                // guard as the failure branch: a server deleted or re-pointed while this
+                // fetch was on the wire must not be resurrected here.
+                if (generation != generationFor(url)) return@launch
+                updateCatalog(url) {
+                    ModelCatalogState.Loaded(
+                        emptyList(),
+                        emptyMap(),
+                        System.currentTimeMillis()
+                    )
+                }
+                return@launch
+            }
+
+            // Publish the tags-level list IMMEDIATELY with every model PENDING, so the list
+            // is scrollable at once and badges do not flip under the user as each
+            // /api/show lands.
+            if (generation != generationFor(url)) return@launch
+            updateCatalog(url) {
+                ModelCatalogState.Loaded(
+                    listed,
+                    listed.associate { it.name to ModelShowState.PENDING },
+                    System.currentTimeMillis()
+                )
+            }
+
+            val gate = Semaphore(MODEL_SHOW_CONCURRENCY)
+            val results = listed.map { entry ->
+                async {
+                    gate.withPermit {
+                        val shown = runCatching { requestShow(base, target, entry.name) }.getOrNull()
+                        Triple(
+                            entry,
+                            mergeModelEntry(entry, shown),
+                            if (shown == null) ModelShowState.FAILED else ModelShowState.RESOLVED
+                        )
+                    }
+                }
+            }.awaitAll()
+
+            if (generation != generationFor(url)) return@launch
+            updateCatalog(url) {
+                ModelCatalogState.Loaded(
+                    results.map { it.second },
+                    results.associate { it.second.name to it.third },
+                    System.currentTimeMillis()
+                )
+            }
+        } finally {
+            modelCatalogInFlight.remove(url)
+        }
+    }
+}

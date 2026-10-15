@@ -10,11 +10,22 @@ import java.nio.file.Path
  * layout, it receives paths. It is also why this is injectable rather than a singleton — a test
  * points it at a temp directory instead of the real `~/.config`.
  *
- * **This is the whole of it, and that is deliberate.** The four paths, the debug flag and the
- * logger are what the ported call sites actually need; everything else `Context` used to provide
- * — the audio stack, notifications, the keyring, the file dialogs — is its own seam in
- * `:platform` with its own interface, because none of it is a path or a logger and bundling it
- * here would make this the god-object `Context` was.
+ * **It grows one seam at a time, and only when a caller that cannot be edited forces it** — which
+ * is PLAN.md §5's rule for seams generally, applied to the object that hands them out. M1.1 had
+ * the four paths, the debug flag and the logger, because those were what the ported call sites then
+ * needed.
+ *
+ * Exactly two seams have been forced onto it, and it is worth naming why they are the same case
+ * rather than two: [notifier] and [scheduler] are both reachable *only* through a byte-identical
+ * COPY file that hands over `applicationContext` and nothing else. `AssistantServiceSpontaneous.kt`
+ * calls `cancelSpontaneousNotification(applicationContext, …)` and the three scheduling functions
+ * with the same first argument, so `AssistantService.applicationContext` has to exist, its type is
+ * this interface, and whatever those calls need has to be inside it. Every other seam is a
+ * constructor parameter on `AssistantService`, where it belongs.
+ *
+ * Nothing is added here speculatively. The keyring, the audio stack and the file dialogs are still
+ * absent because their callers have not arrived — and adding them early would rebuild the
+ * god-object `Context` was, which is what D5 exists to avoid.
  *
  * Two things it notably does **not** carry, both because the call sites do not need them:
  *
@@ -62,4 +73,28 @@ interface AppEnv {
 
     /** Replaces `android.util.Log` for injected code; see [LogSink] for the static bridge. */
     val logger: AppLogger
+
+    /**
+     * Seam 9, and the port of `Context.getSystemService(NotificationManager::class.java)`.
+     *
+     * Here rather than passed to `AssistantService` separately because a byte-identical COPY file
+     * calls `cancelSpontaneousNotification(applicationContext, …)`: the service's
+     * `applicationContext` member is what satisfies that call, its type is this interface's, and
+     * D5 says `Context` is what this object replaces.
+     */
+    val notifier: Notifier
+
+    /**
+     * Seam 10, and the same forcing rule as [notifier] rather than a coincidence — the two are the
+     * only seams on this interface, and both are here for one reason: a file this port may not edit
+     * hands over `applicationContext` and nothing else.
+     *
+     * `AssistantServiceSpontaneous.kt` is byte-identical and calls `isSpontaneouslyArmed`,
+     * `armSpontaneousWork` and `disarmSpontaneousWork` three times each, passing `applicationContext`
+     * as their first argument. Those are top-level functions taking `(context, …)`, so the argument's
+     * type is what has to hold the capability — a constructor parameter on `AssistantService` could
+     * not satisfy the call. The `:platform` implementation is `StubScheduler` until M4, which is
+     * where spontaneous delivery lands.
+     */
+    val scheduler: Scheduler
 }

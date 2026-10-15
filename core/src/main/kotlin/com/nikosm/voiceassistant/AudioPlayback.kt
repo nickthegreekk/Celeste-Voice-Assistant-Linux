@@ -65,14 +65,26 @@ interface AudioPlayback {
     /**
      * Plays [file] to the end or until stopped. The file is not modified or deleted: the caller
      * owns it, and the chunked TTS pipeline deliberately keeps its chunk files for a later sweep.
+     *
+     * [target] is the sink to play into, from seam 3; `null` means "whatever the system default
+     * is", which is the ordinary case. It is a parameter rather than a property of the
+     * implementation because the choice is per-utterance and is made by the caller — the earpiece
+     * toggle is a user setting, and `playbackTarget()` is where it is read.
      */
-    fun play(file: Path, onEnd: (PlaybackEnd) -> Unit): PlaybackHandle
+    fun play(file: Path, target: AudioDevice? = null, onEnd: (PlaybackEnd) -> Unit): PlaybackHandle
 
     /**
      * Plays [samples] — signed 16-bit mono PCM — at [sampleRate]. See contract 3: the
      * implementation materialises them as a temporary WAV and deletes it afterwards.
+     *
+     * [target] as on [play].
      */
-    fun playPcm(samples: ByteArray, sampleRate: Int, onEnd: (PlaybackEnd) -> Unit): PlaybackHandle
+    fun playPcm(
+        samples: ByteArray,
+        sampleRate: Int,
+        target: AudioDevice? = null,
+        onEnd: (PlaybackEnd) -> Unit
+    ): PlaybackHandle
 
     /** Stops whatever is playing, if anything. A no-op when nothing is. */
     fun stopAll()
