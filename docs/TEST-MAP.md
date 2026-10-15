@@ -24,9 +24,21 @@ is adapted on purpose, and it is recorded here — the same demotion rule that a
 
 ## Ported JVM tests — retargeted
 
-| Upstream test | Now | Why it could not be copied |
-|---|---|---|
-| `SettingsManagerCorruptionTest.kt` | `core/src/test/…/SettingsManagerCorruptionTest.kt`, 41 tests | The premises are Android's. Upstream's harness fakes `Context` and `SharedPreferences` and relies on the constructor landing in its plaintext-fallback branch when `EncryptedSharedPreferences` cannot initialise; the port has no encrypted store to fall back from (PLAN.md §5a), so there is no such branch and nothing to fake at that level. Its `FakeAppContext` becomes a fake `AppEnv` and its `FakeSharedPreferences` an in-memory `SettingsStore`. **Every assertion is upstream's, unchanged** — including the payload-level assertions on the backup format, which are what pins the Android-backup interop guarantee. |
+| Upstream test | Now | Upstream at port time | Why it could not be copied |
+|---|---|---|---|
+| `SettingsManagerCorruptionTest.kt` | `core/src/test/…/SettingsManagerCorruptionTest.kt`, 41 tests | `988a023bd3ae781ae2166f25826a14db098a39913fd5c4c5a09f8955dc3e346c`, 789 lines | The premises are Android's. Upstream's harness fakes `Context` and `SharedPreferences` and relies on the constructor landing in its plaintext-fallback branch when `EncryptedSharedPreferences` cannot initialise; the port has no encrypted store to fall back from (PLAN.md §5a), so there is no such branch and nothing to fake at that level. Its `FakeAppContext` becomes a fake `AppEnv` and its `FakeSharedPreferences` an in-memory `SettingsStore`. **Every assertion is upstream's, unchanged** — including the payload-level assertions on the backup format, which are what pins the Android-backup interop guarantee. |
+
+**The "upstream at port time" column is the guard, and it is worth being honest about what
+kind.** A COPY test is protected by `tools/sync-from-android.sh --check`, which fails the build
+the moment upstream's bytes move. A retargeted test has no such protection and never will — it
+is deliberately not byte-identical, so there is nothing to compare byte-for-byte. What the hash
+buys is that drift is *detectable* rather than invisible: the planned `tools/check-upstream.sh`
+(PLAN.md §4, §13.4) takes these hashes as the baselines it diffs against, and until that exists
+the comparison is one command run by hand. Without a baseline it is not a command at all.
+
+So: **every row added to this table records the upstream file's sha256 and line count at the
+moment it was ported.** That is the whole point of the column, and a row without it is a test
+nobody can ever re-check.
 
 ## Instrumented tests — triage
 
