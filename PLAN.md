@@ -64,6 +64,12 @@ shared files must live in **one** Gradle module (`:core`), not several.
 process launcher, device info) replaces `Context` and `Log`. This is the single most mechanical
 change in the codebase and it touches a few hundred call sites.
 
+[2026-10-15, from the M1 service wiring: `AppEnv` carries a seam **only** when a caller that cannot be edited
+forces it — the notifier, because a byte-identical COPY file passes `applicationContext` and nothing else. Every
+other seam arrives as an explicit constructor parameter, `SettingsManager(appEnv, store, imageCodec)` being the
+pattern. That distinction is the whole of D5's benefit: an object that accretes dependencies is precisely what
+`Context` was, and this rule is cheap to apply and easy to check against a constructor signature.]
+
 **D6 — Helper processes for audio, behind an interface.** `pw-record`/`parec`/`arecord` for capture
 and `pw-play`/`paplay`/`aplay` for playback, wrapped so a JNA binding to `libpipewire` can replace
 them later without touching callers. Rationale in §6.
@@ -177,6 +183,14 @@ for a shortcut to be withdrawn from - the call is deleted with a comment reading
 `BORROWED FROM M1` is for declarations and `Stub` is for implementations. The marker is required precisely because the
 alternative - M1 defining a no-op so the call survives - buys nothing when the feature is vacuous, and loses the mirror of
 this rule, which is that a symbol a byte-identical COPY file calls must exist for real.
+
+**The sequencer reports events; the service owns state (2026-10-15).** The complement of the extraction rule above.
+The sequencer emits `started`, `finished`, `failed` and the progress value, and never writes service state. Where the
+service needs to know something the sequencer sees — upstream enters SPEAKING when *chunk 0 starts playing*, not when
+the sequence is created, and that state gates both the VAD pause and the UI — the answer is a callback, not a shared
+field. The hook fires on the first chunk's start, which is what upstream's SPEAKING means, and it belongs in the
+sequencer rather than in the synthesis lambda: synthesis finishing and playback starting are different events, and
+conflating them puts a state transition in the wrong layer.
 
 **Markers are lines, not phrases (2026-10-15).** Earned the first time a comment *mentioned* the convention: prose containing
 the marker phrase made a grep count a mention as a marker, which would have failed a checkpoint on a file with nothing
