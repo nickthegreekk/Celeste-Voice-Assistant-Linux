@@ -148,6 +148,16 @@ The bundled `arm64-v8a/libespeak-ng.so`, `src/main/cpp/` (its CMake build and JN
 34 MB of piper/espeak assets do **not** come across: on Linux eSpeak-NG is a distro package and
 piper/Kokoro lives on the gateway.
 
+**A seam is introduced with its first caller, not with its implementation (2026-10-15).** Earned by the M1
+boundary finding: the chat flow in `AssistantServiceChat.kt` ends by calling `playResponse` and its finally
+calls `abandonAssistantFocus`, so chat orchestration cannot compile without the audio seams existing — and the
+file that defines them, `AssistantServiceAudio.kt` (1,379 lines), therefore has to be ported in the same
+milestone as its callers, even though its *implementations* belong to M2. So: the milestone that ports the
+first caller of a seam defines the interface in `:core` and ports the calling file; the `:platform`
+implementation may stay a stub until its own milestone. Every stub is named `Stub*`, lives in `:platform`, and
+logs once at INFO naming the milestone that replaces it — so `grep -rn 'Stub' platform/src/main` is the entire
+to-do list for the milestone that inherits them.
+
 ### 5a. Seam 8 is not in v1 (2026-10-15)
 
 Credentials — provider API keys, server passwords and gateway credentials — live in the settings
@@ -212,7 +222,7 @@ edits, **PORT+** = real work but the logic survives, **NEW** = new implementatio
 | `SettingsScreens.kt` | 2423 | ADAPT | `Toast` to snackbar; pickers to `FileDialogs`; clipboard to AWT |
 | `MainVoiceScreen.kt` | 2097 | ADAPT | Runtime permissions to `AudioDevices` picker; insets/edge-to-edge to window chrome |
 | `PersonaEditor.kt` | 1579 | ADAPT | Image pick (SAF) to file dialog; the pin/workflow picker stays |
-| `AssistantServiceAudio.kt` | 1379 | PORT+ | Seams 1/2/3/6; keeps queueing, cancel-previous, one-playback guard |
+| `AssistantServiceAudio.kt` | 1379 | PORT+ | Seams 1/2/3/6. **Arrives in M1 with the chat flow that calls it** (PLAN.md §5 rule); its `:platform` implementations stay `Stub*` until M2. Keeps queueing, cancel-previous and the one-playback guard |
 | `SettingsManager.kt` | 1356 | PORT+ | Encrypted prefs/Keystore to seams 7/8; keeps corruption recovery, migration, backup read/write |
 | `RoomScreens.kt` | 996 | ADAPT | Compose only |
 | `Models.kt` | 984 | **COPY** | Data classes + the persisted colour schema; takes `ui-graphics` in `:core` (§7a) |
@@ -373,12 +383,13 @@ prints the resolved paths and audio devices, `tools/sync-from-android.sh`, `docs
 
 [2026-10-15: `AppEnv` is designed HERE, not in M0.5. M0.5 resolved the XDG paths in `:platform` and the selftest exercised them; the interface itself is derived by reading what the ported files actually ask of `Context` — paths, the logger the `android.util.Log` shim routes into, the process launcher from D6, device info — rather than by guessing a shape a milestone early. Promoting the resolved-paths holder into `:core` is the mechanical first step, and `AppEnv` takes it as a parameter, so `:core` never sees a `:platform` type.]
 [Revised mid-M1, 2026-10-15: M1.1-M1.3 were all foundation - AppEnv, AppLogger, SettingsStore, ImageCodec - and no ported :core file had landed yet. That is the same boundary-discovery pattern M0 showed, so M1 is re-estimated at 12-15 days. Do NOT re-baseline M2-M7 from it: these foundations are inherited by every later milestone, and only M2 audio seams are comparable new-code work.]
+[M1 boundary revised again, 2026-10-15: `AssistantServiceAudio.kt` (1,379 lines) moves into M1. Of its 24 top-level functions the six m1 COPY files call exactly one, but `AssistantService.kt` needs seven and `AssistantServiceChat.kt` seven more - the chat flow ends by calling `playResponse` and its finally calls `abandonAssistantFocus`, so chat and voice are not separable here. Porting it in M1 with `Stub*` platform implementations is the same work M2 would have done, moves earlier; it edits `AssistantService.kt` and `Chat.kt` once instead of twice, and keeps the twelve-COPY-files-compiling invariant at M1 rather than pushing it to M2. M1 acceptance stays text-only - nothing is claimed about voice until M2. Shift: M1 to about 15-20 days, M2 down to 3-6, total unchanged.]
 servers, providers, chat orchestration, main window, settings/persona screens, image-gen config
 screens. Port the JVM tests.
 *Accept:* a real conversation with Ollama and with one cloud provider end to end; settings survive a
 restart; an Android backup file imports and shows its personas.
 
-**M2 — Voice (5–8 d).** Seams 1–6 and 12: capture, VAD, WAV, `/transcribe`, three TTS routes, the
+**M2 — Voice (3–6 d, revised: platform work only).** No `:core` porting here — the audio engine and its callers landed in M1. Implement seams 1/2/3/6 for real, replacing the `Stub*` classes (`grep -rn 'Stub' platform/src/main` is the list), then add capture and VAD (`VADAudioRecorder.kt`, `VADDetector.kt`), `/transcribe`, the three TTS routes, the hands-free loop, push-to-talk, source/sink selection, mute and cancel-playback.
 hands-free loop, push-to-talk hotkey, source/sink selection, mute, cancel-playback.
 *Accept:* ten consecutive hands-free exchanges with headphones, no manual input, no dropped
 utterance, and the latency budget in §6 met.
