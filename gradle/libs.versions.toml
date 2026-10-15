@@ -24,6 +24,10 @@ orgjson = "20240303"
 # different artifact behind it. Drift here would mean re-tuning the detector.
 onnxruntime = "1.19.2"
 junit = "4.13.2"
+# Coil 3, at the version the upstream app pins for the same dependency (app/gradle/
+# libs.versions.toml, `coil = "3.1.0"`). Upstream declares io.coil-kt.coil3:coil-compose there;
+# this is that same coordinate, and nothing else.
+coil = "3.1.0"
 
 [libraries]
 kotlinx-coroutines-core = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "coroutines" }
@@ -37,6 +41,17 @@ kotlinx-serialization-json = { module = "org.jetbrains.kotlinx:kotlinx-serializa
 # Compose plugin at that same version, and a skew would put two different Color classes on the
 # classpath, which fails at runtime and not at compile time. Do not give this its own version.
 compose-ui-graphics = { module = "org.jetbrains.compose.ui:ui-graphics", version.ref = "compose" }
+
+# Coil 3 for desktop images: the persona list, message attachments and generated images.
+#
+# **Deliberately WITHOUT `coil-network-okhttp` or any other fetcher.** Coil 3 splits the loader
+# from its network stacks on purpose, and this port wants only the local half: every image it
+# displays is a file the application already owns in `dataDir` or `cacheDir` — persona artwork,
+# a message attachment, a generated image. Adding a fetcher would give the UI the ability to make
+# a network call nothing asked it to make (AGENTS.md §5: "no network call that the user did not
+# configure"), and the images would come from disk anyway. Verified against the resolved tree in
+# the commit that added this; if a fetcher ever appears transitively, that is a bug.
+coil-compose = { module = "io.coil-kt.coil3:coil-compose", version.ref = "coil" }
 
 okhttp = { module = "com.squareup.okhttp3:okhttp", version.ref = "okhttp" }
 org-json = { module = "org.json:json", version.ref = "orgjson" }

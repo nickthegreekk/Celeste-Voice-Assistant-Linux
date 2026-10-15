@@ -122,6 +122,7 @@ in this table that is not written down here is one nobody can review.
 | `VADAudioRecorder.kt` | **NEW** | `app/src/main/java/com/nikosm/voiceassistant/VADAudioRecorder.kt` | `AudioRecord`→seam 1, `AcousticEchoCanceler` deleted (§3/D8, no marker — a decision, not a deferral), `File`→`Path`, the WAV writer extracted to `WavFile.kt`. Every constant and invariant kept verbatim. Detail below. |
 | `VADDetector.kt` | ADAPT | `app/src/main/java/com/nikosm/voiceassistant/VADDetector.kt` | Seam 4, which turns out not to be a seam: the `ai.onnxruntime` classes are identical on both sides, so the only change is that the model is a classpath resource instead of an APK asset — which is why the `Context` parameter is gone. Detail below. |
 | `Scheduler.kt` | **NEW** | seam 10, plus three functions from `SpontaneousDeliveryWorker.kt` | The interface, and the three functions a byte-identical COPY file calls. `SpontaneousDeliveryWorker.kt` itself stays out of M1. Detail below. |
+| `ui/theme/Theme.kt` | ADAPT | `app/src/main/java/com/nikosm/voiceassistant/ui/theme/Theme.kt` | Material You's dynamic-colour branches deleted — no desktop counterpart; `Activity` and `Build` gone; the file moved to `:desktop`. Detail below. |
 | `WavFile.kt` | **NEW** | the header writer inside `VADAudioRecorder.kt` | Extracted so that two producers — the VAD loop and push-to-talk — write one layout, which `wavDurationSeconds` reads back. Detail below. |
 | `TtsChunkSequencer.kt` | **NEW** | policy extracted from `AssistantServiceAudio.kt` | Chunk order, the one-at-a-time rule, the cancel-previous guard and the progress arithmetic — lifted out of upstream's `playChunkedTtsGateway`/`startChunkPlayback` so they can be tested at all. Detail below. |
 
@@ -389,6 +390,45 @@ polling coroutine disappeared with it, because the samples are already in hand. 
 around the write and the flag-and-lock pairing are upstream's shapes: the snapshot is taken on Main
 while the loop appends on IO, and an unsynchronized version of that is the
 ConcurrentModificationException that killed the recorder coroutine upstream.
+
+### `ui/theme/Theme.kt`, and why the UI lands in `:desktop`
+
+Four files, 152 lines: `Color.kt` (17), `Shape.kt` (13), `Type.kt` (33) and `Theme.kt` (89). The
+first three are pure Compose — no `android.*`, no `Context`, nothing the platform supplies — so they
+arrive byte-identical on the copy list and `--check` guards them like any other COPY file.
+`Theme.kt` is the one that touches the platform, and it is the only adapted file of the four.
+
+**They land in `:desktop`, not `:core`, and AGENTS.md §2 is what decides it**: `:core` is "ported
+upstream files and done-and-tested logic" and `:desktop` is "Compose UI, window, tray, packaging".
+A theme is Compose UI. Putting it in `:core` would mean `:core` depending on Compose UI and
+material3, which is the boundary that section exists to hold — and it already cost one build to
+find out, because the first copy went to `:core` and failed to compile on `foundation` and
+`material3`.
+
+That needed `tools/sync-from-android.sh` to learn about modules, which it did in two ways that do
+not weaken the copy rule: a `UI_SOURCES` list with its own destination, and an explicit module tag
+in `PORT_SOURCES` (`GROUP|module|name`). A `--check` that reports a file as byte-identical still
+means what it always meant; only where it was checked changed. Rejected: inferring the module from
+the path, because although the theme package happens to live under `ui/`, most of the UI does not —
+`MainVoiceScreen.kt` sits beside `AssistantService.kt` upstream.
+
+**What changed in `Theme.kt`, and it is one branch.** Upstream's `baseColorScheme` was a three-way
+`when`: dynamic colour when the Settings toggle was on and the platform supported it, then the
+static dark scheme, then the static light one. Material You's `dynamicLightColorScheme` /
+`dynamicDarkColorScheme` take an Android `Context`, reach the wallpaper service through it, and
+have no Compose Multiplatform counterpart — no desktop this targets hands an application the user's
+wallpaper. So the first branch is deleted rather than left unreachable, `isDynamicColorSupported`'s
+`sdkInt` argument became nothing (it is a constant `false`), and `baseColorScheme` lost the two
+parameters it no longer uses.
+
+`isDynamicColorSupported` is **kept as a named function**, for the reason upstream kept the gate
+after raising minSdk past it: it is the one place that says why Settings > Appearance does nothing.
+`VoiceAssistantTheme` keeps its `dynamicColor` parameter because all eleven call sites pass it; its
+KDoc records that the switch is inert here, and M3's settings screen is where that should be said in
+words rather than silently no-opped — which is what upstream's own comment asked for.
+
+`android.app.Activity` was an unused import upstream and is simply gone. `android.os.Build` had two
+uses, both the gate.
 
 ## Hand-written files in `core/`
 

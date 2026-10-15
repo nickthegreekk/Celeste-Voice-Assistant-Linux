@@ -13,6 +13,29 @@ not stop for it. Stop only for the four cases listed in AGENTS.md §10.
 
 ---
 
+## 2026-10-15 — The UI dependencies: Coil 3 with no fetcher, and a module for the theme
+
+**Coil.** `io.coil-kt.coil3:coil-compose:3.1.0` — the coordinate and the version the upstream app
+pins. It is a KMP artifact and Gradle's variant-aware resolution picks the `-jvm` variants on its
+own: the resolved tree is `coil-compose-jvm` → `coil-jvm` → `coil-core-jvm` +
+`coil-compose-core-jvm`, so no separate desktop artifact exists or is needed. Checked by resolving
+the tree rather than by reading the artifact's documentation.
+
+**No network fetcher, deliberately.** Coil 3 splits the loader from its network stacks, and this
+port takes only the local half: every image it displays is a file the application already owns in
+`dataDir` or `cacheDir`. `coil-network-okhttp` and kin are absent, verified against the resolved
+tree — Coil's subtree brings skiko, coroutines, stdlib and okio and nothing else. Adding a fetcher
+would hand the UI the ability to make a network call nothing asked it to make (AGENTS.md §5).
+
+**material3 and the icon set come through the Compose plugin's accessors**, not as coordinates.
+CMP versions material3 on its own release line independently of `compose`, and the Android app gets
+both from the AndroidX BOM — a coordinate written into the build file would be a guess that drifts
+silently, and neither AndroidX artifact has a desktop variant for its version to transfer from.
+
+**The theme lands in `:desktop`.** AGENTS.md §2 decides it — a theme is Compose UI, and `:core`
+must not depend on Compose. This cost one build to learn, and needed `sync-from-android.sh` to grow
+a `UI_SOURCES` list and an explicit module tag in `PORT_SOURCES`. → PLAN.md D2, docs/PROVENANCE.md
+
 ## 2026-10-15 — D2 is measured before the UI is ported, and it holds
 
 The plan assumed Compose comes across with import-level edits, and nothing had exercised that. If it

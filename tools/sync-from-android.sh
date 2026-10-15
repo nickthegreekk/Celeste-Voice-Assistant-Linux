@@ -52,6 +52,16 @@ REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 UPSTREAM_APP="$UPSTREAM/app/src/main"
 UPSTREAM_SRC="$UPSTREAM_APP/java/com/nikosm/voiceassistant"
 DEST_SRC="$REPO_ROOT/core/src/main/kotlin/com/nikosm/voiceassistant"
+DEST_UI="$REPO_ROOT/desktop/src/main/kotlin/com/nikosm/voiceassistant"
+
+# The two source roots a copy can land in, keyed by the module tag a list entry carries.
+dest_root() {
+  case "$1" in
+    core)    printf '%s\n' "$DEST_SRC" ;;
+    desktop) printf '%s\n' "$DEST_UI" ;;
+    *) echo "unknown module '$1' — expected core or desktop" >&2; exit 2 ;;
+  esac
+}
 DEST_TEST="$REPO_ROOT/core/src/test/kotlin/com/nikosm/voiceassistant"
 PIN_FILE="$REPO_ROOT/core/src/main/resources/upstream-commit.txt"
 
@@ -92,13 +102,34 @@ TEST_SOURCES=(
   "m0|ScriptLanguageDetectionTest.kt"
 )
 
-# PORT+ verdicts (PLAN.md §7) that are large enough that a diff beats a retype. These are seeded
-# with --seed and then hand-adapted; they are expected to differ from upstream forever, so --check
-# reports them but never counts them as drift. Every one must have a row in the adapted-files table
-# of docs/PROVENANCE.md (AGENTS.md §3).
+# GROUP|upstream-name — COPY files that belong to :desktop rather than :core, because they are
+# Compose UI and :core must not depend on Compose (AGENTS.md §2: ":core — ported upstream files and
+# done-and-tested logic"; ":desktop — Compose UI, window, tray, packaging"). Same byte-identity
+# rule and same --check coverage as COPY_SOURCES; only the destination differs.
+#
+# This is a list rather than a path rule on purpose. Most of the UI is at the top level of the
+# package — `MainVoiceScreen.kt` sits beside `AssistantService.kt` upstream — so "files under ui/
+# are UI" would be true of the theme package and false of everything else that is going to land
+# there in M3-M5.
+UI_SOURCES=(
+  # Three of the theme package's four files are pure Compose: no `android.*`, no `Context`, nothing
+  # the platform supplies. The fourth, `ui/theme/Theme.kt`, reads Build.VERSION.SDK_INT and
+  # LocalContext for Material You's dynamic colour, so it is on PORT_SOURCES instead.
+  "m1|ui/theme/Color.kt"
+  "m1|ui/theme/Shape.kt"
+  "m1|ui/theme/Type.kt"
+)
+
+# PORT+ verdicts (PLAN.md §7) that are large enough that a diff beats a retype, and that need a
+# module chosen for them. These are seeded with --seed and then hand-adapted; they are expected to
+# differ from upstream forever, so --check reports them but never counts them as drift. Every one
+# must have a row in the adapted-files table of docs/PROVENANCE.md (AGENTS.md §3).
+#
+#   GROUP|module|upstream-name    module is `core` or `desktop`
 PORT_SOURCES=(
-  "AssistantService.kt"
-  "AssistantServiceChat.kt"
+  "m1|core|AssistantService.kt"
+  "m1|core|AssistantServiceChat.kt"
+  "m1|desktop|ui/theme/Theme.kt"
 )
 
 # GROUP|label|source|destination
@@ -166,19 +197,22 @@ echo
 if [ "$MODE" = "seed" ]; then
   # The name must be one the plan classifies as PORT+, so this can never become a general-purpose
   # copy escape hatch around the group lists.
-  listed=""
-  for name in "${PORT_SOURCES[@]}"; do
-    [ "$name" = "$SEED" ] && listed="yes"
+  module=""
+  for entry in "${PORT_SOURCES[@]}"; do
+    entry_name="${entry##*|}"
+    [ "$entry_name" = "$SEED" ] || continue
+    module="${entry#*|}"; module="${module%%|*}"
   done
-  if [ -z "$listed" ]; then
+  if [ -z "$module" ]; then
     echo "refusing to seed: '$SEED' is not a PORT+ file (PLAN.md §7)." >&2
-    echo "PORT_SOURCES holds: ${PORT_SOURCES[*]}" >&2
+    echo "PORT_SOURCES holds:" >&2
+    printf '  %s\n' "${PORT_SOURCES[@]}" >&2
     echo "A COPY file arrives with --group; anything else is written by hand." >&2
     exit 2
   fi
 
   src="$UPSTREAM_SRC/$SEED"
-  dst="$DEST_SRC/$SEED"
+  dst="$(dest_root "$module")/$SEED"
   if [ ! -f "$src" ]; then
     echo "MISSING UPSTREAM  $SEED (looked at $src)" >&2
     exit 1
@@ -273,6 +307,11 @@ for entry in "${COPY_SOURCES[@]}"; do
   sync_one "$grp" "$name" "$UPSTREAM_SRC/$name" "$DEST_SRC/$name"
 done
 
+for entry in "${UI_SOURCES[@]}"; do
+  grp="${entry%%|*}"; name="${entry#*|}"
+  sync_one "$grp" "$name" "$UPSTREAM_SRC/$name" "$DEST_UI/$name"
+done
+
 for entry in "${COPY_DATA[@]}"; do
   grp="${entry%%|*}"; rest="${entry#*|}"
   label="${rest%%|*}"; rest="${rest#*|}"
@@ -303,10 +342,12 @@ done
 # "ported" means — so listing them beside the COPY files serves only to say which ones have started
 # and to keep their existence in front of whoever runs --check.
 if [ "$MODE" = "list" ] || [ "$MODE" = "check" ]; then
-  for name in "${PORT_SOURCES[@]}"; do
+  for entry in "${PORT_SOURCES[@]}"; do
+    module="${entry#*|}"; module="${module%%|*}"
+    name="${entry##*|}"
     if [ "$MODE" = "list" ]; then
-      printf 'PORT+  %s\n' "$name"
-    elif [ -f "$DEST_SRC/$name" ]; then
+      printf 'PORT+  %-7s %s\n' "$module" "$name"
+    elif [ -f "$(dest_root "$module")/$name" ]; then
       printf 'ported            %s  (diff against upstream, never byte-identical)\n' "$name"
     else
       printf 'not yet ported    %s\n' "$name"
