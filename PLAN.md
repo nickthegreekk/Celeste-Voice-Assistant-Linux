@@ -131,7 +131,7 @@ implementation in `platform/`; `core` never imports from `platform`.
 | 1 | `AudioCapture` | `AudioRecord` + `AcousticEchoCanceler` | `pw-record` → `parec` → `arecord`, raw s16le mono 16 kHz on stdout |
 | 2 | `AudioPlayback` | `AudioTrack` + marker listener + `AudioFocusRequest` | `pw-play` → `paplay` → `aplay`; "finished" = process exit |
 | 3 | `AudioDevices` | `AudioManager`, earpiece/Bluetooth routing | `wpctl status` / `pactl list` parse; `--target` on capture and playback |
-| 4 | `Vad` | ONNX Runtime Android (`ai.onnxruntime.*`) | ONNX Runtime JVM linux-x64 — same classes, same `silero_vad.onnx` |
+| 4 | `Vad` | ONNX Runtime Android (`ai.onnxruntime.*`) | **Not a seam** (2026-10-15) — an artifact substitution, not an interface: the same `ai.onnxruntime.*` classes exist on both sides, and only the model origin changes, from the Android asset table to a classpath resource, so `VADDetector.kt` needs no abstraction and drops its `Context` parameter |
 | 5 | `SpeechToText` | HTTP `POST /transcribe` | unchanged (already HTTP) |
 | 6 | `TextToSpeech` | Android `TextToSpeech`, bundled eSpeak JNI, gateway HTTP | `spd-say` (speech-dispatcher), `espeak-ng` CLI or JNA to the distro `libespeak_ng.so`, gateway HTTP unchanged |
 | 7 | `SettingsStore` | `EncryptedSharedPreferences` | JSON file in `~/.config/celeste-linux/` |
@@ -191,7 +191,7 @@ grep -rnE '^[[:space:]]*(internal )?class Stub' platform/src/main           # se
 
 Prose may use those words freely - what matters is that only a marker starts a line that way. Run all three before a
 checkpoint rather than at the end, and expect: zero BORROWED once m1 lands, zero DEFERRED until `AssistantService.kt`'s two
-shortcut deletions are marked and then exactly two, and exactly three Stub classes until M2.
+shortcut deletions are marked and then exactly two, and exactly the four Stub classes M2 replaces — seams 1, 2, 3 and 6, the set whose callers landed in M1 — and nothing else.
 
 ### 5a. Seam 8 is not in v1 (2026-10-15)
 
