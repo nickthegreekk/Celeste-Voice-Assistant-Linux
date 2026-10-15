@@ -178,6 +178,21 @@ for a shortcut to be withdrawn from - the call is deleted with a comment reading
 alternative - M1 defining a no-op so the call survives - buys nothing when the feature is vacuous, and loses the mirror of
 this rule, which is that a symbol a byte-identical COPY file calls must exist for real.
 
+**Markers are lines, not phrases (2026-10-15).** Earned the first time a comment *mentioned* the convention: prose containing
+the marker phrase made a grep count a mention as a marker, which would have failed a checkpoint on a file with nothing
+borrowed in it. So every marker is a standalone line comment of the form `// MARKER: text`, and all three checks are
+anchored:
+
+```
+grep -rnE '^//[[:space:]]*BORROWED FROM M1:' core/ platform/    # declarations borrowed from a m1 file
+grep -rnE '^//[[:space:]]*DEFERRED TO M[0-9]:' core/ platform/  # upstream calls deleted on purpose
+grep -rnE '^(internal )?class Stub' platform/src/main           # seam implementations a milestone replaces
+```
+
+Prose may use those words freely - what matters is that only a marker starts a line that way. Run all three before a
+checkpoint rather than at the end, and expect: zero BORROWED once m1 lands, zero DEFERRED until `AssistantService.kt`'s two
+shortcut deletions are marked and then exactly two, and exactly three Stub classes until M2.
+
 ### 5a. Seam 8 is not in v1 (2026-10-15)
 
 Credentials — provider API keys, server passwords and gateway credentials — live in the settings
@@ -498,6 +513,12 @@ M1: the service's own state transitions.** `AssistantService.kt` is touched by n
 run and M7's soak test, because upstream fused its logic with live Android callbacks and constructing it needs every
 collaborator faked. That is a known, accepted gap rather than an oversight: the M2 acceptance criterion is the first
 thing that exercises it.
+
+[Interop test required, 2026-10-15: the Android-backup import is proven with a fixture whose artwork payload is
+MIME-wrapped base64, because the port deliberately keeps the MIME decoder on the backup path while the word-timestamp
+header uses the plain one. That fixture is what protects the promise that an upstream backup imports unchanged - the same
+interop requirement that justified `ui-graphics` in `:core` - and it is the test that would catch either Base64
+substitution being made the wrong way round.]
 
 ## 12. Risks
 
