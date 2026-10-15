@@ -22,11 +22,13 @@ targets **JDK 21** for the build and the bundled runtime; if only 17 is installe
 and is the source of truth — do not rely on the system `gradle` after that.
 
 ## 2. The harness
+**Front door: `tools/dev-session.sh`.** It resolves and verifies your DeepSeek key, resolves the flash model id, prints your balance, asks for your sudo password once, stops ComfyUI, unloads any resident ollama model, launches the harness here, and offers to start ComfyUI again when the session ends. `--check` shows key, model and balance and changes nothing; `--gate-only` frees the machine and skips the agent. The rest of this section is what the script sets up, for reference.
 
 The build talks to **DeepSeek's own API**, not through a compatibility layer. That is deliberate:
 an Anthropic-format shim silently maps model names, and one of those mappings is ~5× the price.
 
 ### opencode (recommended)
+(Not installed on buildhost as of 2026-10-15. Claude Code 2.1.238 is, at `~/.local/bin/claude` — which is not on the PATH a non-interactive shell sees, so the script prepends `~/.local/bin` itself.)
 
 Terminal-native, provider-agnostic, reads `AGENTS.md`, runs happily over SSH.
 
