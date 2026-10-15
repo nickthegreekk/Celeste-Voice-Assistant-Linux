@@ -118,6 +118,14 @@ UI_SOURCES=(
   "m1|ui/theme/Color.kt"
   "m1|ui/theme/Shape.kt"
   "m1|ui/theme/Type.kt"
+  # UI files that carry no Android dependency at all and compile here unchanged. Each was checked
+  # by compiling it rather than by reading it — the first attempt at this group is whatever the
+  # compiler accepted byte-for-byte, and anything it rejects moves to PORT_SOURCES.
+  # The M1 UI screens are NOT on this list, and the reason is a finding rather than an oversight:
+  # they cannot compile in :desktop. See docs/DECISIONS.md — the service's types are `internal`
+  # (301 top-level declarations in :core, 46 of them used by the UI) and Kotlin does not share
+  # `internal` across modules, so the ported UI has to live in :core beside them. Which module
+  # hosts the UI is a §10.3 question and is open.
 )
 
 # PORT+ verdicts (PLAN.md §7) that are large enough that a diff beats a retype, and that need a
