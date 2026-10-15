@@ -113,6 +113,7 @@ Once M0 has created the build:
 ## 7. Commits
 
 Commit as you go, before you report. Another committer works in this repository from outside it, so an untracked half-finished file left lying in the tree can be swept into an unrelated commit by a git add run elsewhere. A clean tree and an honest attribution are worth more than saving one commit.
+Never leave a module in a non-compiling state. If an experiment fails, revert it before moving on, in its own commit, rather than leaving a red build while you go and read an API - a broken build hides the next real error.
 
 - One concern per commit. Prefix with the milestone: `M0:`, `M1:`, … `M7:`.
 - Subject in the imperative, ≤ 72 characters. The **body explains why**, not what — this project's
@@ -123,12 +124,12 @@ Commit as you go, before you report. Another committer works in this repository 
   downloaded models.
 - Do not `git push` anywhere unless the user asks. There is no CI to add.
 
-## 8. Token and cost discipline
+## 8. Context discipline
 
-This project is built on a metered budget.
+M0 measured 0.22 USD for 15.5M tokens, about 96% cache-hit input, so the whole port projects to single-digit dollars. Cost is NOT the binding constraint - correctness is - and the rules below exist to keep the work honest, not to save money.
 
-- Read PLAN.md §7 **before** opening upstream files, and port **one file at a time**.
-- Do not re-explore the tree at the start of a session; the map is in the plan.
+- PLAN.md §7 is a map, not a substitute for the source: it says which file and which group, then **read the upstream file itself** before porting it. Port **one file at a time** - for correctness rather than thrift, so take as much upstream context as you need to port one file right.
+- Run the affected tests after each change rather than batching them to the end. Every defect found so far came from compiling and executing, never from reasoning about the plan - and a plan paragraph describes a file, it does not replace it.
 - Edit files in place. Do not paste a whole file back into the conversation to show a change.
 - Prefer the plan's recorded decisions over re-deriving them, and say so if you think one is wrong
   rather than quietly working around it.

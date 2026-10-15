@@ -89,10 +89,7 @@ What that means in practice:
 - **Do not paste whole files back into the conversation** to show a change. Edit in place.
 - **Do not enable web search.** It bills extra requests and this work needs no network beyond the
   package manager.
-- **Checkpoint after M0 and after M1.** Read the DeepSeek usage page, note the spend for the
-  milestone, and multiply by roughly 12 for the whole project. If M0+M1 cost more than about $10,
-  stop and re-plan before M2 — that number would mean context is being wasted, not that the
-  estimate was wrong.
+- **Checkpoint at every milestone boundary, for drift rather than budget.** Keep an eye on the usage page, but the risk these checkpoints exist to catch is scope creep - a milestone sliding past what was asked - not money. M0 measured 0.22 USD for 15.5M tokens, about 96% cache-hit input, so the budget has large headroom; the earlier rule about stopping if M0+M1 exceeded 10 USD is retired.
 
 ## 4. What is already in the repository
 
