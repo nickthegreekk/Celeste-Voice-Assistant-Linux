@@ -129,6 +129,14 @@ class VADAudioRecorder(
     var isPaused = false
         private set
 
+    /**
+     * Set by [resume] and acted on by the loop, because the drain is a read and reads belong to the
+     * thread that owns the stream — a `resume()` that drained from Main would be file I/O on the UI
+     * thread, and a race with the loop's own read into the bargain.
+     */
+    @Volatile
+    private var drainPending = false
+
     fun start() {
         if (isMonitoring) return
         isMonitoring = true
@@ -172,6 +180,14 @@ class VADAudioRecorder(
                         continue
                     }
 
+                    // The reply is over: throw away what the pipe collected while nobody was
+                    // reading (§6's resume span, and the reason its first chunk means anything).
+                    if (drainPending) {
+                        drainPending = false
+                        stream.drain()
+                        latency.drainDone()
+                    }
+
                     val read = stream.read(buffer, chunkSize)
                     // A read of 0 is the stream *ending*, not a short frame: the recorder process
                     // exited, the microphone was unplugged, or the sound server restarted. There
@@ -193,8 +209,10 @@ class VADAudioRecorder(
                     if (read == chunkSize) {
                         // §6's first span ends the moment the samples are in hand — before the
                         // amplitude scan and the inference below, which are downstream work rather
-                        // than capture latency.
+                        // than capture latency. The second call is the resume span, and is silent
+                        // unless a resume is pending.
                         latency.firstChunkArrived()
+                        latency.firstChunkAfterResume()
 
                         // Max absolute amplitude for the visualizer
                         var maxAmp = 0
@@ -311,6 +329,11 @@ class VADAudioRecorder(
 
     fun resume() {
         isPaused = false
+        // Marked here, acted on by the loop: this is the instant the user's "can it hear me now?"
+        // starts from, and it is the service's state collector that decides it (IDLE after a
+        // reply), not the loop.
+        drainPending = true
+        latency.resumed()
         detector.reset()
         speechFrames = 0
         silenceFrames = 0

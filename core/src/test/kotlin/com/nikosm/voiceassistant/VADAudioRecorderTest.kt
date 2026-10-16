@@ -55,6 +55,9 @@ class VADAudioRecorderTest {
         val closed = CountDownLatch(1)
         val reads = AtomicInteger()
 
+        /** Counted rather than ignored: the drain is the half of the resume span worth asserting. */
+        val drains = AtomicInteger()
+
         override fun open(sampleRate: Int, chunkFrames: Int, target: AudioDevice?): CaptureStream {
             opened.countDown()
             return object : CaptureStream {
@@ -65,6 +68,10 @@ class VADAudioRecorderTest {
                     // as fast as the CPU allows for the length of the test.
                     Thread.sleep(2)
                     return frames
+                }
+
+                override fun drain() {
+                    drains.incrementAndGet()
                 }
 
                 override fun close() {
@@ -140,6 +147,29 @@ class VADAudioRecorderTest {
 
         val errors = logger.levels().filter { it == LogLevel.ERROR || it == LogLevel.ASSERT }
         assertEquals("a stop must not be reported as a fault: ${logger.messages()}", emptyList<LogLevel>(), errors)
+    }
+
+    @Test
+    fun `a resume drains what the paused pipe collected, and reports the span`() {
+        // The backlog is the half of §6's third span that this project owns: while the VAD is
+        // paused the pipe fills (up to ~2 s), so without a drain the first chunk after a resume is
+        // audio from before the reply, and "how long until it can hear me" is measured against
+        // something already old. The drain count is the assertion because the fake has no pipe.
+        val r = startRecording()
+        assertTrue(capture.opened.await(5, TimeUnit.SECONDS))
+        assertTrue("the loop should be reading", awaitLine("capture start → first chunk:"))
+
+        r.pause()
+        Thread.sleep(250)
+        val readsWhenPaused = capture.reads.get()
+        Thread.sleep(250)
+        assertEquals("the loop should not read while paused", readsWhenPaused, capture.reads.get())
+        assertEquals("nothing to drain until the resume", 0, capture.drains.get())
+
+        r.resume()
+
+        assertTrue("the resume should be reported", awaitLine("resume → first live chunk:"))
+        assertEquals("the backlog should have been discarded once", 1, capture.drains.get())
     }
 
     @Test

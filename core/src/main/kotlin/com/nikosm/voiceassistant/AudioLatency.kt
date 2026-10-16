@@ -3,9 +3,10 @@ package com.nikosm.voiceassistant
 /**
  * PLAN.md §6's latency budget, measured where it can be and reported in the plan's own terms.
  *
- * §6 states two spans as M2's to verify, and both are on the capture path rather than around the
- * round trip ("WAV to `/transcribe` to reply to first audio out is dominated by the gateway and the
- * model", so that leg is deliberately not measured here):
+ * §6 states two spans as M2's to verify. Both are on the capture path rather than around the round
+ * trip ("WAV to `/transcribe` to reply to first audio out is dominated by the gateway and the
+ * model", so that leg is deliberately not measured here), and the first acceptance run named a
+ * third that §6 never did:
  *
  *  - **capture start → first chunk, < 50 ms.** [VADAudioRecorder] marks the moment before it asks
  *    seam 1 to open a stream — the `pw-record`/`parecord`/`arecord` spawn is inside that call — and
@@ -15,6 +16,14 @@ package com.nikosm.voiceassistant
  *  - **utterance end → WAV on disk, < 100 ms.** From the VAD's verdict that speech has stopped to
  *    the return of [WavFile.write], which closes its stream on every path — so "returned" is "the
  *    file is whole".
+ *  - **resume after a reply → the first live chunk** ([resumed], [drainDone],
+ *    [firstChunkAfterResume]). §6 never named this one, and it is the span a user actually feels:
+ *    after the reply stops, how long before the microphone is listening to the room again. It is
+ *    measured from the resume to the first chunk that is *new* — the backlog the paused pipe
+ *    accumulated is drained first (`CaptureStream.drain`), because a first chunk that is two
+ *    seconds old arrives in zero milliseconds and means nothing. **It has no budget yet, on
+ *    purpose:** the first measurement decides the number, and §6 is the file that states
+ *    acceptance, so a figure invented here would be a guess wearing a budget's clothes.
  *
  * The span begins inside the recorder's coroutine, not at `start()`. The dispatch hop from whichever
  * thread called `start()` to `Dispatchers.IO` is real, but it is not the capture path, and a budget
@@ -54,6 +63,10 @@ internal class AudioLatency(
 
     private var utteranceEndNanos = 0L
 
+    private var resumeNanos = 0L
+    private var drainDoneNanos = 0L
+    private var resumePending = false
+
     /** A capture session begins: seam 1 is about to be asked to open a stream. */
     fun captureStarted() {
         captureStartNanos = nanoTime()
@@ -85,6 +98,35 @@ internal class AudioLatency(
             "capture start → first chunk: $total ms (${verdict(total, CAPTURE_BUDGET_MS)}; " +
                 "open $open ms, first read $read ms)",
         )
+    }
+
+    /** Listening resumes: the reply is over and the microphone is about to be read again. */
+    fun resumed() {
+        resumeNanos = nanoTime()
+        drainDoneNanos = 0L
+        resumePending = true
+    }
+
+    /** The backlog is discarded. Half of the resume span, and the half that is a design cost. */
+    fun drainDone() {
+        drainDoneNanos = nanoTime()
+    }
+
+    /**
+     * The first *live* chunk after a resume is in hand.
+     *
+     * Silent unless a resume is pending — which is what keeps the first chunk of an ordinary
+     * session from being reported as a resume, and what makes a second resume a second line rather
+     * than a correction of the first.
+     */
+    fun firstChunkAfterResume() {
+        if (!resumePending) return
+        resumePending = false
+        val now = nanoTime()
+        val total = millis(resumeNanos, now)
+        val drain = millis(resumeNanos, drainDoneNanos)
+        val read = millis(drainDoneNanos, now)
+        logger.i(TAG, "resume → first live chunk: $total ms (drain $drain ms, first read $read ms)")
     }
 
     /** The VAD has decided the utterance is over; the WAV is about to be written. */

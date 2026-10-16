@@ -1,6 +1,7 @@
 package com.nikosm.voiceassistant
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
@@ -107,6 +108,55 @@ class AudioLatencyTest {
             "capture start → first chunk: 12 ms (38 ms under the 50 ms budget; open 9 ms, first read 3 ms)",
             line(1),
         )
+    }
+
+    // ------------------------------------------------------------- resume → first live chunk
+
+    @Test
+    fun `the resume span reports the drain and the first read separately`() {
+        // The split matters for the same reason the capture span's does: a slow drain and a slow
+        // first read are different repairs, and the drain is the half this project introduced.
+        latency.resumed()
+        clock.advance(4)
+        latency.drainDone()
+        clock.advance(35)
+        latency.firstChunkAfterResume()
+
+        assertEquals("resume → first live chunk: 39 ms (drain 4 ms, first read 35 ms)", line())
+        assertEquals(LogLevel.INFO, logger.entries.single().first)
+    }
+
+    @Test
+    fun `each resume is a line of its own`() {
+        // One per reply, for as long as hands-free is on: the second resume must not overwrite or
+        // suppress the first, which is what a single idempotent flag would do.
+        latency.resumed()
+        latency.drainDone()
+        latency.firstChunkAfterResume()
+
+        clock.advance(60_000)
+        latency.resumed()
+        clock.advance(2)
+        latency.drainDone()
+        clock.advance(40)
+        latency.firstChunkAfterResume()
+
+        assertEquals(2, logger.entries.size)
+        assertEquals("resume → first live chunk: 42 ms (drain 2 ms, first read 40 ms)", line(1))
+    }
+
+    @Test
+    fun `the first chunk of a session is not reported as a resume`() {
+        // The loop marks both spans at the same line, so the resume mark has to be silent unless a
+        // resume is actually pending — otherwise every arming would report a resume that no user
+        // experienced.
+        latency.captureStarted()
+        latency.captureOpened()
+        latency.firstChunkArrived()
+        latency.firstChunkAfterResume()
+
+        assertEquals(1, logger.entries.size)
+        assertTrue(line().startsWith("capture start → first chunk:"))
     }
 
     // ---------------------------------------------------------------- utterance end → WAV on disk

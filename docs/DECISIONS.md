@@ -13,6 +13,31 @@ not stop for it. Stop only for the four cases listed in AGENTS.md §10.
 
 ---
 
+## 2026-10-16 — The resume after a reply drains the backlog, and §6 gains the span a user feels
+
+The acceptance run made the gap plain: §6 budgets "capture start to first chunk" and "utterance end
+to WAV", and neither is the moment anyone notices. What is noticed is the pause after a reply — how
+long before the microphone is listening again — and nothing measured it.
+
+**Measuring it required fixing it first.** While the VAD is paused nobody reads the capture pipe, so
+it fills: the recorder writes until the 64 KB buffer is full (about two seconds of 16 kHz mono s16)
+and then blocks. Resuming and reading therefore delivers *old* audio first, which is wrong twice
+over — the VAD judges the room by sound from before the reply, and "resume → first chunk" would
+report 0 ms for audio that was seconds old. So `CaptureStream` gains `drain()`, implemented over
+`InputStream.available()`: it discards exactly what is buffered and not a byte more, which is the
+difference between clearing a backlog and eating live speech. `VADAudioRecorder.resume()` sets a flag
+and the *loop* drains, because a drain is a read and reads belong to the thread that owns the stream
+— draining from Main would be I/O on the UI thread plus a race with the loop's own read.
+
+Rejected: **restarting the capture session** on resume, which is correct and pays 400 ms of liveness
+grace every reply; and **leaving the backlog**, which is free and leaves the VAD listening to the
+past. The drain itself costs nothing measurable — it is memory-speed discards out of a 64 KB pipe.
+
+**The new span is logged with no budget, on purpose.** It reports total, drain and first read, and
+§6 gets its number once a run has produced one; a figure written before the measurement would be a
+guess inside the file that states acceptance — which is the mistake this week already made once, in
+the other direction. → PLAN.md §5, §6
+
 ## 2026-10-16 — A failure that names no route is not a diagnosis, and a cancellation is not an error
 
 Two defects from the acceptance run, one of them needing a measurement before it could be called

@@ -266,6 +266,40 @@ private class ProcessCaptureStream(
         return frames
     }
 
+    /**
+     * Discards everything the pipe is holding, and only that.
+     *
+     * `available()` is the whole mechanism: on a process pipe it reports the bytes sitting in the
+     * kernel buffer, so asking before each read is what keeps this from eating live audio — the
+     * loop stops as soon as the buffer is empty rather than reading into the future. The buffer is
+     * `scratch`, reused: what is discarded is never inspected, and [read] always starts filling
+     * from index 0, so leaving discarded bytes in it cannot corrupt a later chunk.
+     *
+     * A blocked writer is what makes this matter. While the VAD is paused, `pw-record` fills the
+     * 64 KB pipe (about two seconds of 16 kHz mono s16) and then blocks; draining unblocks it, and
+     * the next frame it writes is the room as it is now.
+     */
+    override fun drain() {
+        if (closed) return
+        if (scratch.isEmpty()) scratch = ByteArray(DRAIN_BUFFER_BYTES)
+        while (true) {
+            val available = try {
+                source.available()
+            } catch (e: IOException) {
+                return
+            }
+            if (available <= 0) return
+            val n = try {
+                source.read(scratch, 0, minOf(available, scratch.size))
+            } catch (e: IOException) {
+                return
+            }
+            // A negative read is the stream ending; nothing is left to discard, and the next
+            // `read` is what reports the end to the loop.
+            if (n < 0) return
+        }
+    }
+
     override fun close() {
         if (closed) return
         closed = true
@@ -287,5 +321,8 @@ private class ProcessCaptureStream(
          * that has not let go of the device by now is one that will not.
          */
         const val EXIT_GRACE_MS = 300L
+
+        /** One pipe buffer's worth — 64 KB on Linux, the most a drain can ever have to discard. */
+        const val DRAIN_BUFFER_BYTES = 8192
     }
 }
