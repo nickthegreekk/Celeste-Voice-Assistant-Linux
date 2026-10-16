@@ -13,6 +13,26 @@ not stop for it. Stop only for the four cases listed in AGENTS.md §10.
 
 ---
 
+## 2026-10-16 — The startup pricing sync is deleted; a network call the user did not configure
+
+`syncOpenRouterPricing()` fired from `AssistantService.start()` on every launch, throttled to once a
+day by a stored timestamp — which on a fresh install is zero, so the first launch always made the
+call. It fetches `https://openrouter.ai/api/v1/models`, OpenRouter's whole catalogue, to price models
+by provider. AGENTS.md §5 forbids it: "No network call that the user did not configure, except the
+build's own dependency resolution." Found by running the app for the first time and watching a
+42 KB `settings.json` appear with 465 model prices in it and `last_price_sync_ts` set to that
+minute. This is the same reasoning §8 used to drop the update check, applied to a call §8 did not
+catch — the update check was audited because it was *named* in §8, and this one was not named
+anywhere. The lesson generalises past this call: §5's rule is not enforced by the plan's list of
+dropped features, so any future audit should be a grep for hardcoded URLs rather than a reading of
+that list.
+
+**The feature stays; its trigger moved.** `SettingsScreens` already had a manual "sync prices"
+button calling `syncOpenRouterPricing(force = true)`, which is where a fetch the user asked for
+belongs. What changed is that a run that only wanted to talk to its own Ollama no longer reaches
+openrouter.ai first, and the pricing data is only meaningful for a provider the user has configured
+a key for anyway. → AGENTS.md §5
+
 ## 2026-10-16 — The ported UI lives in `:core`, because the module boundary must not cut upstream's visibility
 
 `:core` has 301 top-level `internal` declarations and the ported screens need 46 of them. They are in

@@ -969,7 +969,21 @@ class AssistantService(
      */
     fun start() {
         loadSettings()
-        syncOpenRouterPricing()
+        // Deleted: `syncOpenRouterPricing()`, which fired here on every launch (throttled to once
+        // a day by a stored timestamp, which on a fresh install is zero — so the first launch
+        // always made the call).
+        //
+        // It is the one unconditional network call the port had left, and AGENTS.md §5 forbids it:
+        // "No network call that the user did not configure, except the build's own dependency
+        // resolution." It fetches `https://openrouter.ai/api/v1/models` — OpenRouter's whole model
+        // catalogue, 465 entries of it — to price models by provider, which is only meaningful for
+        // a cloud provider the user has actually configured and given a key to. The same reasoning
+        // §8 used to drop the update check, applied to a call §8 did not catch.
+        //
+        // **The feature is not gone, only its trigger.** `SettingsScreens` already had a manual
+        // "sync prices" button calling `syncOpenRouterPricing(force = true)`, and that is where a
+        // fetch the user asked for belongs. What changed is that a run that only wanted to talk to
+        // its own Ollama no longer reaches openrouter.ai first.
 
         serviceScope.launch {
             assistantState.collect { state ->
