@@ -747,22 +747,30 @@ loop, a soak test for start/stop/restart leaks, error paths (gateway down, no mi
 Service, ComfyUI restarted mid-job), `docs/TEST-MAP.md`.
 *Accept:* the soak test runs an hour of start/stop cycles with no leaked processes or file handles.
 
-**M8 — Filesystem tools (new scope, not a port; not counted in the total below).** The user wants Celeste to read and
-write files on this machine so the assistant can be used as a local agent. Nothing upstream does this, so it is a
-capability addition rather than a ported file, and it needs a design document before code — the upstream project's own
-`SKILLS_PLAN.md` is the precedent for how that is done here. What the design has to settle:
+**M8 — Filesystem tools (new scope, not a port; not counted in the total below).** The user wants Celeste to read and write
+files on this machine so the assistant can be used as a local agent, **and the app's user chooses where and how**: a
+workspace path, picked through seam 13's file dialogs, and a mode. So the capability is configuration rather than a
+build-time decision, and the staging lives in the setting instead of across milestones:
 
-- **staged, and read first.** Read and list on an explicit allow-list; writes are their own milestone with their own
-  argument. Executing commands is not in scope at any stage.
-- **an allow-list that fails closed**, defaulting to a single workspace directory rather than a home directory, with
-  `~/.config/celeste-linux` (it holds credentials) and `~/.ssh` denied whatever the allow-list says.
-- **writes are confirmed, never silent**, and the confirmation shows the path and the change. Not politeness: the
-  microphone hears ambient speech, and a mis-transcribed sentence must not be able to change a file.
-- **file contents are data, never instructions.** A document that says "now delete X" must not reach a tool call; RAG
-  already ingests text, and it is the write path that makes the difference matter.
-- **every tool call logged** — path, operation, size, timestamp, persona — somewhere the user can audit.
+- **Off by default, and "off" is a real answer.** Nothing is reachable until the user names a path and picks a mode.
+- **Two modes: read-only, and read-write.** Read-write adds a confirmation showing the path and the change, and a root can
+  be trusted for the session only, so a restart returns to asking.
+- **Per persona, with a global default** — the shape the app already uses for image-generation entries and their pins: the
+  persona you chat with casually has nothing, the one you use for work has a directory, and a persona's own setting wins.
+- **The always-excluded paths are named in the UI rather than hidden:** `~/.config/celeste-linux`, which holds the
+  credentials, and `~/.ssh`. "Read my notes" and "read my keys" are one word apart, and that failure is silent — the key
+  would go into a prompt, possibly a cloud one.
+- **File contents are data, never instructions.** RAG already ingests text; it is the write path that turns a document
+  saying "now delete X" into a changed file.
+- **Tool calling is a provider capability**, and not every model has it, so a persona bound to one that cannot call tools
+  gets a clear answer rather than silence.
+- **Every tool call logged** — path, operation, size, timestamp, persona — somewhere the user can audit.
+- **No command execution at any stage.** A voice-driven shell is a different project with a different risk class, and
+  nothing here needs it.
 
-It belongs after M5, whose skills are the mechanism it extends, and after the voice loop is trusted rather than before it.
+It depends on M5, because the skill and tool-call plumbing is what it extends; if it is wanted earlier, that plumbing moves
+earlier with it. It also belongs after the voice loop is trusted rather than before it.
+
 
 **Total: 33–50 focused days** (about 4–8 weeks full time, 3–5 months at evenings and weekends).
 A first usable milestone is **M2**: roughly **15–23 days**.
