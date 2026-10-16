@@ -177,7 +177,7 @@ implementation in `platform/`; `core` never imports from `platform`.
 |---|---|---|---|
 | 1 | `AudioCapture` | `AudioRecord` + `AcousticEchoCanceler` | `pw-record` → `parec` → `arecord`, raw s16le mono 16 kHz on **stdout, not a WAV on disk** — the VAD loop needs 32 ms every 32 ms and needs the newest one now, so a file it read back would be a file it was also writing. When the caller names no device and the session manager has no default, `open` retries with the first enumerated input and logs which one; a **named** device that will not open returns null instead, because silently substituting a different microphone is how a persona ends up listening to the wrong room. `read` returning 0 ends the stream and stops the loop — a subprocess can exit where `AudioRecord.read` would have blocked, and an ended stream that kept looping is a dead microphone as a hot loop |
 | 2 | `AudioPlayback` | `AudioTrack` + marker listener + `AudioFocusRequest` | `pw-play` → `paplay` → `aplay`; "finished" = process exit |
-| 3 | `AudioDevices` | `AudioManager`, earpiece/Bluetooth routing | `pactl` first with `wpctl` as the fallback (2026-10-15 — the id has to be accepted by whichever player runs, and only the PulseAudio node name is taken by both `pw-play --target` and `paplay --device`); `--target` on capture and playback; **monitor sources are excluded from `inputs()`**, because a monitor feeds the system's own playback into the recogniser and fails as an incomprehensible transcript rather than as an error |
+| 3 | `AudioDevices` | `AudioManager`, earpiece/Bluetooth routing | `pactl` first with `wpctl` as the fallback (2026-10-15 — the id has to be accepted by whichever player runs, and only the PulseAudio node name is taken by both `pw-play --target` and `paplay --device`); `--target` on capture and playback; **monitor sources are excluded from `inputs()`**, because a monitor feeds the system's own playback into the recogniser and fails as an incomprehensible transcript rather than as an error. **The default marker comes from the layer the spawned players actually consult** — `wpctl` — and not from `pactl get-default-source`, which reads PulseAudio's separate database: on buildhost the two disagree, `pactl` naming a source that a bare `pw-record` then refuses to open, so an honest query answered the wrong question and labelled the one input the recorder will not use. The join is on `node.name`, because PipeWire's global ids shift as nodes come and go |
 | 4 | `Vad` | ONNX Runtime Android (`ai.onnxruntime.*`) | **Not a seam** (2026-10-15) — an artifact substitution, not an interface: the same `ai.onnxruntime.*` classes exist on both sides, and only the model origin changes, from the Android asset table to a classpath resource, so `VADDetector.kt` needs no abstraction and drops its `Context` parameter |
 | 5 | `SpeechToText` | HTTP `POST /transcribe` | unchanged (already HTTP) |
 | 6 | `TextToSpeech` | Android `TextToSpeech`, bundled eSpeak JNI, gateway HTTP | `spd-say` (speech-dispatcher), `espeak-ng` CLI or JNA to the distro `libespeak_ng.so`, gateway HTTP unchanged |
@@ -334,6 +334,16 @@ related note. Never executed.
 **Adding a row is the point of the table.** A new URL literal in `:core` needs one of three answers:
 it is behind the configuration gate, it is a string a human reads, or it is a comment. A fourth
 answer — "it fires on its own and it is fine because it is loopback" — is the carve-out §5 rejects.
+
+**Replacing a blocking call is a behaviour change with no exception attached (2026-10-15).** Both silent failure
+modes this port *created* rather than inherited came from that one shape. The chunked playback's completion arrives as
+a callback where `MediaPlayer`'s listener was synchronous; and a `pw-record` subprocess can simply end where
+`AudioRecord.read` would have blocked on a device that was still open — so an ended stream kept warning once per
+iteration for as long as the app stayed open, a dead microphone as a hot loop. Neither threw, neither failed a test,
+and both surfaced only by running against real hardware. So: when a blocking call becomes a process, a callback or a
+poll, name how the replacement fails *differently* — end of stream, repeated failure, silence, a stale completion —
+and handle that case where the call is made. Expect the same question in the hands-free loop, the hotkey, and M4's
+scheduler.
 
 ### 5a. Seam 8 is not in v1 (2026-10-15)
 
