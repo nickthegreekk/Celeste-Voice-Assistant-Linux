@@ -2353,6 +2353,13 @@ class AssistantService(
     // import itself all stay in the dialog-closure-safe scope even while the prompt
     // is on screen. The identity guard in the finally block keeps a stale waiter
     // from clobbering a newer prompt's flag/deferred.
+    /**
+     * M8: the write confirmation's state. Session state on the service rather than in the
+     * composition, so a pending question survives the window being closed and reopened — and
+     * in-memory only, so a restart asks again (PLAN.md §10/M8).
+     */
+    internal val fsWriteGate = FsWriteApprovalGate()
+
     private var backupPasswordDeferred: CompletableDeferred<String?>? = null
     private val _backupPasswordRequested = MutableStateFlow(false)
     val backupPasswordRequested = _backupPasswordRequested.asStateFlow()

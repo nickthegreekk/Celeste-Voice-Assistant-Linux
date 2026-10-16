@@ -788,7 +788,21 @@ internal fun AssistantService.sendTextMessageToServer(inputText: String, current
                 if (displayServer != null) {
                      val ollamaBase = _ollamaBaseUrls.value.find { it.name == displayServer }?.url
                      if (ollamaBase != null) {
-                         val directRes = performDirectOllamaChat(ollamaBase, actualModel, inputText, currentPersona, attachments = attachments, imagePath = imagePath, currentTurnInHistory = true, generation = generation, turnContext = turnContext)
+                         // M8: a persona with a workspace goes through the bounded tool loop; one
+                         // without it calls the single-turn function exactly as before, so the bytes
+                         // on the wire for every existing conversation are unchanged. The loop only
+                         // ever adds a tool-call round trip to a turn that asks for one.
+                         val fsWorkspace = fsWorkspaceFor(currentPersona)
+                         val directRes = if (fsWorkspace != null) {
+                             performOllamaChatWithTools(
+                                 baseUrl = ollamaBase, model = actualModel, text = inputText,
+                                 persona = currentPersona, currentTurnInHistory = true,
+                                 generation = generation, attachments = attachments, imagePath = imagePath,
+                                 turnContext = turnContext, workspace = fsWorkspace,
+                             )
+                         } else {
+                             performDirectOllamaChat(ollamaBase, actualModel, inputText, currentPersona, attachments = attachments, imagePath = imagePath, currentTurnInHistory = true, generation = generation, turnContext = turnContext)
+                         }
                          // Fix #5: clean markdown for TTS on IO — the cleaned variant feeds
                          // the on-device engines; the chat bubble/history keep the original.
                          val cleanedForTts = cleanTextForTts(directRes.first)
@@ -1405,7 +1419,19 @@ internal data class TurnContext(
     // Phase 0: where this turn's own transcript writes land. Null ⇒ the single-chat
     // `_messages` transcript, i.e. exactly the pre-Rooms behavior. A room turn passes
     // its own sink so the identical pipeline writes into the room transcript.
-    val sink: TurnSink? = null
+    val sink: TurnSink? = null,
+    /**
+     * M8: the tool calls and results of *this turn's* earlier rounds, appended to the request after
+     * the current user turn. Empty for every caller that offers no tools, which is every caller
+     * whose persona has no workspace — so the request bytes of an ordinary conversation are
+     * unchanged, and that is asserted by the existing suite rather than by inspection.
+     *
+     * In-flight only. These never reach `_messages`, deliberately: a persisted file's contents
+     * would be re-sent with every later turn (a privacy cost, a token cost, and one more chance for
+     * a document to be read as instructions), and `role` is not what the transcript's renderers
+     * expect.
+     */
+    val toolTurns: List<FsToolTurn> = emptyList(),
 ) {
     /**
      * Phase 2: true when this turn writes into the single-chat transcript, i.e. exactly
@@ -1425,7 +1451,14 @@ internal data class TurnContext(
     }
 }
 
-internal suspend fun AssistantService.performDirectOllamaChat(baseUrl: String, model: String, text: String, persona: Persona, currentTurnInHistory: Boolean, generation: Long, attachments: List<Path> = emptyList(), imagePath: String? = null, turnContext: TurnContext = TurnContext.Default): Triple<String, String?, ByteArray?> {
+internal suspend fun AssistantService.performDirectOllamaChat(baseUrl: String, model: String, text: String, persona: Persona, currentTurnInHistory: Boolean, generation: Long, attachments: List<Path> = emptyList(), imagePath: String? = null, turnContext: TurnContext = TurnContext.Default,
+    /**
+     * M8: where a tool call goes when one arrives. **Defaulted, and that is load-bearing**: the
+     * room-turn caller lives in a COPY file (`AssistantServiceRoomTurns.kt`) and passes named
+     * arguments, so it compiles untouched, and a turn that offers no tools has no sink and behaves
+     * exactly as it did before tools existed.
+     */
+    toolSink: ((JSONObject) -> Unit)? = null): Triple<String, String?, ByteArray?> {
     // Resolve backend URL: fallback if empty or mistakenly pointing to a gateway (8880)
     val stripped = baseUrl.trim()
     val resolvedBackend = if (stripped.isBlank() || stripped.contains(":8880")) {
@@ -1540,6 +1573,9 @@ internal suspend fun AssistantService.performDirectOllamaChat(baseUrl: String, m
             currentMsg.put("images", JSONArray().put(base64Image))
         }
         msgsArray.put(currentMsg)
+
+        // M8: after the user turn, in order — the model's own calls and what they produced.
+        turnContext.toolTurns.forEach { turn -> turn.messages.forEach { msgsArray.put(it) } }
     }
 
     json.put("messages", msgsArray)
@@ -1660,6 +1696,15 @@ internal suspend fun AssistantService.performDirectOllamaChat(baseUrl: String, m
                         break
                     }
                     val msgObj = obj.optJSONObject("message") ?: continue
+                    // M8, the first-token rule. A tool call arrives as its own chunk with no
+                    // content, and this is the only place the first chunk is visible: capturing it
+                    // here, before `appendPlaceholderIfNeeded` could run, is what keeps a call's
+                    // JSON out of the chat bubble. A stream that opens with prose falls straight
+                    // through and is streamed exactly as before.
+                    if (toolSink != null && msgObj.optJSONArray("tool_calls") != null) {
+                        toolSink(msgObj)
+                        continue
+                    }
                     val chunk = msgObj.optString("content", "")
                     val thinkChunk = if (persona.enableThinking) msgObj.optString("thinking", "") else ""
                     if (chunk.isEmpty() && thinkChunk.isEmpty()) continue

@@ -3,6 +3,8 @@ package com.nikosm.voiceassistant
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.nio.file.Files
@@ -204,6 +206,48 @@ class FsToolExecutorTest {
 
         assertFalse(result.ok)
         assertTrue(result.text.contains("no tool called"))
+    }
+
+    @Test
+    fun `the loop's bounds refuse a round rather than letting a model call forever`() {
+        // Pure, and the only thing between a model that keeps calling and a user watching a spinner:
+        // both bounds have to fire, and a turn inside them must not be refused.
+        assertNull(fsToolRoundRefusal(rounds = 0, callsMade = 0, callsThisRound = 1))
+        assertNull(fsToolRoundRefusal(rounds = MAX_TOOL_ROUNDS - 1, callsMade = 0, callsThisRound = 1))
+
+        val tooManyRounds = fsToolRoundRefusal(rounds = MAX_TOOL_ROUNDS, callsMade = 1, callsThisRound = 1)
+        assertNotNull(tooManyRounds)
+        assertTrue("it says what happened and what to do: $tooManyRounds", tooManyRounds!!.contains("narrower request"))
+
+        val tooManyCalls = fsToolRoundRefusal(rounds = 0, callsMade = MAX_TOOL_CALLS_PER_TURN, callsThisRound = 1)
+        assertNotNull(tooManyCalls)
+        assertTrue("a round that would exceed the call cap is refused whole", tooManyCalls!!.contains("file operations"))
+    }
+
+    @Test
+    fun `the write gate trusts a root for the session, and forgets on demand`() {
+        val gate = FsWriteApprovalGate()
+
+        assertFalse("nothing is trusted to begin with", gate.trusts(root))
+        gate.trustForSession(root)
+        assertTrue(gate.trusts(root))
+        assertEquals(setOf(root), gate.trustedForSession())
+
+        gate.forgetTrust()
+        assertFalse("a restart asks again, and so does this", gate.trusts(root))
+    }
+
+    @Test
+    fun `an unanswered write is denied rather than left hanging`() = runBlocking {
+        // The window-closed case, which is the ordinary one for a spontaneous turn: nobody can
+        // answer, and a turn that waited forever would be a hang with no dialogue box to show for it.
+        val gate = FsWriteApprovalGate()
+        val request = FsWriteRequest("Tester", "x.txt", root.resolve("x.txt"), root, existed = false, oldBytes = 0, newBytes = 3, preview = "abc")
+
+        val approved = gate.request(FsWorkspace(root, FsToolMode.READ_WRITE), request, timeoutMs = 0)
+
+        assertFalse(approved)
+        assertNull("and the question is cleared, not left pending", gate.pending.value)
     }
 
     @Test
