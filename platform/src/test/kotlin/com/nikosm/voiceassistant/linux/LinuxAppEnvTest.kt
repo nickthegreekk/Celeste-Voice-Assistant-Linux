@@ -99,4 +99,44 @@ class LinuxAppEnvTest {
     fun `the logger defaults to stderr rather than to nothing`() {
         assertSame(StderrLogger, LinuxAppEnv.resolve(env(), home).logger)
     }
+
+    /**
+     * **The switch has to reach the framework, not just the shim.** `StderrLogger` maps DEBUG to
+     * `java.util.logging.Level.FINE`, and a JUL logger's default level is INFO — so every `Log.d` in
+     * the port, including the prompt and payload dumps this switch exists for, was discarded by the
+     * framework rather than by a decision. A diagnosis on 2026-10-17 ran for an hour with the
+     * variable set and nothing to show for it.
+     *
+     * Both directions are asserted: a resolver that turned FINE on unconditionally would leak
+     * conversation content into a log on a machine where nobody asked for it (AGENTS.md §5), which is
+     * the failure this flag's fail-closed resolver exists to prevent, one layer down.
+     */
+    @Test
+    fun `the debug switch reaches the logging framework, and only when it is on`() {
+        val root = java.util.logging.Logger.getLogger("")
+        val levelBefore = root.level
+        val handlerLevels = root.handlers.map { it.level }
+        try {
+            LinuxAppEnv.resolve(env(DEBUG to "1"), home).installLogging()
+            assertTrue(
+                "with the switch on, a DEBUG line must be loggable — otherwise the flag is inert",
+                root.isLoggable(java.util.logging.Level.FINE),
+            )
+
+            root.level = java.util.logging.Level.INFO
+            root.handlers.forEach { it.level = java.util.logging.Level.INFO }
+            LinuxAppEnv.resolve(env(), home).installLogging()
+            assertFalse(
+                "with it off, FINE stays discarded — the fail-closed direction",
+                root.isLoggable(java.util.logging.Level.FINE),
+            )
+        } finally {
+            root.level = levelBefore
+            root.handlers.forEachIndexed { i, h -> h.level = handlerLevels[i] }
+        }
+    }
+
+    private companion object {
+        const val DEBUG = "CELESTE_DEBUG"
+    }
 }

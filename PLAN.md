@@ -1305,6 +1305,13 @@ agreed with a format that does not exist on the wire. The fixture now sends the 
 terminal chunk carrying the call), and the reader accepts both. **Measure the server before writing the fake** — the
 suite could not have caught this, because the fake was the specification.
 
+Two things found in the same hour and fixed with it. The **debug switch was half-inert**: `StderrLogger` maps DEBUG
+to `java.util.logging.Level.FINE` and a JUL logger's default level is INFO, so every `Log.d` — including the prompt and
+payload dumps `CELESTE_DEBUG=1` exists for — was discarded by the framework rather than by a decision; the resolver
+sets the level now, and only when the switch is on. And **two test assertions were racing**: "the reply text is in the
+transcript" is satisfied mid-stream by a turn's own placeholder, before the apply swaps in the final user+assistant
+pair, so they waited on the wrong event and passed only on a quiet machine.
+
 **And a ninth, which the user found by opening the screen: Settings → Filesystem killed the window.**
 *(2026-10-17.)* `IllegalStateException: Vertically scrollable component was measured with an infinity maximum height
 constraints`, in an error dialog and then in the log. The shell hosts every category page's content inside a

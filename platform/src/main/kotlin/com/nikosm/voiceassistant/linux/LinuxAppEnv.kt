@@ -8,6 +8,8 @@ import com.nikosm.voiceassistant.Scheduler
 import com.nikosm.voiceassistant.SpontaneousTimer
 import com.nikosm.voiceassistant.StderrLogger
 import java.nio.file.Path
+import java.util.logging.Level
+import java.util.logging.Logger
 
 /**
  * The Linux implementation of [AppEnv] — the four XDG directories plus the logger.
@@ -57,6 +59,19 @@ class LinuxAppEnv(
      */
     fun installLogging(): LinuxAppEnv {
         LogSink.logger = logger
+        // **And let the logger print what it is given.** `StderrLogger` maps DEBUG to
+        // `java.util.logging.Level.FINE`, and a JUL logger's default level is INFO — so every
+        // `Log.d` in the port, including the prompt and payload dumps the debugging switch exists
+        // for, was silently discarded by the framework rather than by a decision. Measured the hard
+        // way on 2026-10-17: a diagnosis ran for an hour with `CELESTE_DEBUG=1` set and no debug
+        // output to show for it, because the flag was working and the handler was not.
+        //
+        // Only when the switch is on. With it off, FINE stays discarded by the framework's own
+        // default, which is the fail-closed direction this flag is built around.
+        if (debugLogging) {
+            Logger.getLogger("").level = Level.ALL
+            Logger.getLogger("").handlers.forEach { it.level = Level.ALL }
+        }
         return this
     }
 
