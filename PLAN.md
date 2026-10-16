@@ -817,7 +817,25 @@ rest of `RoomScreens.kt` — the editor, the member list, the round-status line 
 helpers above them. **Skills:** the `"Skills" -> SkillSettings(...)` branch and the Skills section in
 the persona editor (`SkillSettings`, `PersonaSkillSection`, and `SkillScreens.kt` with them).
 **Models:** `ModelsScreen` and its `ModelsHeader`/`filterEmptyMessage`/`ModelRow` helpers, which are
-the half of `ModelScreens.kt` M1 did not take — the shared widgets came across, the screen did not.]
+the half of `ModelScreens.kt` M1 did not take — the shared widgets came across, the screen did not.
+**Image actions:** the "Save to gallery" button (upstream inserted into `MediaStore.Images`; the
+desktop equivalent is a save dialog or a write under `XDG_PICTURES_DIR`) and the full-screen image
+viewer (§7's `FullScreenImageViewer.kt`, a file M1 never took). **Share:** the message menu's Share
+entry, whose §7 substitute is the `--send-text` flag — and the flag is also what wants the one-shot
+handoff slot `MainVoiceScreen` no longer takes a parameter for.
+
+[Scope corrected, 2026-10-16. Those markers — Rooms (3), Skills (2) **and** the image actions (3,
+which had been marked M5) — were assigned by M1's amendment, and it put two milestones' features in
+the wrong ones: it gave M3 `RoomScreens.kt` and `SkillScreens.kt` while §8's matrix and the
+milestones' own names say *"M4 — Rooms, spontaneous, daemon"* and *"M5 — … skills …"*, and it parked
+the image viewer, the save button and `--send-text` in M5 while M3 is the milestone named for images
+and files. **The names and §8 win**, confirmed by the user before any of it was ported: the markers
+are renumbered (rooms → M4, skills → M5, the three image gaps → M3) and these §10 lists follow them.
+Models has no other claimant and stays. The census below is re-counted rather than restated, and the
+total is unchanged — this moved nine markers, it added no feature to any milestone. What it does
+change is M3's honest size: the image viewer, the save button and `--send-text` are real porting
+(183 lines for the viewer alone, plus a save dialog and two CLI flags), where the rooms and skills
+screens were never M3's work to begin with.]
 
 The counts, settled by the anchored grep rather than by a mention count:
 
@@ -825,7 +843,8 @@ The counts, settled by the anchored grep rather than by a mention count:
 grep -rnE '^[[:space:]]*(//|\*)?[[:space:]]*DEFERRED TO M[0-9]' core/ platform/
 ```
 
-gives **15 markers — 6 × M3, 6 × M4, 3 × M5**. A plain `grep -o 'DEFERRED TO M[0-9]'` gives 18,
+gives **15 markers — 4 × M3, 9 × M4, 2 × M5** (re-counted 2026-10-16 after the scope correction
+above moved nine of them). A plain `grep -o 'DEFERRED TO M[0-9]'` gives 18,
 because three of them are *mentioned* rather than carried: the file headers of `ModelScreens.kt`,
 `RoomScreens.kt` and `SpontaneousScreens.kt` each say "the call site carries the `DEFERRED TO M3/M4`
 marker" while the marker itself is elsewhere. The unanchored number is the one to distrust — it was
@@ -844,18 +863,23 @@ comes back for. **Spontaneous:** the Spontaneous Messages section in the persona
 (`PersonaSpontaneousSection`) — the *controls*; the eligibility verdict that gates them is already in
 M1, because a persona that has become ineligible must not keep speaking on a schedule nobody can
 reach the controls for. **Shortcuts:** the "add to home screen" button in the persona list, and the
-two `removePersonaShortcut` call sites in `AssistantService.kt` that §9 already records.]
+two `removePersonaShortcut` call sites in `AssistantService.kt` that §9 already records.
+**Rooms — received from M3 in the 2026-10-16 correction:** `RoomScreens.kt` in full — `RoomChatArea`
+(MainVoiceScreen), `RoomPickerRows` and the `"Rooms" -> RoomSettings(…)` branch (SettingsScreens) —
+and with them the editor, the member list, the round-status line and the pure room helpers above
+them, because this is the milestone named for rooms.]
 *Accept:* a spontaneous message arrives as a desktop notification while only the tray process runs;
 the unit starts at login and stops cleanly.
 
 **M5 — The rest (3–4 d).** Translator mode, skills, RAG, web search, usage, thinking mode.
 
-[Receives from M1, 2026-10-16 — three `DEFERRED TO M5` markers, all in `ChatComponents.kt`, plus the
-share target §2 leaves out of v1. **Image actions:** the "Save to gallery" button (upstream inserted
-into `MediaStore.Images` through a resolver, with three `Build.VERSION.SDK_INT` guards) and the
-full-screen image viewer. **Share:** the message menu's Share entry, which §7 substitutes with a
-`--send-text` command-line flag — and which is also what will want the one-shot handoff slot
-`MainVoiceScreen` no longer takes a parameter for.]
+[Receives from M1, 2026-10-16 — re-assigned the same day. **Skills:** the `"Skills" -> SkillSettings(…)`
+branch in `SettingsScreens` and the Skills section in the persona editor (`SkillSettings`,
+`PersonaSkillSection`, and `SkillScreens.kt` with them) — the skill library and its editor are one
+feature, and personas were passed into the screen so each row could say who would lose a shared skill
+on delete. The three image-action markers this list used to claim (save to gallery, the full-screen
+viewer, the Share entry) moved to M3 in the scope correction above, which is the milestone named for
+images. §2's share target stays out of v1.]
 *Accept:* a spoken translation round trip; RAG and web search answers.
 
 **M6 — Packaging (3–5 d).** `PKGBUILD`, `debian/`, jpackage app image with a bundled runtime,

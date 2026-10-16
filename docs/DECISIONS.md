@@ -13,6 +13,28 @@ not stop for it. Stop only for the four cases listed in AGENTS.md §10.
 
 ---
 
+## 2026-10-16 — The milestone names win over the marker numbers, and nine markers move
+
+M1's amendment left fifteen `DEFERRED TO M<n>` markers and wrote each receiving milestone's §10 list
+to match them. The lists were faithful; the *numbers* were wrong in two of the three cases, and the
+contradiction was only visible when M3 started. `grep 'DEFERRED TO M3'` gave rooms, skills and the
+models screen, while §8's parity matrix and the milestones' own names said *"M4 — Rooms, spontaneous,
+daemon"* and *"M5 — … skills …"*; the image viewer, the save-to-gallery button and the `--send-text`
+share entry were marked M5 while M3 is the milestone called *"Images and files"*.
+
+**Decided: the names and §8 win, and the markers are renumbered** — rooms → M4 (3), skills → M5 (2),
+the three image-action gaps → M3. Models stays, having no other claimant. The total is unchanged at
+15, and no feature moved milestone: what changed is which milestone's list *claimed* it.
+
+Rejected: **following the markers** because they are the more recent record. Recency is not evidence
+when the newer text was written in one pass to match the markers themselves — that is a circle, and
+it would have handed M3 roughly 1,900 lines of Compose belonging to two other milestones, plus a
+"Images and files" milestone containing no image work. Also rejected: **splitting the difference**
+(porting rooms in M3 because it is next) — that is how a milestone stops being a unit of anything.
+
+The cost is a documentation commit and nine renumbered comments; the benefit is that each milestone
+now contains what its name and its acceptance criterion describe. → PLAN.md §8, §10
+
 ## 2026-10-16 — The resume after a reply drains the backlog, and §6 gains the span a user feels
 
 The acceptance run made the gap plain: §6 budgets "capture start to first chunk" and "utterance end

@@ -1121,10 +1121,11 @@ fun PersonaEditor(
             )
         }
 
-        // DEFERRED TO M3: the Skills section. Upstream draws `SettingsSectionHeader("Skills")`
+        // DEFERRED TO M5: the Skills section. Upstream draws `SettingsSectionHeader("Skills")`
         // and a `SettingsSection` wrapping `PersonaSkillSection(enabledSkillIds, onToggle,
         // service)`, which is SkillScreens.kt — the skill library editor and its own section are
-        // one feature, and M3 owns them. The toggles it drove are still collected in
+        // one feature, and M5 owns them — PLAN.md §10's "M5 — ... skills ..."; M1's amendment had
+        // them in M3, corrected 2026-10-16. The toggles it drove are still collected in
         // `enabledSkillIds` above and still committed below, so a persona's existing skill
         // attachments survive this editor untouched; only the controls that change them are
         // absent.

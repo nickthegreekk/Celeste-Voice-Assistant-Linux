@@ -957,11 +957,12 @@ fun MainScreen(
                     // + room input replace the voice/HUD body AND the ControlBar below.
                     // The persona chat state above is untouched, so the normal UI below
                     // renders exactly as before the moment the room is left.
-                    // DEFERRED TO M3: `RoomChatArea(room, messages, personas, roundState,
+                    // DEFERRED TO M4: `RoomChatArea(room, messages, personas, roundState,
                     // chatFontSize, textInput, onTextInputChange, onSend, …)` — "Room mode owns
                     // the whole body: the room transcript + round status + room input replace the
-                    // voice/HUD body AND the ControlBar below". That is RoomScreens.kt, and M3
-                    // owns room mode. Note what the deletion means for now: with a room active and
+                    // voice/HUD body AND the ControlBar below". That is RoomScreens.kt, and M4
+                    // owns room mode — PLAN.md §10's "M4 — Rooms, spontaneous, daemon"; M1's amendment
+                    // had it in M3, corrected 2026-10-16. Note what the deletion means for now: with a room active and
                     // no room body to draw, the persona chat renders instead. `activeRoomId` itself
                     // is still live and still publishes, so a build in this state shows the
                     // persona chat while the service believes a room is active.

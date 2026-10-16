@@ -292,14 +292,15 @@ fun ChatMessageBubble(
                             Text("Regenerate")
                         }
                     }
-                    // DEFERRED TO M5: the "Save to gallery" button. Upstream inserted the image
+                    // DEFERRED TO M3: the "Save to gallery" button. Upstream inserted the image
                     // into `MediaStore.Images` through a `ContentResolver`, with `IS_PENDING` and a
                     // `RELATIVE_PATH` under `Environment.DIRECTORY_PICTURES` — an Android content
                     // provider with no counterpart, and the three `Build.VERSION.SDK_INT` guards
                     // around it exist for API levels this platform does not have. The desktop
                     // equivalent is a save dialog (seam 13) or a write to `XDG_PICTURES_DIR`, both
                     // of which belong with the image milestones rather than invented here for a
-                    // button whose viewer M5 also owns. The button is absent from the row until
+                    // button whose viewer M3 also owns — both were marked M5 when M1 cut them, and the milestone
+                    // named for images is this one; corrected 2026-10-16. The button is absent from the row until
                     // then rather than present and inert.
                 }
             }
@@ -341,9 +342,9 @@ fun ChatMessageBubble(
         // Full-screen viewer for whichever image this bubble owns. A Dialog paints in its own
         // window, so living inside this Column costs the bubble no layout; the guard makes it
         // free when nothing was tapped, which is every bubble but one at most.
-        // DEFERRED TO M5: the full-screen image viewer. Upstream opens
+        // DEFERRED TO M3: the full-screen image viewer. Upstream opens
         // `FullScreenImageViewer(file = File(path), …)` here — a Compose `Dialog` that paints in
-        // its own window, so living inside this Column costs the bubble no layout. M5 owns the
+        // its own window, so living inside this Column costs the bubble no layout. M3 owns the
         // image screens, and the tap target that set `fullScreenImagePath` is still in place, so
         // restoring this is one call rather than a feature rebuild.
     }
@@ -441,10 +442,10 @@ fun ChatList(
                                 menuMessageIndex = null
                             }
                         )
-                        // DEFERRED TO M5: the Share entry. Upstream builds an `ACTION_SEND`
+                        // DEFERRED TO M3: the Share entry. Upstream builds an `ACTION_SEND`
                         // intent and hands it to the system chooser — Android's cross-application
                         // share sheet, which PLAN.md §7 substitutes with `--send-text` on the
-                        // command line. That flag is M5's to add, so the menu offers Copy, Edit and
+                        // command line. That flag is M3's to add, so the menu offers Copy, Edit and
                         // Delete until then: an entry that opened nothing would be worse than its
                         // absence, and the marker keeps the gap counted rather than forgotten.
                         DropdownMenuItem(

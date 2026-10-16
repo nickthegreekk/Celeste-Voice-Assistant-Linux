@@ -102,8 +102,8 @@ fun PersonaSelector(
                 }
             }
             if (onRoomSelected != null) {
-                // DEFERRED TO M3: the Rooms picker rows. Upstream draws `RoomPickerRows(rooms,
-                // activeRoomId, accentColor, onRoomSelected)` here — RoomScreens.kt, which M3
+                // DEFERRED TO M4: the Rooms picker rows. Upstream draws `RoomPickerRows(rooms,
+                // activeRoomId, accentColor, onRoomSelected)` here — RoomScreens.kt, which M4
                 // owns along with the rest of room mode. The `onRoomSelected` parameter and the
                 // `rooms`/`activeRoomId` it is handed are untouched, so this is a call to restore
                 // rather than a shape to rebuild.
@@ -765,14 +765,14 @@ fun SettingsDialog(
                                     initialEditingIndex = pendingEditIndex,
                                     onInitialEditConsumed = { pendingEditIndex = null }
                                 )
-                                // DEFERRED TO M3: `"Rooms" -> RoomSettings(...)`. The category
+                                // DEFERRED TO M4: `"Rooms" -> RoomSettings(...)`. The category
                                 // is still listed above and still routes here; this is the
                                 // screen body, which is RoomScreens.kt and belongs with the rest
                                 // of room mode. Its call site is one `when` branch.
-                                // DEFERRED TO M3: `"Skills" -> SkillSettings(service, skills,
+                                // DEFERRED TO M5: `"Skills" -> SkillSettings(service, skills,
                                 // personas, currentThemeColor)`. The category is still listed and
                                 // still routes here; this is the screen body, which is
-                                // SkillScreens.kt — the skill library and its editor — and M3 owns
+                                // SkillScreens.kt — the skill library and its editor — and M5 owns
                                 // it. Personas were passed so each row could say who would lose a
                                 // shared skill on delete; that reasoning travels with the screen.
                             }
