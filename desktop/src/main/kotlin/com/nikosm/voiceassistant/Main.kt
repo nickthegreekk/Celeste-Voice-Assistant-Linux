@@ -1,5 +1,7 @@
 package com.nikosm.voiceassistant
 
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -7,8 +9,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.application
+import androidx.compose.ui.window.WindowPlacement
 import androidx.compose.ui.window.rememberWindowState
 import com.nikosm.voiceassistant.linux.AwtFileDialogs
+import com.nikosm.voiceassistant.linux.AwtTray
 import com.nikosm.voiceassistant.linux.ImageIoCodec
 import com.nikosm.voiceassistant.linux.JsonSettingsStore
 import com.nikosm.voiceassistant.linux.LinuxAppEnv
@@ -23,6 +27,10 @@ import java.nio.file.Files
 import java.nio.file.Path
 import java.util.concurrent.CountDownLatch
 import kotlin.system.exitProcess
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.launch
 
 /**
  * The one entry point. `--headless` is a flag on this program, not a second program — the service
@@ -131,6 +139,30 @@ fun main(args: Array<String>) {
     // Teardown is the JVM's shutdown hook, so Ctrl-C and `systemctl --user stop` run the very same
     // `shutdown()` the window's close button does: the settings flush and the audio teardown happen
     // on all three paths rather than only the one with a UI.
+    // The tray is built here because its actions need the service, and the service needs `AppEnv`:
+    // the same ordering problem seam 10 had, solved the same way — the surface is created by the
+    // one place that can see both. In headless mode it is the *only* way to reach the application,
+    // which is why Quit is never disabled (see `trayMenu`).
+    fun trayState(windowAvailable: Boolean) = TrayMenuState(
+        status = service.statusLine.value,
+        listening = service.handsFreeMode.value,
+        muted = service.micMuted.value,
+        windowAvailable = windowAvailable,
+    )
+
+    fun handleTrayAction(action: TrayAction, onOpen: () -> Unit, onQuit: () -> Unit) {
+        when (action) {
+            TrayAction.LISTEN ->
+                if (service.handsFreeMode.value) service.stopVadListening() else service.startVadListening()
+            TrayAction.MUTE -> service.toggleMicMute()
+            TrayAction.OPEN -> onOpen()
+            TrayAction.QUIT -> {
+                service.shutdown()
+                onQuit()
+            }
+        }
+    }
+
     if (args.contains("--headless")) {
         appEnv.logger.i(
             "Main",
@@ -138,6 +170,21 @@ fun main(args: Array<String>) {
                 "notifications. Ctrl-C stops it, and so will the systemd unit M4 still owes."
         )
         Runtime.getRuntime().addShutdownHook(Thread({ service.shutdown() }, "service-teardown"))
+
+        val tray = AwtTray(
+            state = { trayState(windowAvailable = false) },
+            onAction = { action -> handleTrayAction(action, onOpen = {}, onQuit = { exitProcess(0) }) },
+            logger = appEnv.logger,
+        )
+        if (tray.install()) {
+            val trayScope = CoroutineScope(Dispatchers.Default)
+            trayScope.launch {
+                // The menu's labels depend on two flows that do not all change the status string,
+                // so every change refreshes the tray rather than only the status ones.
+                combine(service.statusLine, service.handsFreeMode, service.micMuted) { status, _, _ -> status }
+                    .collect { tray.setStatus(it) }
+            }
+        }
         CountDownLatch(1).await()
         return
     }
@@ -154,6 +201,11 @@ fun main(args: Array<String>) {
             appEnv.logger.i("Main", "sharing into the composer: ${sharedRequest::class.simpleName}")
         }
 
+        // Hoisted so the tray's Open can raise the same window the composition draws: two
+        // `rememberWindowState()` calls would be two states, and the tray would be nudging one
+        // nothing is listening to.
+        val windowState = rememberWindowState(width = 460.dp, height = 880.dp)
+
         Window(
             onCloseRequest = {
                 // Persist and tear down before the process goes: the settings write is debounced,
@@ -163,12 +215,39 @@ fun main(args: Array<String>) {
                 exitApplication()
             },
             title = "Celeste",
-            state = rememberWindowState(width = 460.dp, height = 880.dp),
+            state = windowState,
         ) {
             VoiceAssistantTheme {
                 // Held in composition state so the landing can clear it. Nothing else clears it, and
                 // nothing needs to: the payload is a start-up argument, and this window is the only
                 // one there will be.
+                // The window's own tray: same menu, with Open (which has somewhere to go here)
+                // and a Quit that closes the application rather than the process.
+                val tray = remember {
+                    AwtTray(
+                        state = { trayState(windowAvailable = true) },
+                        onAction = { action ->
+                            handleTrayAction(
+                                action,
+                                onOpen = {
+                                    windowState.isMinimized = false
+                                    windowState.placement = WindowPlacement.Floating
+                                },
+                                onQuit = ::exitApplication,
+                            )
+                        },
+                        logger = appEnv.logger,
+                    )
+                }
+                DisposableEffect(Unit) {
+                    tray.install()
+                    onDispose { tray.remove() }
+                }
+                LaunchedEffect(service) {
+                    combine(service.statusLine, service.handsFreeMode, service.micMuted) { status, _, _ -> status }
+                        .collect { tray.setStatus(it) }
+                }
+
                 var pendingShare by remember { mutableStateOf(sharedRequest) }
                 MainScreen(
                     service = service,

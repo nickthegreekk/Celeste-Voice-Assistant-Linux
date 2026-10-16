@@ -1011,7 +1011,20 @@ the same JVM with the service running and a latch holding the main thread. Teard
 audio teardown happen on all three paths rather than only the one with a UI. What it does *not* yet give is a way to
 reach the running service from the desktop — no tray icon, no Open, no Quit — which is the next slice.
 
-Still to come in M4: the tray (seam 11, "AWT `SystemTray` menu (Listen now, Mute mic, Open, Quit)" per §5), the systemd unit and the `.desktop`
+**The tray followed — seam 11, and the destination the status line has been waiting for since M1.** §5's row sketched the
+menu as "Listen now, Mute mic, Open, Quit"; the shape is kept and the labels move with the state, because a menu that says
+"Listen now" while it is listening lies about the one thing it is for. `updateNotification`'s string — upstream's
+ongoing-notification content text, which the port had been writing to a DEBUG log line with nowhere else to put it — now
+publishes a `statusLine` flow that the tray shows as its tooltip and its first menu row; not one ported call site changed for
+it, which is what that KDoc promised. Two shapes fell out of the implementation and are decisions rather than details: the
+**Open item is absent where there is no window** (headless has nothing to open, and an entry that opened nothing is worse than
+its absence — the rule the Share entry was held to), and **Quit is never disabled**, because in headless mode the tray is the
+only way to stop the process without a terminal. The icon is drawn in code and says so: `assets/` holds the model and the
+licence, and icons belong to M6's packaging rather than to a second source of truth here. `TrayMenuTest` pins the menu as a
+pure function of state — which items exist, what they say, what is enabled — because the AWT half is a thin call and the
+decisions are not.
+
+Still to come in M4: the systemd unit and the `.desktop`
 entries, the rooms screens, and the spontaneous controls in the persona editor.
 
 *Accept:* a spontaneous message arrives as a desktop notification while only the tray process runs;

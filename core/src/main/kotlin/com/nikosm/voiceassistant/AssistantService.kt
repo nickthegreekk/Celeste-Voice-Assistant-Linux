@@ -547,6 +547,16 @@ class AssistantService(
     val _silenced = MutableStateFlow(false)
     val silenced = _silenced.asStateFlow()
 
+    /**
+     * The status line, published so a surface outside this class can show it (seam 11's tray).
+     *
+     * A flow rather than a callback because the tray is built by the composition root *after* the
+     * service and may not exist at all: a collector that arrives late still sees the current value,
+     * and a run with no tray costs one StateFlow write per transition.
+     */
+    val _statusLine = MutableStateFlow("")
+    val statusLine = _statusLine.asStateFlow()
+
     val _micMuted = MutableStateFlow(false)
     val micMuted = _micMuted.asStateFlow()
 
@@ -2494,10 +2504,15 @@ class AssistantService(
      * implementation rather than a hole in a call site. The two markers in this file are the two
      * deletions §9 records, and if a third ever appears it should be a third deletion.
      *
-     * M4's tray (seam 11) is what gives this string a destination, and the value it receives is
-     * already the right one — nothing about the ported call sites has to change for it to be shown.
+     * M4's tray (seam 11) is what gives this string a destination — [statusLine], which `AwtTray`
+     * collects and shows as its tooltip and its first menu row — and the value it receives was
+     * already the right one: not one ported call site had to change for it to be shown.
      */
     internal fun updateNotification(content: String) {
+        // The tray reads this flow; the debug line stays because a run without a tray (a box with
+        // no appindicator host, or `--debug` in a terminal) still needs the transitions to be
+        // legible somewhere.
+        _statusLine.value = content
         Log.d("AssistantService", "status: $content")
     }
 
