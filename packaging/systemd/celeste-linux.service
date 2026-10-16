@@ -1,0 +1,63 @@
+# celeste-linux.service — the assistant's background process, as a systemd *user* unit.
+#
+# This is PLAN.md §9's substitution for Android's foreground service: the phone kept one alive with a
+# persistent notification, and the desktop's equivalent is a tray icon while listening plus this unit
+# for autostart. §4 puts the file here; M6 is what installs it (the PKGBUILD and the .deb), and M4 is
+# where it was written.
+#
+# ## Installing it by hand (until M6's package does it)
+#
+#   mkdir -p ~/.config/systemd/user
+#   cp packaging/systemd/celeste-linux.service ~/.config/systemd/user/
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now celeste-linux.service
+#
+# Logs go where every other user unit's do, because the application writes to stderr:
+#
+#   journalctl --user -u celeste-linux -f
+#
+# Stopping it runs the same teardown the window's close button does — `--headless` installs a shutdown
+# hook — so the settings flush and the audio devices are released either way:
+#
+#   systemctl --user stop celeste-linux.service
+#
+# ## Running it from a build tree, before M6 exists
+#
+# `ExecStart` names the binary the packages will install. To try the unit against a development
+# checkout, point it at Gradle instead — and expect a slower start, since that is a build first:
+#
+#   ExecStart=/usr/bin/env bash -lc 'cd /path/to/VoiceAssistant-Linux && ./gradlew -q :desktop:run --args="--headless"'
+#
+# ## Surviving logout
+#
+# A user unit is stopped when the user's last session ends, unless lingering is enabled for that user.
+# That is a decision the user makes about their own machine, not something a package should make:
+#
+#   loginctl enable-linger $USER
+#
+# PLAN.md §12 records the same thing as a risk with the same remedy.
+
+[Unit]
+Description=Celeste — the assistant's background process
+# Without this, a crash loop restarts forever: five starts in five minutes is a real bug, and the
+# unit stops knocking rather than hiding it.
+StartLimitIntervalSec=300
+StartLimitBurst=5
+# Ordering only: the application runs without a sound server or a notification daemon (it logs and
+# carries on), so neither is a hard dependency. It simply prefers to come up after the session is
+# there, so the tray icon has somewhere to appear.
+After=graphical-session.target
+PartOf=graphical-session.target
+
+[Service]
+Type=simple
+# `--headless` is the same binary with no window — PLAN.md §3/D1: "a flag, not a separate program".
+# The tray it installs is the only way to reach a run that has no window.
+ExecStart=celeste-linux --headless
+# On *failure* only. A clean exit is a decision — the tray's Quit, or a Ctrl-C in a terminal — and
+# restarting a decision is how a daemon becomes unkillable.
+Restart=on-failure
+RestartSec=5s
+
+[Install]
+WantedBy=default.target

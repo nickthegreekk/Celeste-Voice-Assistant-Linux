@@ -1024,7 +1024,17 @@ licence, and icons belong to M6's packaging rather than to a second source of tr
 pure function of state — which items exist, what they say, what is enabled — because the AWT half is a thin call and the
 decisions are not.
 
-Still to come in M4: the systemd unit and the `.desktop`
+**The unit is written, at the path §4 reserved for it, and `systemd-analyze verify` accepts it**: one line of output,
+"Command celeste-linux is not executable", which is M6's package arriving rather than a fault in the file — and no
+syntax or directive complaints. It is `Type=simple` over `celeste-linux --headless` (D1's flag, not a second program),
+`Restart=on-failure` rather than `always` because a clean exit is a decision — the tray's Quit, or a Ctrl-C — and
+restarting a decision is how a daemon becomes unkillable, with `StartLimitIntervalSec`/`StartLimitBurst` so a crash loop
+stops knocking instead of hiding behind restarts. `WantedBy=default.target` is the autostart, and `PartOf=graphical-session.target`
+is why it stops with the session. §12's linger risk is answered where the user will meet it: the header documents
+`loginctl enable-linger`, and says why that is the user's decision rather than a package's. Its header also carries the
+one thing a unit cannot: how to point `ExecStart` at a build tree until M6 installs a binary.
+
+Still to come in M4: the `.desktop`
 entries, the rooms screens, and the spontaneous controls in the persona editor.
 
 *Accept:* a spontaneous message arrives as a desktop notification while only the tray process runs;
