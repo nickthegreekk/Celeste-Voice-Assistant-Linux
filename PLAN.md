@@ -668,12 +668,11 @@ screens. Port the JVM tests.
 *Accept:* a real conversation with Ollama and with one cloud provider end to end; settings survive a
 restart; an Android backup file imports and shows its personas.
 
-[Verified by hand by the user on 2026-10-16, in the running app: a text conversation works, the Android
+[Verified by hand by the user on 2026-10-16, in the running app: a text conversation works against both a local Ollama host and a cloud provider — the cloud one is what proves `595faaa`'s HTTPS fix end to end — each of them speaking through Kokoro, the Android
 backup restores through the UI and its personas appear, both voice routes speak — Kokoro over the gateway and the
 local espeak-ng — A1111 generates images, an image upload works, and a persona's artwork can be picked and lands
 correctly, that last one being seam 15's only real-data path and previously unexercised. M1's acceptance is therefore
-substantially met. Still open for M1: a conversation against a *cloud* provider specifically, since the HTTPS path only
-became usable with 595faaa and nobody has watched that, and settings surviving a restart. M3's ComfyUI half is open
+substantially met. Still open for M1: settings surviving a restart, which nobody has watched. M3's ComfyUI half is open
 too — ComfyUI is stopped while the build has the RAM — and when it returns, check the app's ComfyUI entry address,
 because the imported one points at 192.0.2.12:8188 rather than the local 127.0.0.1:8188.]
 
