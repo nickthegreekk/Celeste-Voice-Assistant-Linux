@@ -343,5 +343,6 @@ class FreshStartNetworkTest {
         override fun openTextFile(title: String): Path? = null
         override fun openFiles(title: String): List<Path> = emptyList()
         override fun save(defaultName: String, title: String): Path? = null
+        override fun openDirectory(title: String): Path? = null
     }
 }

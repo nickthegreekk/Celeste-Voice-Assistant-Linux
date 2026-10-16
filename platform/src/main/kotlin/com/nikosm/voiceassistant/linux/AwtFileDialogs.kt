@@ -6,7 +6,9 @@ import com.nikosm.voiceassistant.StderrLogger
 import java.awt.EventQueue
 import java.awt.FileDialog
 import java.awt.Frame
+import java.io.File
 import java.nio.file.Path
+import javax.swing.JFileChooser
 
 /**
  * Seam 13, implemented with `java.awt.FileDialog` (PLAN.md §5).
@@ -53,6 +55,38 @@ class AwtFileDialogs(
 
     override fun save(defaultName: String, title: String): Path? =
         show(FileDialog.SAVE, title, null, defaultName = defaultName).firstOrNull()
+
+    /**
+     * `JFileChooser`, and not the `FileDialog` the four above share, because **AWT's file dialog has
+     * no directory mode**: `FileDialog.LOAD` selects files, `SAVE` names one, and there is no third
+     * mode. The alternatives were a Swing picker or shelling out to a desktop's own (`zenity`,
+     * `kdialog`); the picker costs no dependency, no process and no assumption about which desktop
+     * is running, and it is `java.desktop` — already bundled in the packaged runtime, so the
+     * packaged application can open it on a machine with no JDK (PLAN.md §10/M6's module list).
+     *
+     * It starts at the user's home directory rather than at the process's working directory, which
+     * is where a `JFileChooser` opens by default — and which, for a development run, is a checkout.
+     * The threading rule is [show]'s: the picker must be on the EDT.
+     */
+    override fun openDirectory(title: String): Path? {
+        var chosen: Path? = null
+        val show = {
+            val chooser = JFileChooser().apply {
+                dialogTitle = title
+                fileSelectionMode = JFileChooser.DIRECTORIES_ONLY
+                isMultiSelectionEnabled = false
+                // A directory picker has nothing to filter, and leaving the "all files" filter on
+                // would let the user select a file and have this return one.
+                isAcceptAllFileFilterUsed = false
+                currentDirectory = File(System.getProperty("user.home") ?: ".")
+            }
+            if (chooser.showOpenDialog(null) == JFileChooser.APPROVE_OPTION) {
+                chosen = chooser.selectedFile?.toPath()
+            }
+        }
+        if (EventQueue.isDispatchThread()) show() else EventQueue.invokeAndWait(show)
+        return chosen
+    }
 
     private fun show(
         mode: Int,

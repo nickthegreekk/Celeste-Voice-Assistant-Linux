@@ -58,6 +58,18 @@ interface FileDialogs {
     fun openFiles(title: String): List<Path>
 
     /**
+     * Pick one directory — the workspace a persona may read and write inside (PLAN.md §10/M8). Null
+     * when the user cancels.
+     *
+     * A directory, which is why this is not [save] with a different title: AWT's `FileDialog` has no
+     * directory mode at all, and the Linux implementation answers this one with a Swing
+     * `JFileChooser`. The caller gets the user's choice and decides what to do with it — the same
+     * contract the other four have, and the reason the workspace rules live in `:core` rather than
+     * in the picker.
+     */
+    fun openDirectory(title: String): Path?
+
+    /**
      * Choose where to write a new file called [defaultName]. Null when the user cancels.
      *
      * The default name matters: an export that defaulted to an empty field would make the user
