@@ -81,7 +81,7 @@ internal fun AssistantService.fsWorkspaceRefusalFor(path: Path): String? =
     workspaceRootRefusal(path, fsExcludedPaths())
 
 internal fun AssistantService.fsExcludedPaths(): List<Path> =
-    alwaysExcludedPaths(appEnv.configDir, appEnv.homeDir)
+    alwaysExcludedPaths(appEnv.configDir, appEnv.homeDir, appEnv.stateDir)
 
 /** Every tool call, recorded where the user can read it afterwards. */
 internal fun AssistantService.auditFsToolCall(entry: FsToolAuditEntry) {

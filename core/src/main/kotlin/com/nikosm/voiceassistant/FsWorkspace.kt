@@ -81,6 +81,11 @@ internal class FsToolRefusal(val reason: String) : Exception(reason)
  *
  *  - `configDir` — the settings file, which holds the API keys and server passwords.
  *  - `~/.ssh` — private keys.
+ *  - `stateDir` — this application's own audit log. Added after the adversarial review pointed out
+ *    that with a workspace of `$HOME` (the documented obvious mistake) a model could overwrite
+ *    `fs-tool-audit.jsonl` and then have the next call append a clean line to it: the safety
+ *    feature's own evidence, destroyable by the thing it exists to record. It is this application's
+ *    bookkeeping, which is exactly what `configDir` is doing on this list.
  *
  * Resolved with `toRealPath` where the path exists, so a symlinked `~/.ssh` is still the same path,
  * and normalised where it does not, so a machine without `~/.ssh` still gets the rule rather than a
@@ -91,8 +96,8 @@ internal class FsToolRefusal(val reason: String) : Exception(reason)
  * tested — which for the rule that guards the user's private keys is worth more than the two
  * arguments it saves.
  */
-internal fun alwaysExcludedPaths(configDir: Path, homeDir: Path): List<Path> =
-    listOf(configDir, homeDir.resolve(".ssh")).map(::realOrNormalized)
+internal fun alwaysExcludedPaths(configDir: Path, homeDir: Path, stateDir: Path): List<Path> =
+    listOf(configDir, homeDir.resolve(".ssh"), stateDir).map(::realOrNormalized)
 
 /** Whether [target] is an excluded path or lives inside one. Both sides must already be resolved. */
 internal fun isDenied(target: Path, excluded: List<Path>): Boolean =

@@ -32,7 +32,8 @@ class FsWorkspaceTest {
     // paths sit *within* the workspace and must be refused individually rather than wholesale.
     private val ssh: Path = home.resolve(".ssh").also { Files.createDirectories(it) }
     private val config: Path = home.resolve(".config/celeste-linux").also { Files.createDirectories(it) }
-    private val excluded: List<Path> = alwaysExcludedPaths(config, home)
+    private val state: Path = home.resolve(".local/state/celeste-linux").also { Files.createDirectories(it) }
+    private val excluded: List<Path> = alwaysExcludedPaths(config, home, state)
 
     @After
     fun cleanUp() {
@@ -172,6 +173,20 @@ class FsWorkspaceTest {
 
         assertTrue("it says why: $reason", reason.contains("always excluded"))
         assertEquals("and the credentials file is untouched", "{\"apiKey\":\"real\"}", Files.readString(settings))
+    }
+
+    @Test
+    fun `the audit log is excluded too, so a model cannot erase its own trail`() {
+        // The review's finding: with a workspace of `$HOME`, a write to the audit file replaced it
+        // and the next call appended a clean line to it — the safety feature's own evidence,
+        // destroyable by the thing it records.
+        Files.writeString(state.resolve("fs-tool-audit.jsonl"), "old record")
+
+        val reason = refusal {
+            resolveInside(home, ".local/state/celeste-linux/fs-tool-audit.jsonl", forWrite = true, excluded)
+        }
+
+        assertTrue(reason.contains("always excluded"))
     }
 
     @Test

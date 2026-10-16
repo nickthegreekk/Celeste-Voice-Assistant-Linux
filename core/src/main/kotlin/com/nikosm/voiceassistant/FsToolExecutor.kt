@@ -123,9 +123,15 @@ internal class FsToolExecutor(
             return refuse(call, args, "'$requested' is not UTF-8 text, which these tools do not read.")
         }
 
-        val allLines = text.split("\n")
+        // A trailing newline yields one empty element, so every ordinary text file claimed a line
+        // that does not exist — "lines 1-400 of 401" on a 400-line file, and following the
+        // "start_line to continue" hint returned an empty body with a backwards range.
+        val allLines = text.split("\n").let { if (it.size > 1 && it.last().isEmpty()) it.dropLast(1) else it }
         val start = (args.optInt("start_line", 1)).coerceAtLeast(1)
         val wanted = (args.optInt("max_lines", MAX_READ_LINES)).coerceIn(1, MAX_READ_LINES_CEILING)
+        if (start > allLines.size) {
+            return ok(call, args, file, "read_file: $requested has ${allLines.size} lines; start_line $start is past the end.")
+        }
         val from = (start - 1).coerceAtMost(allLines.size)
         val slice = allLines.drop(from).take(wanted)
         val clipped = slice.joinToString("\n").let { if (it.length > MAX_READ_BYTES) it.take(MAX_READ_BYTES) else it }
@@ -145,6 +151,12 @@ internal class FsToolExecutor(
         val requested = args.optString("path")
         if (requested.isBlank()) return refuse(call, args, "write_file needs a path.")
         if (!workspace.mode.allowsWrites) return refuse(call, args, "this workspace is read-only.")
+        // `has`, not just `optString`: org.json answers "" for an absent field, for a null and for a
+        // number, so a model that dropped the argument asked the user to confirm replacing the file
+        // with nothing. An empty string is a legitimate write and stays allowed.
+        if (!args.has("content") || args.isNull("content")) {
+            return refuse(call, args, "write_file needs content; nothing was written.")
+        }
         val content = args.optString("content")
         val bytes = content.toByteArray(StandardCharsets.UTF_8)
         if (bytes.size > MAX_WRITE_BYTES) {
@@ -290,7 +302,10 @@ internal class FsWriteRequest(
  */
 internal fun frameFileContent(text: String): String {
     val escaped = text.lineSequence().joinToString("\n") { line ->
-        if (line.startsWith(FRAME_BEGIN) || line.startsWith(FRAME_END)) "| $line" else line
+        // `trimStart`, not `startsWith`: a marker indented by a space reads as the same closing line
+        // to anything that trims, and only the column-zero spelling was being defused.
+        val trimmed = line.trimStart()
+        if (trimmed.startsWith(FRAME_BEGIN) || trimmed.startsWith(FRAME_END)) "| $line" else line
     }
     return "$FRAME_BEGIN\n$escaped\n$FRAME_END"
 }

@@ -24,7 +24,7 @@ class FsToolExecutorTest {
     private val root: Path = Files.createTempDirectory("exec-root").also { it.toFile().deleteOnExit() }
     private val home: Path = Files.createTempDirectory("exec-home").also { it.toFile().deleteOnExit() }
     private val ssh: Path = home.resolve(".ssh").also { Files.createDirectories(it) }
-    private val excluded: List<Path> = alwaysExcludedPaths(home.resolve(".config/celeste-linux"), home)
+    private val excluded: List<Path> = alwaysExcludedPaths(home.resolve(".config/celeste-linux"), home, home.resolve(".local/state/celeste-linux"))
     private val audit = ArrayList<FsToolAuditEntry>()
 
     @After

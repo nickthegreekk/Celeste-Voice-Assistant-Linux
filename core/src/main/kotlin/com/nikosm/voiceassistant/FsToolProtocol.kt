@@ -248,8 +248,13 @@ internal fun fsToolTurnFor(
     calls: List<FsToolCall>,
     results: List<FsToolResult>,
 ): FsToolTurn {
+    // Matched on the id first and the name ONLY as a fallback for a provider that sent no id — two
+    // calls to the same tool in one round both matched the first result on the name, so the second
+    // call was answered with the first call's output. Pairing by position is the honest fallback:
+    // results are built in call order by the executor.
     fun resultFor(call: FsToolCall): FsToolResult =
-        results.firstOrNull { it.callId == call.id || it.name == call.name }
+        results.firstOrNull { it.callId == call.id }
+            ?: results.getOrNull(calls.indexOf(call))
             ?: FsToolResult(call.id, call.name, "the tool produced no result.", ok = false)
 
     return when (provider) {
