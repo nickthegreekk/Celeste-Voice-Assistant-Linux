@@ -980,15 +980,14 @@ fun MainScreen(
                     // + room input replace the voice/HUD body AND the ControlBar below.
                     // The persona chat state above is untouched, so the normal UI below
                     // renders exactly as before the moment the room is left.
-                    // DEFERRED TO M4: `RoomChatArea(room, messages, personas, roundState,
-                    // chatFontSize, textInput, onTextInputChange, onSend, …)` — "Room mode owns
-                    // the whole body: the room transcript + round status + room input replace the
-                    // voice/HUD body AND the ControlBar below". That is RoomScreens.kt, and M4
-                    // owns room mode — PLAN.md §10's "M4 — Rooms, spontaneous, daemon"; M1's amendment
-                    // had it in M3, corrected 2026-10-16. Note what the deletion means for now: with a room active and
-                    // no room body to draw, the persona chat renders instead. `activeRoomId` itself
-                    // is still live and still publishes, so a build in this state shows the
-                    // persona chat while the service believes a room is active.
+                    // DEFERRED TO M4, and now half-done: `RoomChatArea` EXISTS — `RoomScreens.kt`
+                    // arrived wholesale in M4 and compiles — but this call is not restored yet, so
+                    // with a room active the persona chat still renders while the service believes
+                    // a room is active. `activeRoomId` and the whole room state below (messages,
+                    // round, text input, list state) are live and publishing; what is missing at
+                    // this site is `val roomScope = activeRoom` and the `if (roomScope != null)`
+                    // around the call. The two scripted attempts at it damaged the file and were
+                    // reverted; the next one reads upstream's block and copies it whole.
  else if (celestialActive) {
                         CelestialHudBody(
                             state = state,

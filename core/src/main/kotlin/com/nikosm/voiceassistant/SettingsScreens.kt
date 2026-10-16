@@ -102,11 +102,11 @@ fun PersonaSelector(
                 }
             }
             if (onRoomSelected != null) {
-                // DEFERRED TO M4: the Rooms picker rows. Upstream draws `RoomPickerRows(rooms,
-                // activeRoomId, accentColor, onRoomSelected)` here — RoomScreens.kt, which M4
-                // owns along with the rest of room mode. The `onRoomSelected` parameter and the
-                // `rooms`/`activeRoomId` it is handed are untouched, so this is a call to restore
-                // rather than a shape to rebuild.
+                // DEFERRED TO M4, and now half-done: `RoomPickerRows` exists in `RoomScreens.kt`
+                // (arrived wholesale in M4, compiles) and this call is the restore the M1 marker
+                // promised — one `RoomPickerRows(rooms, activeRoomId, accentColor, onRoomSelected)`
+                // — but it is not restored yet, so the Rooms picker draws nothing. The parameters
+                // it needs are all live at this site.
             }
             Spacer(modifier = Modifier.height(24.dp))
         }
@@ -765,10 +765,9 @@ fun SettingsDialog(
                                     initialEditingIndex = pendingEditIndex,
                                     onInitialEditConsumed = { pendingEditIndex = null }
                                 )
-                                // DEFERRED TO M4: `"Rooms" -> RoomSettings(...)`. The category
-                                // is still listed above and still routes here; this is the
-                                // screen body, which is RoomScreens.kt and belongs with the rest
-                                // of room mode. Its call site is one `when` branch.
+                                // DEFERRED TO M4, and now half-done: `RoomSettings` exists in
+                                // `RoomScreens.kt` and this branch is its one call site. Not
+                                // restored yet, so the category routes here and draws nothing.
                                 // DEFERRED TO M5: `"Skills" -> SkillSettings(service, skills,
                                 // personas, currentThemeColor)`. The category is still listed and
                                 // still routes here; this is the screen body, which is
