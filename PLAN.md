@@ -345,6 +345,17 @@ poll, name how the replacement fails *differently* — end of stream, repeated f
 and handle that case where the call is made. Expect the same question in the hands-free loop, the hotkey, and M4's
 scheduler.
 
+**A stream is not a file (2026-10-15).** The third member of the same family, and the sharpest. `espeak-ng --stdout` writes
+to a pipe, so the RIFF size it stamps at the start is one it can never seek back to patch — measured, `2,147,479,552`
+declared in a 76,284-byte stream. A parser that bounds-checked every chunk alike called that corruption, and the local
+voice route was dead on a machine where `espeak-ng` works. A `data` chunk now means "samples start here, everything to
+EOF is payload" while every other chunk keeps the old guard. Two things to carry forward. The family's common shape: the
+replacement lost a property the old path had — synchronous completion, a blocking read, a seekable sink — and the loss
+shows up as *plausible data* rather than as an error, which is why all three were found by running against real hardware
+and none by a test. And the response that made this one readable: `parseSpeechWav` is top-level and `internal`, so
+`SpeechWavParseTest` reaches all six of its failure shapes with no engine installed. A parser of external data has to be
+testable without the external thing — that is what turns a silent failure into a test.
+
 ### 5a. Seam 8 is not in v1 (2026-10-15)
 
 Credentials — provider API keys, server passwords and gateway credentials — live in the settings
