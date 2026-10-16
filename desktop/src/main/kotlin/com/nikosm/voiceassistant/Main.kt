@@ -1,6 +1,9 @@
 package com.nikosm.voiceassistant
 
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.application
@@ -118,6 +121,15 @@ fun main(args: Array<String>) {
     }
 
     application {
+        // `--send-text` / `--send-file`: parsed once, before the window exists, and handed to the
+        // composition. Deliberately a *cold start* affordance — a second launch while one is running
+        // is refused by the instance lock and names the holding pid (seam 12, 2026-10-16), so a
+        // payload that arrived afterwards would have nowhere to land and no way to say so.
+        val sharedRequest = parseShareArgs(args.toList())
+        if (sharedRequest != null) {
+            appEnv.logger.i("Main", "sharing into the composer: ${sharedRequest::class.simpleName}")
+        }
+
         Window(
             onCloseRequest = {
                 // Persist and tear down before the process goes: the settings write is debounced,
@@ -130,7 +142,15 @@ fun main(args: Array<String>) {
             state = rememberWindowState(width = 460.dp, height = 880.dp),
         ) {
             VoiceAssistantTheme {
-                MainScreen(service = service)
+                // Held in composition state so the landing can clear it. Nothing else clears it, and
+                // nothing needs to: the payload is a start-up argument, and this window is the only
+                // one there will be.
+                var pendingShare by remember { mutableStateOf(sharedRequest) }
+                MainScreen(
+                    service = service,
+                    sharedRequest = pendingShare,
+                    onSharedHandled = { pendingShare = null },
+                )
             }
         }
     }

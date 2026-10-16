@@ -862,7 +862,23 @@ folder is upstream's `RELATIVE_PATH`, and the user asked for that folder by name
 dialog §7 offered as the alternative — the button's promise is "put it with my pictures", which configuration has
 already answered. `ImageSaveTest` pins the two promises that matter: the name shape with its collision suffix, and
 that a second save never destroys a first, because a folder full of the user's pictures is the one place a mistake
-cannot be apologised for afterwards.]
+cannot be apologised for afterwards
+
+**The share target came third, and it settles what that feature is on a desktop.** §7 substitutes Android's
+`ACTION_SEND` with `--send-text` / `--send-file`, and §8 rows the share target as M3 — but the M1 comments at the
+call sites said §2 put desktop share out of scope, which §2 does not say, so the flags arrived with that claim
+corrected rather than inherited. The mechanism is a cold-start one-shot: the flag is parsed before the window exists,
+handed to `MainScreen` as one more request pair beside the spontaneous deep link, and landed synchronously in the
+composer (`appendSharedTextToDraft` for text, the attachment slot for an image). Upstream's shape needed a
+composition-scoped `shareScope` and a warning about an effect that consumes its own key cancelling itself at its
+first suspension, because an `ACTION_SEND` `Uri` arrived with a temporary grant and had to be copied before it died;
+a command-line path is readable for the life of the process, so nothing suspends and the hazard has nothing to bite.
+`--send-file` takes images only, judged by extension — the substitute for upstream's MIME check, since the composer
+renders and sends its attachment as an image. **A second launch while one is running is refused by the instance lock
+(seam 12), so these flags are cold-start by construction and a payload cannot be forwarded into a live window**; that
+is stated in `Main.kt` where the flags are read rather than left for a script's author to discover. The outbound half
+stays where §2 put it: handing a file to another application is `xdg-open`, which `docs/BEYOND-THE-PORT.md` keeps
+outside M0–M7.]
 
 The counts, settled by the anchored grep rather than by a mention count:
 

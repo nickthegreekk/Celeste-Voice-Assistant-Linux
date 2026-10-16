@@ -332,11 +332,15 @@ fun MainScreen(
     startVoiceRequest: Boolean = false,
     /** Called exactly once per [startVoiceRequest] once it has been considered. */
     onStartVoiceHandled: () -> Unit = {},
-    // Deleted: the `sharedRequest` / `onSharedHandled` parameter pair. Upstream took a one-shot
-    // `ACTION_SEND` payload here and landed it in the current persona's composer; PLAN.md §2
-    // leaves desktop share out of v1, so there is no payload type to pass and no landing to do.
-    // M5's `--send-text` is what will want a pair like this back, and it will be its own shape —
-    // text arrives from a command line, not from another application's intent.
+    /**
+     * One-shot: a `--send-text` / `--send-file` payload from the command line, landed in the
+     * composer. Restored in M3 — the M1 comment here claimed §2 put desktop share out of scope,
+     * which §2 does not say, while §7 and §8 substitute these flags and list the share target as M3
+     * work. Upstream's pair took an `ACTION_SEND` payload; this one takes the command line's.
+     */
+    sharedRequest: SharedRequest? = null,
+    /** Called exactly once per [sharedRequest] value, after it has landed. */
+    onSharedHandled: () -> Unit = {},
 ) {
     val focusManager = LocalFocusManager.current
     
@@ -506,19 +510,28 @@ fun MainScreen(
         bound.startRecording()
     }
 
-    // Deleted: the share-target landing, whole — the composition-scoped `shareScope`, its long
-    // note about why the image materialization could not live inside the effect ("consuming the
-    // request changes one of the effect's own keys, so the effect is cancelled the moment it
-    // reaches its first suspension point — which is exactly `saveMessageImage`"), and the
-    // `LaunchedEffect` that keyed on `sharedRequest`.
+    // The command line's one-shot handoff, landed in the composer.
     //
-    // That note diagnoses a real ordering hazard, and the hazard is worth remembering even though
-    // the code it applies to is gone: an effect that consumes its own key cancels itself at its
-    // first suspension. Anything M5 builds to receive a `--send-text` payload facing the same
-    // shape — a one-shot request that is cleared as it is handled — will hit it again.
-    //
-    // PLAN.md §2 leaves desktop share out of v1; §7 substitutes the `--send-text` flag, which is
-    // M5's.
+    // Upstream's version needed a composition-scoped `shareScope` and a long note about why the
+    // image could not be materialized inside the effect: consuming the request changes one of the
+    // effect's own keys, so the effect is cancelled at its first suspension — and `saveMessageImage`
+    // suspends. The hazard is kept in mind even though nothing here can hit it: a `--send-file` path
+    // is readable for as long as the process lives, where an `ACTION_SEND` Uri arrived with a
+    // temporary grant. Two synchronous writes, then the request is cleared.
+    LaunchedEffect(sharedRequest) {
+        val request = sharedRequest ?: return@LaunchedEffect
+        when (request) {
+            is SharedRequest.Text -> {
+                val landed = appendSharedTextToDraft(textInput, request.text)
+                textInput = landed.draft
+                if (landed.truncated) {
+                    service?.notifyUser("Shared text trimmed to $MAX_SHARED_TEXT_CHARS characters")
+                }
+            }
+            is SharedRequest.Image -> attachedImage = request.path
+        }
+        onSharedHandled()
+    }
 
     val listState = rememberLazyListState()
     val miniScrollState = rememberScrollState()

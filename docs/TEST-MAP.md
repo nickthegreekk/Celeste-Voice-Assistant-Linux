@@ -82,3 +82,14 @@ The categories PLAN.md §11 already names, so the shape is on the record:
 
 Each row above becomes a per-file line as the milestone that owns it lands, with the reason
 recorded whether the test was kept, rewritten or dropped.
+
+## Adapted rather than copied (one file so far)
+
+`SharedContentTest.kt` is the first upstream JVM test to need retargeting, which is why it is not on
+`TEST_SOURCES` and why this section exists. Eleven of its sixteen cases drove `parseSharedIntent` with
+an `ACTION_SEND` action, a MIME type and an `EXTRA_SUBJECT` — Android's incoming-share mechanism, and
+PLAN.md §7 substitutes it with `--send-text` / `--send-file`. Those eleven became CLI cases in the
+port's copy: what counts as a share, what does not, and which one wins when two are given. The five
+`appendSharedTextToDraft` cases came across unchanged in substance, because that function is
+byte-identical ported code; the file is an adaptation, not a copy, and the ledger counts it as
+neither.
