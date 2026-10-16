@@ -48,3 +48,32 @@ Read and write on a path the user chooses, off by default, per persona, writes c
 MPRIS to pause whatever else is playing when a reply starts; clipboard read and write; `xdg-open` to hand a file to
 another application; window and workspace queries; a systemd user unit so the assistant is present with no window
 open. Each is small, none is urgent, and each is worth doing only when something asks for it.
+
+## Sizes, and the one-model question (2026-10-16)
+
+Asked directly: could one model do everything, and does it have to be gigabytes? The arithmetic, with the roles
+kept apart because the architectures are:
+
+| role | what it is | honest size |
+|---|---|---|
+| text, and vision | LLM or VLM, 7–9B at Q4 | 4–5 GB |
+| speech in | Whisper-class, int8 | ~1.6 GB |
+| speech out | Kokoro (82M) | ~0.3 GB, or 20–60 MB per piper voice |
+| **speech, folded** | **an omni model: audio in, audio out, LLM inside** | 2–5 GB |
+| images | diffusion — SDXL Q8, or the Z-Image lineage already here | 2.7 GB, or 7–12 GB |
+
+**No single model does all of it, but voice is the exception worth knowing.** Omni speech models fold recognition,
+the language model and synthesis into one file, so the whole voice loop becomes one download instead of three. Image
+generation is not foldable: diffusion is a different architecture, and no LLM generates pictures anywhere near the
+quality bar this project has already measured — Pony was rejected as "too cartoonish".
+
+**Runtimes are closer to one than the models are.** llama.cpp hosts text, vision and audio models; stable-diffusion.cpp
+hosts the image ones, and the Z-Image GGUF this box already uses was quantised for it. So "one runtime, several model
+files" is true; "one file" is not.
+
+**Which argues against bundling any of it.** This machine already runs ollama with twelve models, a voice gateway and
+ComfyUI; a bundle would duplicate working software and, worse, ship native ROCm libraries for two distributions on an
+old card — the packaging risk M6 has been most wary of, and the one whose surprises cost days. The app's existing
+shape is already the right answer: one entry per capability, each pointing at whatever serves it. On the desktop that
+means "local" is a URL, `127.0.0.1:11434`, rather than a bundle. What bundling would buy is an appliance that runs
+with nothing else installed — a different product with a different budget, and not this milestone's.
