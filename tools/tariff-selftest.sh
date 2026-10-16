@@ -47,7 +47,9 @@ check() {  # label, fixed UTC instant (empty = the live clock), expected regex
     ep=$(python3 -c "import datetime as d,sys;print(int(d.datetime.strptime(sys.argv[1],'%Y-%m-%d %H:%M').replace(tzinfo=d.timezone.utc).timestamp()))" "$iso")
     out=$(TARIFF_UTC_EPOCH=$ep harness)
   fi
-  if printf '%s' "$out" | grep -qE "$want"; then
+  # collapsed first: the tariff is two lines, and grep matches line by line, so a pattern that
+  # spans them (off-peak on one line, the next peak on the next) would never match.
+  if printf '%s' "$out" | tr '\n' ' ' | grep -qE "$want"; then
     printf 'ok    %s\n' "$label"; pass=$((pass + 1))
   else
     printf 'FAIL  %s\n        wanted: %s\n        got:    %s\n' "$label" "$want" "$(printf '%s' "$out" | tr '\n' '|')"
