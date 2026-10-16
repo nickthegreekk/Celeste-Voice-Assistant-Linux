@@ -23,9 +23,14 @@ set -uo pipefail
 UPSTREAM="${UPSTREAM:-../VoiceAssistant}"
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 SRC="$UPSTREAM/app/src/main/java/com/nikosm/voiceassistant"
-PROBE_DIR="$REPO_ROOT/desktop/src/main/kotlin/com/nikosm/voiceassistant/probe"
+# The probe file lives in :core, beside the UI it is asking about. Not :desktop, and that is
+# not cosmetic: the ported screens are `internal` to :core, so a probe compiled from
+# :desktop cannot see them and reports a false failure for every one it names.
+PROBE_DIR="$REPO_ROOT/core/src/main/kotlin/com/nikosm/voiceassistant/probe"
 PROBE="$PROBE_DIR/ComposeProbe.kt"
-DEST_UI="$REPO_ROOT/desktop/src/main/kotlin/com/nikosm/voiceassistant"
+# Where a ported UI file lives. :core, not :desktop — the module boundary must not cut
+# upstream's `internal` visibility, which is the rule PLAN.md §3 D4 now states.
+DEST_UI="$REPO_ROOT/core/src/main/kotlin/com/nikosm/voiceassistant"
 
 KEEP=0; WITH_DEPS=0
 for a in "$@"; do case "$a" in
@@ -85,7 +90,15 @@ mkdir -p "$PROBE_DIR"
     for f in "${UI_FILES[@]}"; do
       file="$(src_for "$f")"
       [ -n "$file" ] || { echo "// MISSING upstream and here: $f" >&2; continue; }
-      grep '^import \(androidx\.compose\|android\.\|coil3\|com\.nikosm\.voiceassistant\.ui\)' "$file" || true
+      # Each file's imports are preceded by a comment naming it and which tree it came from, so the
+      # count below is readable rather than just a number: a file still read from upstream is UI
+      # this port has not taken, and its imports are work not yet done. The comment is emitted on
+      # its own line — prefixing the imports themselves would break every one of them.
+      case "$file" in "$DEST_UI"/*) mark="ported"; ;; *) mark="UPSTREAM — not yet ported"; ;; esac
+      if grep -q '^import \(androidx\.compose\|android\.\|coil3\|com\.nikosm\.voiceassistant\.ui\)' "$file"; then
+        echo "// ---- $f ($mark)"
+        grep '^import \(androidx\.compose\|android\.\|coil3\|com\.nikosm\.voiceassistant\.ui\)' "$file" || true
+      fi
     done
     # The theme package is its own directory, upstream and here.
     theme="$(theme_src_for)"
@@ -117,7 +130,7 @@ if [ "$WITH_DEPS" = 1 ]; then
   echo
 fi
 
-OUT="$(cd "$REPO_ROOT" && ./gradlew :desktop:compileKotlin -q 2>&1 | grep '^e: ' || true)"
+OUT="$(cd "$REPO_ROOT" && ./gradlew :core:compileKotlin -q 2>&1 | grep '^e: ' || true)"
 if [ -z "$OUT" ]; then
   echo "RESULT: every import resolves. D2 holds for this set."
   exit 0
@@ -135,7 +148,17 @@ awk -v list="$(paste -sd, /tmp/compose-probe-lines.txt)" \
 
 echo "RESULT: $(wc -l < /tmp/compose-probe-lines.txt | tr -d ' ') import(s) do not resolve:"
 cat /tmp/compose-probe-imports.txt
-echo
+# Which files the unresolved imports came from, by name. Rarely needed and always decisive: a
+# non-zero count means either a file this port has not taken yet, or a regression in one it has.
+upstream_left=""
+for f in "${UI_FILES[@]}"; do
+  [ -f "$DEST_UI/$f" ] || upstream_left="$upstream_left $f"
+done
+if [ -n "$upstream_left" ]; then
+  echo "Read from upstream because not yet ported:$upstream_left"
+  echo
+fi
+
 echo "Each one is one of four things, and only the first two are real work:"
 echo "  androidx.compose.ui.platform.LocalContext / LocalConfiguration"
 echo "        -> Android-only Compose APIs. LocalContext's callers want a Context for a Toast, a"
