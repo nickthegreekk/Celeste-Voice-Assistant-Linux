@@ -55,7 +55,18 @@ interface TextToSpeech {
      *
      * [utteranceId] is the caller's token, not the implementation's: upstream generates one per
      * call because `onDone`/`onError` may arrive out of order after a stop, and a stale callback
-     * must not tear down a newer playback. The implementation must pass it back in [onEnd].
+     * must not tear down a newer playback.
+     *
+     * **The token is diagnostic, and the implementation does not hand it back.** An earlier version
+     * of this paragraph said it must "pass it back in [onEnd]", which the signature cannot do —
+     * `onEnd` takes a [PlaybackEnd] and nothing else. What the caller actually does, and what this
+     * contract therefore has to promise instead, is *closing over its own copy*: `speakTextOnDevice`
+     * captures its `utteranceId` in the lambda and compares it against the service's current one
+     * before acting, so the guard lives where the state is. For that comparison to mean anything,
+     * the implementation owes one thing: **at most one utterance is live at a time**, so a callback
+     * from a stopped one cannot arrive after its replacement started. [stopSystem] is what makes
+     * that true, and an implementation that queued several would break the guard without breaking
+     * the signature — which is why it is written down here rather than left to the type.
      *
      * @return false when nothing was queued — no engine, or the service refused — in which case
      * [onEnd] is never called and the caller cleans up immediately rather than waiting for a

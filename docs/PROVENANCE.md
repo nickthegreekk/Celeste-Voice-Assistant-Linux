@@ -495,6 +495,36 @@ The seam went in as a constructor parameter on `AssistantService`, not on `AppEn
 milestone pinned down, `AppEnv` carries a seam only when a caller that cannot be edited forces it,
 and every caller here is a composable this port owns.
 
+### Seam 6, and why `EspeakEngine.kt` was never ported
+
+PLAN.md §7 gives `EspeakEngine.kt` (131 lines) an ADAPT verdict: "JNA to the distro
+`libespeak-ng.so`, or the `espeak-ng` CLI". It is **not ported, and that is the ADAPT's outcome rather
+than a gap** — `ProcessTextToSpeech` runs the CLI, so there is no engine object to have. What upstream's
+file did besides calling into the native library was copy a 439-file, ~13 MB asset tree out of the APK
+on first launch, which §5 already deletes ("the asset copier is deleted rather than ported") because
+on Linux eSpeak-NG is a distro package.
+
+Two things went with it rather than being ported, and both were *the same thing being re-learned*:
+`EspeakEngine`'s double-checked lock and its `@Volatile` field existed because eSpeak keeps its state
+in **process-global natives**, so two concurrent constructors called `espeak_Initialize` twice on
+different threads and the native side aborted with "pthread_mutex_lock called on a destroyed mutex".
+A process per synthesis has no shared state to race over, so the lock has no counterpart. The
+*requirement* it served still has one, and `TextToSpeech`'s KDoc carries it — because a JNA
+implementation of this seam would need the lock back, and the next person to write one should learn
+that from the seam rather than from an abort.
+
+**The gateway route is not part of this seam and never was.** PLAN.md §5's row lists three routes;
+`/synthesize` is HTTP and already lived in `AssistantServiceGateway.kt`. That is why the order of the
+M2 work puts it first: it is the voice a persona is *configured* for, and the two on-device routes
+are what a persona gets when it asked for them.
+
+**Unverified on this machine, and the gap is a package.** `ProcessTextToSpeech` probes `spd-say` and
+`espeak-ng` and honours the seam's missing-engine contract — `systemReady` false, `speakSystem`
+returning false without ever calling back, `synthesizeLocal` returning null — which is the path
+exercised here, because this box has neither installed (`speech-dispatcher` and `espeak-ng` are Extra
+packages on EndeavourOS; both are in the repos at 0.12.1-3 and 1.52.0-1). The happy path needs them
+installed, and until then the gateway route is the only working voice, which M1 already had.
+
 ## Hand-written files in `core/`
 
 Not from upstream, so they have no upstream commit.

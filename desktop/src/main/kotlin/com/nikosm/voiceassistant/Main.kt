@@ -12,7 +12,7 @@ import com.nikosm.voiceassistant.linux.LinuxAppEnv
 import com.nikosm.voiceassistant.linux.StubAudioCapture
 import com.nikosm.voiceassistant.linux.LinuxAudioDevices
 import com.nikosm.voiceassistant.linux.PwPlayback
-import com.nikosm.voiceassistant.linux.StubTextToSpeech
+import com.nikosm.voiceassistant.linux.ProcessTextToSpeech
 import com.nikosm.voiceassistant.ui.theme.VoiceAssistantTheme
 import java.io.IOException
 import java.nio.file.Files
@@ -61,7 +61,7 @@ fun main(args: Array<String>) {
         // it does not hear or speak. `grep -rn 'Stub' platform/src/main` is the whole list.
         audioPlayback = PwPlayback(appEnv.logger),
         audioDevices = audioDevices,
-        tts = StubTextToSpeech(appEnv.logger),
+        tts = ProcessTextToSpeech(appEnv.logger),
         audioCapture = StubAudioCapture(appEnv.logger),
         fileDialogs = AwtFileDialogs(appEnv.logger),
         settingsManager = settingsManager,
