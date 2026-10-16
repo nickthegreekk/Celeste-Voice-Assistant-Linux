@@ -413,6 +413,8 @@ fun MainScreen(
     var ttsPlaybackFraction by remember { mutableStateOf<Float?>(null) }
     var ttsWordTimestamps by remember { mutableStateOf<String?>(null) }
     var pendingCert by remember { mutableStateOf<CertApprovalRequest?>(null) }
+    // M8: the write confirmation the service is waiting on, if any.
+    var pendingFsWrite by remember { mutableStateOf<FsWriteRequest?>(null) }
 
     LaunchedEffect(service) {
         if (service != null) {
@@ -433,6 +435,10 @@ fun MainScreen(
             launch { service.ttsWordTimestamps.collect { ttsWordTimestamps = it } }
             launch { service.revealRestartRequest.collect { revealRestartRequest = it } }
             launch { service.pendingCertApproval.collect { pendingCert = it } }
+            // M8: the write confirmation, collected the same way — as service state rather than
+            // composition state, so closing and reopening the window re-renders the same question
+            // instead of losing it.
+            launch { service.fsWriteGate.pending.collect { pendingFsWrite = it } }
             launch { service.rooms.collect { rooms = it } }
             launch { service.activeRoomId.collect { activeRoomId = it } }
             launch { service.roomMessages.collect { roomMessages = it } }
@@ -1146,6 +1152,14 @@ fun MainScreen(
             openPersonaEditorFor = editPersonaRequest,
             onOpenPersonaEditorConsumed = { editPersonaRequest = null }
         )
+    }
+
+    // M8: the last line of defence — the path and the change, in front of the person whose files
+    // they are. Dismissal denies; so does the gate's timeout when nobody is there to answer.
+    pendingFsWrite?.let { request ->
+        FsWriteApprovalDialog(request = request) { approve, trustForSession ->
+            service?.fsWriteGate?.answer(approve, trustForSession)
+        }
     }
 
     if (pendingCert != null) {

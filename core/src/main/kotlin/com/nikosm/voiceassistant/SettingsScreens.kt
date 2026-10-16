@@ -156,7 +156,10 @@ internal val SETTINGS_CATEGORIES = listOf(
     SettingsCategory("Rooms", Icons.Default.Forum, SettingsGroup.ASSISTANTS),
     // After Personas, not beside them: a skill only means something once the persona that
     // can enable it exists, so the order follows "what to configure" rather than the alphabet.
-    SettingsCategory("Skills", Icons.Default.AutoAwesome, SettingsGroup.ASSISTANTS)
+    SettingsCategory("Skills", Icons.Default.AutoAwesome, SettingsGroup.ASSISTANTS),
+    // M8. After Skills, in the same section: both answer "what may this persona do", and a user who
+    // has just given a persona instructions is the one thinking about what else it may touch.
+    SettingsCategory("Filesystem", Icons.Default.Folder, SettingsGroup.ASSISTANTS)
 )
 
 /**
@@ -284,6 +287,7 @@ internal fun settingsCategorySummaries(
                 "Personas" -> personasSummary(personas)
                 "Rooms" -> roomsSummary(rooms)
                 "Skills" -> skillsSummary(skills)
+                "Filesystem" -> FS_SETTINGS_SUMMARY
                 else -> ""
             }
         )
@@ -756,6 +760,7 @@ fun SettingsDialog(
                                     onDismiss = onDismiss
                                 )
                                 "Audio" -> AudioSettings(service = svc)
+                                "Filesystem" -> FsToolSettings(service = svc)
                                 "Servers" -> ServerSettings(
                                     service = svc,
                                     gateways = serverBases,

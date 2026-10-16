@@ -42,6 +42,33 @@ internal fun AssistantService.fsWorkspaceFor(persona: Persona): FsWorkspace? {
     return workspace
 }
 
+/**
+ * The settings screen's four calls. Thin on purpose: the rules live in `FsWorkspace.kt`, the storage
+ * in `SettingsManager.kt`, and this is only the seam between them and a button.
+ */
+internal fun AssistantService.fsModeSetting(): FsToolMode = settingsManager.getFsMode()
+
+internal fun AssistantService.fsWorkspaceSetting(): String? = settingsManager.getFsWorkspace()
+
+internal fun AssistantService.setFsModeSetting(mode: FsToolMode) {
+    settingsManager.saveFsMode(mode)
+    // A mode change is a change of what is trusted, so the session's grants go with it: leaving a
+    // folder trusted after the user has just reached for the switch would be answering a question
+    // they have not been asked yet.
+    fsWriteGate.forgetTrust()
+    logger.i("FsTools", "filesystem mode is now ${mode.name}")
+}
+
+internal fun AssistantService.setFsWorkspaceSetting(path: String?) {
+    settingsManager.saveFsWorkspace(path)
+    fsWriteGate.forgetTrust()
+    logger.i("FsTools", if (path.isNullOrBlank()) "workspace cleared" else "workspace set")
+}
+
+/** Why this folder cannot be the workspace, or null when it can — asked where the user picks it. */
+internal fun AssistantService.fsWorkspaceRefusalFor(path: Path): String? =
+    workspaceRootRefusal(path, fsExcludedPaths())
+
 internal fun AssistantService.fsExcludedPaths(): List<Path> =
     alwaysExcludedPaths(appEnv.configDir, appEnv.homeDir)
 
