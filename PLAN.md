@@ -373,6 +373,17 @@ watched, and this one lives in `javax.net.ssl` and is spelled identically on bot
 the family's: `buildPinnedClient` is top-level and `internal` so `PinnedClientTlsTest` can drive real handshakes
 against a loopback server with a generated certificate, which is the only place a trust decision is observable.
 
+**A same-named platform API can mean something different (2026-10-16).** The fourth member of the family, and the one that
+hid longest. Upstream's S1 fix installs `hostnameVerifier(HttpsURLConnection.getDefaultHostnameVerifier())`. On Android that
+returns a self-contained strict verifier; on the JVM the same expression returns
+`javax.net.ssl.HttpsURLConnection$DefaultHostnameVerifier`, which is built for that class's own internal flow and returns
+false for every standalone caller — measured, false for `192.0.2.73` against a certificate carrying that exact IP, and
+false for `api.deepseek.com` against `*.deepseek.com`. So *every* HTTPS call in the port failed while every plain-HTTP call
+to an Ollama host worked, and the failure read as a server problem rather than as a client one. The fix was to delete the
+line, because OkHttp's default verifier is the behaviour upstream was asking for; `PinnedClientTlsTest` reproduces it. What
+to look for next time: source and destination agree on the *name* and disagree on the *semantics*, so a platform call
+carried over unchanged is verified by behaviour, not by signature.
+
 ### 5a. Seam 8 is not in v1 (2026-10-15)
 
 Credentials — provider API keys, server passwords and gateway credentials — live in the settings
@@ -702,7 +713,7 @@ already lists both as runtime dependencies of the finished app, so this is a gap
 a new requirement. **The machine also has no default capture device:** WirePlumber answers "no target node
 available" to a bare `pw-record`, which is why the fallback above exists and why it logs the device it chose.
 Setting one is the machine's business rather than the app's — `wpctl set-default alsa_input.pci-0000_2f_00.4.analog-stereo`
-— and it makes the app's behaviour predictable instead of dependent on enumeration order.
+— and it makes the app's behaviour predictable instead of dependent on enumeration order. (Both packages landed on 2026-10-16 and both voice routes were verified end to end afterwards.)
 
 [Seam 6's happy paths ran, 2026-10-16: `speech-dispatcher` 0.12.1 and `espeak-ng` 1.52.0 are installed and the
 socket unit is enabled. Both routes are verified on the development box. The system route reported `Finished` twice,
@@ -849,6 +860,7 @@ substitution being made the wrong way round.]
 | systemd user unit without linger | Daemon dies at logout | Document `loginctl enable-linger`; the unit is optional |
 | Phone and desktop settings diverge | Confusion | Documented; the backup file is the only bridge |
 | Gradle 9.8.1 warns the build uses features removed in Gradle 10 | The build breaks on a future Gradle upgrade, possibly mid-milestone | The wrapper is pinned, so nothing moves by accident; deal with it deliberately at M6 packaging, not in the middle of porting |
+| A public-CA host pinned by fingerprint (`api.deepseek.com`) turns routine certificate rotation into a forced re-approval | A confusing `Cert changed!` prompt on a provider that did nothing wrong | Faithful to upstream, and it fails safe. Revisit at M7: pinning earns its keep on self-signed private hosts, and the system CA chain already covers public ones |
 
 ## 13. Upstream sync policy
 
