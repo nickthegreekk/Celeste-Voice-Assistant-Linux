@@ -914,7 +914,14 @@ of a black rectangle. A `~` naming another user is left alone and named by that 
 
 The generated image itself was never at risk — `gen_1792166193384.png`, 1,117,556 bytes, the same bytes the save
 copied — but the clause that matters, "**rendered in the chat**", is still unverified: what was rendered in the chat
-was a missing attachment. It is verified when the generation's own bubble is looked at and shows the cat.]
+was a missing attachment. It is verified when the generation's own bubble is looked at and shows the cat.
+
+[Verified later the same evening: the cat renders in the chat. So M3's acceptance is met in full — generated through
+the active ComfyUI backend, **rendered in the chat**, tokens pinned by the copied upstream tests, opened in the
+viewer, saved to `Pictures/VoiceAssistant/`, and shared in at the command line — with two of those five reached only
+after a defect each: the viewer's first crash was a build racing a running application (AGENTS.md §6), and the first
+shared attachment was black because a tilde reached the application unexpanded. Both are recorded where they happened
+rather than only here.]
 
 The counts, settled by the anchored grep rather than by a mention count:
 
