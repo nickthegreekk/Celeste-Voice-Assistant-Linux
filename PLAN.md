@@ -39,6 +39,7 @@ distros, and both packages install and uninstall cleanly in a container.
 - Keeping the phone app and the desktop app in sync (no shared server, no account, no relay).
   Out of scope and worth saying out loud: the two are separate installations that happen to
   share a backup file format.
+- **Anything a desktop makes possible that a phone does not** — local speech, a wake word, screen understanding, system integration — is collected in [docs/BEYOND-THE-PORT.md](docs/BEYOND-THE-PORT.md) and is deliberately outside M0–M7. The port finishes before any of it starts.
 - **Filesystem tools for the assistant** are new capability rather than a port item: nothing upstream reads or writes arbitrary files, so they cannot arrive as a ported file and must not be built inside another milestone. The user wants them so Celeste can act as a local agent on this machine; they are recorded as M8 in §10.
 - The Android-only affordances listed in §9 (quick-settings tile, proximity barge-in, phone-call
   guard, launcher shortcuts) — each gets a desktop equivalent or is dropped.
