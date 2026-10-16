@@ -184,35 +184,49 @@ internal suspend fun AssistantService.performCloudChatWithTools(
     var callsMade = 0
 
     return serviceScope.launch {
-        while (true) {
-            // The sink carries the dialect as well as the body: `performCloudChat` already resolved
-            // the persona's cloud entry to build the request, so the loop does not look it up a
-            // second time and the two cannot disagree about which provider a round is for.
-            var provider: FsToolProvider? = null
-            var captured: JSONObject? = null
-            performCloudChat(
-                text = text,
-                persona = persona,
-                useDeviceVoice = useDeviceVoice,
-                startTime = startTime,
-                currentTurnInHistory = currentTurnInHistory,
-                generation = generation,
-                attachments = attachments,
-                imagePath = imagePath,
-                turnContext = context,
-                toolSink = { from, body -> provider = from; captured = body },
-            ).join()
-            val toolProvider = provider ?: return@launch
-            val body = captured ?: return@launch
-            val calls = fsToolCallsFrom(toolProvider, body) ?: return@launch
-            fsToolRoundRefusal(rounds, callsMade, calls.size)?.let { refusal ->
-                notifyUser(refusal)
-                return@launch
+        // M8: **the loop holds THINKING, not the round** — the rounds pass `ownsThinkingState =
+        // false`, so nothing between them drops to IDLE. That is not tidiness: the state collector
+        // resumes the VAD on IDLE, so a gap between rounds would put the microphone back on while
+        // the next round is still being asked for, and while a write confirmation is on screen.
+        // `updateNotification` is the same sentence a single cloud turn announces, for the same
+        // reason — from the user's side this is one turn that is thinking.
+        recordThinkingOwner(generation)
+        _state.value = AssistantState.THINKING
+        updateNotification("Thinking (Cloud)...")
+        try {
+            while (true) {
+                // The sink carries the dialect as well as the body: `performCloudChat` already resolved
+                // the persona's cloud entry to build the request, so the loop does not look it up a
+                // second time and the two cannot disagree about which provider a round is for.
+                var provider: FsToolProvider? = null
+                var captured: JSONObject? = null
+                performCloudChat(
+                    text = text,
+                    persona = persona,
+                    useDeviceVoice = useDeviceVoice,
+                    startTime = startTime,
+                    currentTurnInHistory = currentTurnInHistory,
+                    generation = generation,
+                    attachments = attachments,
+                    imagePath = imagePath,
+                    turnContext = context,
+                    toolSink = { from, body -> provider = from; captured = body },
+                    ownsThinkingState = false,
+                ).join()
+                val toolProvider = provider ?: return@launch
+                val body = captured ?: return@launch
+                val calls = fsToolCallsFrom(toolProvider, body) ?: return@launch
+                fsToolRoundRefusal(rounds, callsMade, calls.size)?.let { refusal ->
+                    notifyUser(refusal)
+                    return@launch
+                }
+                val turn = fsRunToolRound(toolProvider, body, calls, workspace, excluded, persona)
+                rounds++
+                callsMade += calls.size
+                context = context.copy(toolTurns = context.toolTurns + turn)
             }
-            val turn = fsRunToolRound(toolProvider, body, calls, workspace, excluded, persona)
-            rounds++
-            callsMade += calls.size
-            context = context.copy(toolTurns = context.toolTurns + turn)
+        } finally {
+            endThinkingIfOwned(generation)
         }
     }
 }

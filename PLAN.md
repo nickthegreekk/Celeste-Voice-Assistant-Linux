@@ -1248,6 +1248,11 @@ acceptance**: a persona on a model whose capabilities include `tools`, a scratch
 asks and then stops asking once trusted, and — the negative case — a gateway persona refusing in words rather than
 answering about a file it cannot read.
 
+[**The cloud loop is no longer in that unproven half (2026-10-16).** `FakeProviderServer` exists — loopback,
+`com.sun.net.httpserver`, no new dependency — and `FsToolCloudTurnTest` drives a real cloud turn through it, which is
+what caught the first item of the open list below. The **Ollama** loop and the two screens still have no test between
+them, for the reason this paragraph gives.]
+
 **[2026-10-16, M8 reviewed adversarially — read this before touching the filesystem tools.]** Three reviewers went
 over the milestone (safety core, chat hot path, settings/UI) and found that **as first committed it did not work at
 all**, plus a security hole. Fixed since, each with the test that would have caught it: the window icon crashed the
@@ -1262,11 +1267,20 @@ the read header counted a phantom last line on any file ending in a newline.
 **Open, and the order they should be taken in** — the first two are hot-path edits that need the stream loop, the three
 apply blocks and the cloud builders in view at once, which is why they were not rushed at the end of a long session:
 
-1. **The cloud loop is unreachable and its sentinel reaches the transcript.** `AssistantServiceChat.kt`'s fork tests
-   `turnContext.fsToolMode.allowsReads`, which is `OFF` at that point, so `performCloudChatWithTools` is dead code; and
-   unlike the Ollama wrapper, the cloud apply block runs *inside* `performCloudChat`, so the `Triple("", null, null)`
-   sentinel would be appended as an empty bubble and the user's turn dropped from the next round's history. **Fix them
-   together** — the one-word gate fix alone trades "no tools" for empty bubbles.
+1. ~~**The cloud loop is unreachable and its sentinel reaches the transcript.**~~ **Fixed 2026-10-16, and it was one
+   defect, not two.** The fork tested `turnContext.fsToolMode.allowsReads` — a field that is `OFF` at every real call
+   site, because *filling it in* is what the fork does — so `performCloudChatWithTools` was dead code and a cloud
+   persona with a workspace answered in prose with no `tools` ever declared. The sentinel half was worse than "an empty
+   bubble": a tool-call round did not return early, so the apply block ran, and with a device voice mode
+   `playResponse` reached `landInIdle()` — which is how it was caught, because the loop's THINKING was dropped between
+   rounds and the state collector **resumes the VAD on IDLE**, so the microphone would have come back on mid-turn.
+   Hence a shape change rather than a flag: `performCloudChat` takes `ownsThinkingState` (defaulted — the room COPY
+   caller and the voice path are untouched) and answers **null** for a round that called a tool, and
+   `performCloudChatWithTools` holds THINKING across its rounds, ending it in a `finally`.
+   **Verified by restoring each half**, which is also how the new test's teeth were checked: with the gate restored it
+   fails on `requests=1` (and the transcript carries `Error: JSONObject["content"] is not a string` — the tool-call body
+   reaching `parseCloudResponse` once the loop is out of the way); with the sentinel restored it fails on
+   `expected:<THINKING> but was:<IDLE>`; with that assertion parked, it fails on the empty bubble itself.
 2. **A tool round still executes after Stop**, a persona switch or a newer message: the currency and persona guards sit
    on the content path, after the tool-call capture and its `continue`.
 3. **Read safety**: `Files.readAllBytes` before the cap (a 20 GB file is an OOM) and no `isRegularFile` check, so a FIFO
@@ -1280,6 +1294,16 @@ apply blocks and the cloud builders in view at once, which is why they were not 
 5. **Settings/UI**: un-pinning a persona's mode (`Global`) removes only the mode key, leaving its folder to be used with
    the *global* mode — more access than was chosen; and the editor writes under the name the persona had when it opened,
    so an in-editor rename strands the pair under the dead name (a later persona of that name inherits it).
+6. **A cloud tool turn whose final answer is blank writes an empty bubble** *(noted while fixing item 1, 2026-10-16)*.
+   The Ollama loop answers that case with a sentence — `withToolSummary`, and DECISIONS.md records the rule ("an empty
+   bubble is worse than a sentence", and the reply is then *spoken*, which is what a hands-free user gets instead of
+   silence) — but the cloud loop has no equivalent, so a model that uses three files and then says nothing leaves the
+   user with an empty bubble and no sign that anything was touched. **Not a regression**: a blank cloud reply was an
+   empty bubble before this milestone too, on the ordinary path. What item 1's fix changes is that the tool-specific
+   case is now reachable at all. The carrier is the open question and the reason this is its own item: the apply block
+   lives inside `performCloudChat` while the count lives in the loop, so either the count rides in `TurnContext` (it is
+   in `toolTurns`, whose `FsToolTurn` does not currently carry the calls) or the round takes it as one more defaulted
+   parameter. Pick one and give it a test — a blank reply after calls is easy to script in `FakeProviderServer`.
 
 That leaves **M7 (hardening)**, which is an estimate rather than a measurement, and therefore where the remaining percentage is
 softest.

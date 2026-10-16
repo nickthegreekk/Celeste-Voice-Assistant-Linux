@@ -13,6 +13,48 @@ not stop for it. Stop only for the four cases listed in AGENTS.md §10.
 
 ---
 
+## 2026-10-16 — A tool turn is the loop, not the round; and an IDLE between rounds is a microphone
+
+M8's review left one defect with two faces at the top of its open list: the cloud tool loop was unreachable (its gate
+read a field that is `OFF` at every real call site), and a tool-call round returned a `Triple("", null, null)` sentinel
+that fell through to the apply block — an empty bubble in the transcript, persisted, and the user's turn mangled in the
+next round's history. The plan said to fix them together. Fixing them raised a third question the plan had answered in
+one line — *"the UI stays in `THINKING`"* — which turned out to be the load-bearing one.
+
+**Decided: `performCloudChat` is a *round* and can be told so.** It takes `ownsThinkingState: Boolean = true`; the loop
+passes `false`, holds `recordThinkingOwner` + `THINKING` + the notification across all of its rounds, and ends the span
+in a `finally` through a new `endThinkingIfOwned(generation)`. A round that called a tool returns **`null`** instead of
+an empty triple, so "there is no reply to apply" is a type rather than a convention — and the failure mode the old
+sentinel produced cannot be written by accident.
+
+**Why not a flag that just skips the apply block**, which is the smaller edit: a round that skips the apply but still
+runs the `finally` lands in `IDLE`, and `IDLE` is not a cosmetic state here — `AssistantService`'s state collector does
+`AssistantState.IDLE -> if (_handsFreeMode.value) vadRecorder?.resume()`. So a between-rounds IDLE **reopens the
+microphone mid-turn**: the user's room is transcribed while the model is still working, and the utterance can supersede
+the loop that is asking for the next round — including while a write confirmation is on screen. Rejected, and the
+restored-bug run is what made the size of it visible: with the sentinel put back, the new test fails on
+`expected:<THINKING> but was:<IDLE>` before it ever reaches the empty bubble.
+
+**Rejected too: keeping the state in the round and re-entering it in the next one.** Two writes of the same value do
+not compose into "no interruption" — `_state` is a `StateFlow` collected on another coroutine, and the collector may
+well observe the IDLE. A turn that must not be interrupted cannot be spelled as a fast interruption.
+
+**And the gate fix is one condition, not two.** `if (fsWorkspaceForCloud != null)`, because `fsWorkspaceFor` already
+answers the mode question (`resolveFsWorkspace` returns null for `OFF`). The old second clause asked
+`turnContext.fsToolMode`, which is the field the fork itself fills in — a gate that reads the value it is about to
+write. The general shape is worth keeping: **when a fork's condition mentions the thing the fork sets, it is dead.**
+
+**The test that proves it is a new kind of test for this repository.** `FakeProviderServer` (loopback,
+`com.sun.net.httpserver`, no new dependency) answers a real HTTP request with the bytes a provider really sends, so
+`fsToolCallsFrom` parses a body the test did not write and the executor runs against a real temporary folder. This is
+the fake provider PLAN.md §10 had recorded as missing, and the two defects above are precisely what its absence cost:
+both lived in wiring that a unit test would have had to restate rather than exercise. Fixtures under
+`core/src/test/…/ServiceFakes.kt` — the fakes `FreshStartNetworkTest` held privately — moved out in the same pass, so
+the second test to need them does not fork them.
+
+→ PLAN.md §10 (M8), `AssistantServiceChat.kt` (`ownsThinkingState`, `endThinkingIfOwned`),
+`AssistantServiceFsTools.kt` (`performCloudChatWithTools`), `FsToolCloudTurnTest.kt`, `FakeProviderServer.kt`
+
 ## 2026-10-16 — The image viewer is a window we size, not a dialog the toolkit sizes
 
 The ported `FullScreenImageViewer` compiled with one argument deleted (`decorFitsSystemWindows`), and

@@ -761,10 +761,18 @@ internal fun AssistantService.sendTextMessageToServer(inputText: String, current
         var playbackRequested = false
 
         if (currentPersona.isCloud && isCloudModel(currentPersona.model)) {
-            // M8: same fork as the Ollama path above — a persona with a workspace gets the bounded
+            // M8: the same fork as the Ollama path — a persona with a workspace gets the bounded
             // tool loop, one without it gets the call it always got.
+            //
+            // **The workspace question is the whole test.** Asking `turnContext.fsToolMode` here —
+            // which is what this branch did first — reads OFF at every real call site, because
+            // filling that field in is what the *fork* does: the Ollama branch does it a few lines
+            // below, and the cloud loop itself does it in the call below. So the branch was
+            // unreachable and every cloud turn answered without tools. `fsWorkspaceFor` has already
+            // asked the mode question (`resolveFsWorkspace` returns null for OFF), so a non-null
+            // workspace is one that allows reads.
             val fsWorkspaceForCloud = fsWorkspaceFor(currentPersona)
-            if (fsWorkspaceForCloud != null && turnContext.fsToolMode.allowsReads) {
+            if (fsWorkspaceForCloud != null) {
                 performCloudChatWithTools(
                     text = inputText,
                     persona = currentPersona,
@@ -1282,12 +1290,23 @@ internal fun AssistantService.performCloudChat(text: String, persona: Persona, u
      * side's sink and for the same reason — the room-turn caller lives in a COPY file and passes
      * named arguments, so it compiles untouched and never sees a tool.
      */
-    toolSink: ((FsToolProvider, JSONObject) -> Unit)? = null): Job {
+    toolSink: ((FsToolProvider, JSONObject) -> Unit)? = null,
+    /**
+     * M8: whether this call is the whole turn or one round of one. A **round** of the tool loop must
+     * not enter or leave THINKING — the loop owns that span — and the reason is not cosmetic: an
+     * IDLE between rounds resumes the VAD (the state collector does exactly that in hands-free
+     * mode), so a flicker there would put the microphone back on while the model is still working
+     * and the user is being asked to approve a write. Defaulted, so the room-turn caller in the COPY
+     * file and the voice path are unchanged.
+     */
+    ownsThinkingState: Boolean = true): Job {
     return serviceScope.launch {
         // M2: this turn owns the THINKING state it sets here (see stopVadListening()).
-        recordThinkingOwner(generation)
-        _state.value = AssistantState.THINKING
-        updateNotification("Thinking (Cloud)...")
+        if (ownsThinkingState) {
+            recordThinkingOwner(generation)
+            _state.value = AssistantState.THINKING
+            updateNotification("Thinking (Cloud)...")
+        }
         // Focus-retention guard (same contract as sendAudioToServer): a voice
         // turn that reaches here retained its focus through THINKING — release
         // it in the finally below if playback was never handed off.
@@ -1320,15 +1339,18 @@ internal fun AssistantService.performCloudChat(text: String, persona: Persona, u
                             throw Exception("Error ${response.code}: ${detail ?: bodyStr.take(200)}")
                         }
                         // M8: ask BEFORE parsing, because a tool-call body carries `content: null`
-                        // and the parser's `getString("content")` would throw on it. The empty triple
-                        // is a sentinel the wrapper discards — it never reaches a caller that has no
-                        // sink, and a caller with one is a loop that asked for exactly this.
+                        // and the parser's `getString("content")` would throw on it. **null is the
+                        // answer, not an empty triple**: a round that called a tool has no reply,
+                        // and the empty string this returned first fell straight through to the
+                        // apply block below — an empty bubble in the transcript, persisted, with
+                        // the tool's own call and result nowhere near it. Only a caller with a sink
+                        // can be handed null, and that caller is a loop.
                         if (toolSink != null) {
                             val toolBody = runCatching { JSONObject(bodyStr) }.getOrNull()
                             val toolProvider = fsToolProviderFor(apiSetting)
                             if (toolBody != null && fsToolCallsFrom(toolProvider, toolBody) != null) {
                                 toolSink(toolProvider, toolBody)
-                                return@withContext Triple("", null, null)
+                                return@withContext null
                             }
                         }
                         val (responseText, reasonText, usage) = parseCloudResponse(apiSetting, persona, bodyStr)
@@ -1350,6 +1372,10 @@ internal fun AssistantService.performCloudChat(text: String, persona: Persona, u
                     if (currentCall === call) currentCall = null
                 }
             }
+            // M8: the round called a tool instead of answering. There is nothing to append and
+            // nothing to speak, and the turn is not over — the loop runs the call and starts the
+            // next round — so the span this call would otherwise have ended is left alone.
+            if (responseData == null) return@launch
             val responseTimeMs = System.currentTimeMillis() - startTime
             // A2/B1: apply only if this is still the newest request for this persona.
             if (!isChatRequestCurrent(generation)) {
@@ -1436,24 +1462,43 @@ internal fun AssistantService.performCloudChat(text: String, persona: Persona, u
                 }
             }
         } finally {
-            if (_state.value == AssistantState.THINKING && isChatRequestCurrent(generation)) {
-                // Deleted here: the audio-focus retention this flag existed to manage (PLAN.md §9).
-                //
-                // Upstream *retained* the focus request through THINKING when playback was going to
-                // follow, and released it here when it was not — so that other applications' music did
-                // not un-duck for the two to five seconds of transcription and then duck again. There
-                // is no ducking on this platform and no focus to release, so `abandonAssistantFocus()`
-                // and the `playbackRequested` flag that gated it are both gone: the flag had exactly
-                // one reader, and it was the release.
-                //
-                // What the flag was protecting is still enforced, one branch down: a turn that ends
-                // here leaves THINKING and lands in IDLE.
-                // M2: leaving THINKING — release state ownership (see stopVadListening()).
-                clearThinkingOwnerIfOwned(generation)
-                _state.value = AssistantState.IDLE
-                updateNotification("Ready to help")
+            // M8: only when this call is the whole turn. As a round of the tool loop it leaves the
+            // span alone, and [endThinkingIfOwned] is not merely "who clears the flag" — see that
+            // function for why a between-rounds IDLE is a microphone, not a flicker.
+            //
+            // Deleted here: the audio-focus retention `playbackRequested` existed to manage
+            // (PLAN.md §9).
+            //
+            // Upstream *retained* the focus request through THINKING when playback was going to
+            // follow, and released it here when it was not — so that other applications' music did
+            // not un-duck for the two to five seconds of transcription and then duck again. There
+            // is no ducking on this platform and no focus to release, so `abandonAssistantFocus()`
+            // and the `playbackRequested` flag that gated it are both gone: the flag had exactly
+            // one reader, and it was the release.
+            //
+            // What the flag was protecting is still enforced: a turn that ends here leaves THINKING
+            // and lands in IDLE.
+            if (ownsThinkingState) {
+                endThinkingIfOwned(generation)
             }
         }
+    }
+}
+
+/**
+ * M8: ends a THINKING span this generation owns — leaves the state, releases the ownership
+ * (M2's `clearThinkingOwnerIfOwned`) and says so in the notification.
+ *
+ * One function because one turn is no longer the only thing that can hold the state: the cloud tool
+ * loop wraps several cloud calls in a single span, and both have to end it the same way. The
+ * currency half is M2's rule, not new — a superseded turn must not clear a state that now belongs
+ * to whatever replaced it.
+ */
+internal fun AssistantService.endThinkingIfOwned(generation: Long) {
+    if (_state.value == AssistantState.THINKING && isChatRequestCurrent(generation)) {
+        clearThinkingOwnerIfOwned(generation)
+        _state.value = AssistantState.IDLE
+        updateNotification("Ready to help")
     }
 }
 
