@@ -880,6 +880,24 @@ is stated in `Main.kt` where the flags are read rather than left for a script's 
 stays where §2 put it: handing a file to another application is `xdg-open`, which `docs/BEYOND-THE-PORT.md` keeps
 outside M0–M7.]
 
+[M3's acceptance met, 2026-10-16 evening — and met by use, not by assertion. An image was generated through the
+**active backend, ComfyUI** (`active_image_gen_backend` says COMFYUI; the entry is "buildhost" at
+`http://192.0.2.12:8188` with its 2,556-character workflow), rendered in the chat, opened in the viewer — the second
+attempt, after the first one's crash turned out to be the build race recorded in AGENTS.md §6 and not the viewer — and
+saved: `~/Pictures/VoiceAssistant/Gen_1792166349965.png`, 1,117,556 bytes at 18:59:09, byte-for-byte the generation
+written to the cache at 18:56:33, with the log line and the snackbar both naming the full path. The third clause, "the
+same workflow tokens behave as on Android", is what the copied upstream tests already pin — `ComfyPromptFillingTest`
+and `ComfyWorkflowValidationTest` are byte-identical m0 files — so it was executable specification before this run
+rather than a hope during it.
+
+That also retires the one thing the viewer's first version could only have flagged: the window sizing that
+`DialogWindow` was chosen to make explicit is now *seen*, since the picture opens in a window rather than at whatever
+size a dialog felt like taking.
+
+What is left in M3 is its third item, and it is the only one a click cannot exercise: `--send-text` / `--send-file`
+have not been invoked. One cold start closes it — `./gradlew :desktop:run --args="--send-text hello"` should come up
+with "hello" in the composer, and `--send-file <image>` with the attachment.]
+
 The counts, settled by the anchored grep rather than by a mention count:
 
 ```
