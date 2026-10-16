@@ -116,6 +116,15 @@ class SettingsManager(
 
         /** The settings key prefix for a persona's chosen output device; see the accessors above. */
         const val PERSONA_OUTPUT_DEVICE_PREFIX = "persona_output_device_"
+
+        /**
+         * The two prefixes for a persona's filesystem access (PLAN.md §10/M8): the mode and the
+         * workspace folder. Two keys rather than one encoded value because the persona may override
+         * either independently — a different folder at the global trust level is a reasonable thing
+         * to want, and a single value would have to be re-spelled in full to say so.
+         */
+        const val PERSONA_FS_MODE_PREFIX = "persona_fs_mode_"
+        const val PERSONA_FS_WORKSPACE_PREFIX = "persona_fs_workspace_"
     }
 
     // The shared production Json, not a second copy of it — see [SettingsJson].
@@ -571,6 +580,7 @@ class SettingsManager(
         // early-return must not strand the state under the old key.
         migrateSpontaneousState(oldName, newName)
         migratePersonaOutputDevice(oldName, newName)
+        migratePersonaFs(oldName, newName)
         val data = store.getString("persona_messages_$oldName") ?: return
         store.edit()
             .putString("persona_messages_$newName", data)
@@ -770,6 +780,7 @@ class SettingsManager(
         // persona, so it dies with the persona rather than orphaning under a name nothing can
         // reach again.
         store.edit().remove(PERSONA_OUTPUT_DEVICE_PREFIX + personaName).commit()
+        removePersonaFs(personaName)
     }
 
     /** The one place a referenced cache/artwork file is removed. Missing is not an error. */
@@ -949,6 +960,16 @@ class SettingsManager(
                 .map { it.removePrefix(PERSONA_OUTPUT_DEVICE_PREFIX) }
                 .filter { it !in restoredNames }
                 .forEach { store.edit().remove(PERSONA_OUTPUT_DEVICE_PREFIX + it).commit() }
+            // The filesystem family has two prefixes and needs the same pass for both, for the same
+            // reason: a restore can leave either behind for a persona it did not bring back, and a
+            // mode left behind is a *grant* left behind.
+            listOf(PERSONA_FS_MODE_PREFIX, PERSONA_FS_WORKSPACE_PREFIX).forEach { prefix ->
+                store.allKeys()
+                    .filter { it.startsWith(prefix) }
+                    .map { it.removePrefix(prefix) }
+                    .filter { it !in restoredNames }
+                    .forEach { store.edit().remove(prefix + it).commit() }
+            }
             // Same orphan sweep for room transcripts: the restore overwrites the ROOM
             // list, so a room_messages_<id> entry for a room that existed before the
             // restore but isn't in this backup would otherwise survive forever,
@@ -1170,6 +1191,92 @@ class SettingsManager(
         store.edit()
             .putString(PERSONA_OUTPUT_DEVICE_PREFIX + newName, existing)
             .remove(PERSONA_OUTPUT_DEVICE_PREFIX + oldName)
+            .commit()
+    }
+
+    /**
+     * Filesystem tools (PLAN.md §10/M8): whether a persona may touch files at all, and in which
+     * folder.
+     *
+     * Two levels, the shape the app already uses for image-generation entries: a global default and a
+     * per-persona override that wins, with **absent meaning "follow the global"** — which is why the
+     * per-persona getters answer `null` rather than a mode with a default. Shipped state is global
+     * `OFF`, and the plan calls that what it is: off is a real answer.
+     *
+     * The path is a string because that is what the store holds and because a value the user typed
+     * may be nonsense; [resolveFsWorkspace] is where a string becomes a usable workspace or nothing,
+     * so nothing here can throw on a bad value.
+     *
+     * **Neither value travels in a backup** — the sink's rule, and one more reason on top: a restored
+     * backup must not silently re-grant write access to a folder. Trust is the one setting that
+     * should not survive a file transfer.
+     */
+    internal fun saveFsMode(mode: FsToolMode) {
+        store.edit().putString("files_mode", mode.name).commit()
+    }
+
+    internal fun getFsMode(): FsToolMode = FsToolMode.fromName(store.getString("files_mode"))
+
+    fun saveFsWorkspace(path: String?) {
+        store.edit().putString("files_workspace", path.orEmpty()).commit()
+    }
+
+    fun getFsWorkspace(): String? = store.getString("files_workspace")?.takeIf { it.isNotBlank() }
+
+    /**
+     * Null means "follow the global" and removes the key.
+     *
+     * A value this build cannot read resolves to `OFF` rather than to "follow the global", and that
+     * asymmetry is deliberate: `fromName`'s fallback is the deny-everything one, so a corrupted
+     * persona value can only ever narrow access, never widen it to whatever the global happens to be.
+     */
+    internal fun savePersonaFsMode(personaName: String, mode: FsToolMode?) {
+        if (personaName.isBlank()) return
+        val key = PERSONA_FS_MODE_PREFIX + personaName
+        val edit = store.edit()
+        if (mode == null) edit.remove(key) else edit.putString(key, mode.name)
+        edit.commit()
+    }
+
+    internal fun getPersonaFsMode(personaName: String): FsToolMode? =
+        store.getString(PERSONA_FS_MODE_PREFIX + personaName)?.takeIf { it.isNotBlank() }?.let(FsToolMode::fromName)
+
+    fun savePersonaFsWorkspace(personaName: String, path: String?) {
+        if (personaName.isBlank()) return
+        val key = PERSONA_FS_WORKSPACE_PREFIX + personaName
+        val edit = store.edit()
+        if (path.isNullOrBlank()) edit.remove(key) else edit.putString(key, path)
+        edit.commit()
+    }
+
+    fun getPersonaFsWorkspace(personaName: String): String? =
+        store.getString(PERSONA_FS_WORKSPACE_PREFIX + personaName)?.takeIf { it.isNotBlank() }
+
+    /** The rename half, both keys, like the history and output-device twins above. */
+    fun migratePersonaFs(oldName: String, newName: String) {
+        if (oldName == newName || oldName.isBlank()) return
+        val mode = getPersonaFsMode(oldName)
+        val workspace = getPersonaFsWorkspace(oldName)
+        if (mode == null && workspace == null) return
+        val edit = store.edit()
+        if (mode != null) edit.putString(PERSONA_FS_MODE_PREFIX + newName, mode.name)
+        if (workspace != null) edit.putString(PERSONA_FS_WORKSPACE_PREFIX + newName, workspace)
+        edit.remove(PERSONA_FS_MODE_PREFIX + oldName)
+        edit.remove(PERSONA_FS_WORKSPACE_PREFIX + oldName)
+        edit.commit()
+    }
+
+    /**
+     * The delete half: both keys. A workspace left behind for a name nothing can reach again is the
+     * same orphan the sink's removal exists to prevent — and for this family it is worse than dead
+     * state, since a persona later *created* with that name would inherit a folder the user never
+     * chose for it.
+     */
+    fun removePersonaFs(personaName: String) {
+        if (personaName.isBlank()) return
+        store.edit()
+            .remove(PERSONA_FS_MODE_PREFIX + personaName)
+            .remove(PERSONA_FS_WORKSPACE_PREFIX + personaName)
             .commit()
     }
 

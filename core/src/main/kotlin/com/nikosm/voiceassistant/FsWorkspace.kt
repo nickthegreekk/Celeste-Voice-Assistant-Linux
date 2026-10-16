@@ -35,6 +35,37 @@ internal enum class FsToolMode {
 internal data class FsWorkspace(val root: Path, val mode: FsToolMode)
 
 /**
+ * What a persona actually has, from the four stored values: its own mode and folder, and the global
+ * pair. **The persona's value wins per field, else the global's** — the shape the app already uses
+ * for image-generation entries — and `null` means nothing is reachable, which is the answer for
+ * every way this can fail to add up:
+ *
+ *  - the resolved mode is [FsToolMode.OFF];
+ *  - there is no folder at either level (the plan's "read-write with no workspace is effectively
+ *    off", and saying so is the caller's job, not this function's);
+ *  - the stored folder is not a usable absolute path. A **relative** one is refused rather than
+ *    resolved: it would resolve against the process's working directory, which for a packaged
+ *    application is `/` and for a development run is a checkout — a workspace that moves depending
+ *    on how the program was started is worse than one that is off.
+ *
+ * Pure, so the settings UI, the service and the tests all ask the same question of the same four
+ * values and cannot disagree about what "follow the global" means.
+ */
+internal fun resolveFsWorkspace(
+    personaMode: FsToolMode?,
+    personaPath: String?,
+    globalMode: FsToolMode,
+    globalPath: String?,
+): FsWorkspace? {
+    val mode = personaMode ?: globalMode
+    if (mode == FsToolMode.OFF) return null
+    val raw = personaPath?.takeIf { it.isNotBlank() } ?: globalPath?.takeIf { it.isNotBlank() } ?: return null
+    val root = runCatching { Path.of(raw) }.getOrNull() ?: return null
+    if (!root.isAbsolute) return null
+    return FsWorkspace(root, mode)
+}
+
+/**
  * A path a tool call may not touch, with the sentence the model is told. An exception rather than a
  * null because every one of these is a *refusal*: the caller turns it into a tool result the model
  * can read and adapt to, which is not the same thing as an empty answer.
