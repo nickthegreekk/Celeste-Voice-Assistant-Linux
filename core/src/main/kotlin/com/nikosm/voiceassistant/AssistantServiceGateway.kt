@@ -693,7 +693,11 @@ fun AssistantService.denyCertificate() {
     _pendingCertApproval.value = null
 }
 
-internal fun AssistantService.sha256Fingerprint(cert: X509Certificate): String {
+// `AssistantService.sha256Fingerprint` in upstream, and the receiver was never used — it is a pure
+// function of the certificate. It lost the receiver when the pinned client moved to
+// `buildPinnedClient` (AssistantService.kt), which is a top-level function and therefore has no
+// `this` to be the receiver. No behaviour changed: the body is upstream's, byte for byte.
+internal fun sha256Fingerprint(cert: X509Certificate): String {
     val md = java.security.MessageDigest.getInstance("SHA-256")
     return md.digest(cert.encoded).joinToString(":") { "%02X".format(it) }
 }

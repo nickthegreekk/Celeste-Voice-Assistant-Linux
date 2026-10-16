@@ -685,3 +685,39 @@ tools/sync-from-android.sh --check      # exit 1 and a diff if any taken file ha
 grep -rl "BORROWED FROM M1" core/       # the M1 checklist: every borrowed declaration
 tools/check-upstream.sh                 # planned: what changed upstream since the pin above
 ```
+
+## M2 — the pinned HTTP client, and a same-named call that was not the same call (2026-10-16)
+
+Two PORT+ files changed for one defect, found by running the application's own connection test
+against the real gateway (`AssistantService.kt` and `AssistantServiceGateway.kt` are PORT+; nothing
+here demotes a COPY file).
+
+**`AssistantService.kt` — the pinned client is now `buildPinnedClient`, a top-level function.**
+Upstream's `createUnsafeOkHttpClient()` was a private member that reached out to two pieces of
+service state: `settingsManager.getTrustedCertificates()` and `_pendingCertApproval`. It is now
+`internal fun buildPinnedClient(trustedCerts: () -> Map<String, String>, onUntrusted:
+(CertApprovalRequest) -> Unit)`, called once by the same lazy `client` property with those two
+members passed in. The reason is testability and only testability: a trust decision cannot be tested
+without a handshake, and a handshake needs a client that can be built outside a live service. Seam
+14 had no test at all before this; `PinnedClientTlsTest` is the first, and it stands up a loopback
+TLS server with a `keytool`-generated certificate.
+
+**The same file — `.hostnameVerifier(HttpsURLConnection.getDefaultHostnameVerifier())` is gone.**
+That is upstream's S1 fix, and on Android it names a self-contained verifier that checks RFC 2818
+SANs including IP-address hosts. **On the JVM the same call names
+`javax.net.ssl.HttpsURLConnection$DefaultHostnameVerifier`, which only works when called from
+inside the JDK's own HTTPS machinery — it returns false for every standalone caller.** Every HTTPS
+request the application made therefore died in hostname verification, including requests to
+certificates that plainly matched: measured, `verify("192.0.2.73", session)` was false against a
+certificate carrying `IP Address:192.0.2.73`, and false for `api.deepseek.com` against
+`*.deepseek.com`. Plain HTTP kept working, which is why it went unnoticed — every Ollama entry is
+HTTP, and the failure reads as a server problem.
+
+Removing the line restores OkHttp's default `OkHostnameVerifier`, which is the same verifier
+Android's call returned, so this preserves upstream's intent rather than relaxing it.
+`PinnedClientTlsTest`'s first case fails if the line comes back — verified by putting it back.
+
+**`AssistantServiceGateway.kt` — `sha256Fingerprint` lost its `AssistantService` receiver.** It was
+`internal fun AssistantService.sha256Fingerprint(cert)`, an extension that never used the receiver;
+it is a pure function of the certificate. `buildPinnedClient` is top-level and has no `this` to be
+the receiver, so the receiver went. The body is upstream's, byte for byte.

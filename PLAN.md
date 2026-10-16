@@ -189,7 +189,7 @@ implementation in `platform/`; `core` never imports from `platform`.
 | 11 | `Tray` | Quick-settings tile | AWT `SystemTray` menu (Listen now, Mute mic, Open, Quit) |
 | 12 | `Hotkey` | None (proximity "wave to interrupt") | **Landed in M2 as a CLI affordance rather than an interface** (2026-10-16): `celeste-linux --listen` comes up with the microphone armed, and the per-desktop bindings live in `docs/DEVICES.md` — Plasma, GNOME, Xfce, sway, i3 and Hyprland. There is no `Hotkey.kt` and no in-process key grabber — the compositor is the only thing that knows the user's layout and which keys are free, and the plan's answer was already this flag. A second launch while one is running finds the instance lock taken, names the holding pid and exits 1 (`SingleInstance`), because two copies are two microphones: both transcribe the user and both answer. **What the replacement lost is the part worth naming**, in §5's family: the phone's gesture reached a *running* service and could therefore interrupt a reply, and a key that starts a process cannot — so "arm or interrupt from outside" belongs to M4's tray, which is in-process. The optional XDG GlobalShortcuts portal is still unbuilt, and would restore exactly that |
 | 13 | `FileDialogs` | SAF `ActivityResult` pickers | AWT `FileDialog` / chooser |
-| 14 | `CertTrust` | `networkSecurityConfig` + TOFU prompt | OkHttp `X509TrustManager` + TOFU store file in `~/.local/share/celeste-linux/` |
+| 14 | `CertTrust` | `networkSecurityConfig` + TOFU prompt | OkHttp `X509TrustManager` + TOFU prompt. **Landed in M1 as ported code and needed no `:platform` work** — it is pure JVM (`javax.net.ssl`, `MessageDigest`), and it was already cross-platform. The store is **not** a file in `~/.local/share/celeste-linux/`; it is `trusted_certs_v2` inside the settings file (host → SHA-256 fingerprint), which is also what makes it travel in a backup. Exercised for real 2026-10-16: an Android backup's two pins (`192.0.2.73`, `api.deepseek.com`) survived the import unchanged, no re-approval was asked for, and `PinnedClientTlsTest` (2026-10-16) drives real handshakes against it — see §5's fourth family member for the defect that test exists to prevent |
 | 15 | `ImageCodec` | Android `BitmapFactory` / `Bitmap.compress` | `javax.imageio` decode, scale and encode, with JPEG quality 88 and the upstream dimension limits |
 
 The bundled `arm64-v8a/libespeak-ng.so`, `src/main/cpp/` (its CMake build and JNI shim) and the
@@ -356,6 +356,22 @@ shows up as *plausible data* rather than as an error, which is why all three wer
 and none by a test. And the response that made this one readable: `parseSpeechWav` is top-level and `internal`, so
 `SpeechWavParseTest` reaches all six of its failure shapes with no engine installed. A parser of external data has to be
 testable without the external thing — that is what turns a silent failure into a test.
+
+**The same call can name two different objects (2026-10-16).** The family's fourth member, and the first one
+that is not a *lost property* but a *changed referent*: upstream's S1 fix installed
+`hostnameVerifier(HttpsURLConnection.getDefaultHostnameVerifier())`, and that expression is a self-contained,
+strict verifier on Android and `javax.net.ssl.HttpsURLConnection$DefaultHostnameVerifier` on the JVM — which only
+works from inside the JDK's own HTTPS machinery and returns **false** for every standalone caller. So every HTTPS
+request the application made failed hostname verification, against certificates that plainly matched: measured,
+false for `192.0.2.73` against a certificate carrying `IP Address:192.0.2.73`, and false for
+`api.deepseek.com` against `*.deepseek.com`. It went unnoticed for the family's usual reason — plain HTTP kept
+working, every Ollama entry is HTTP, and the failure reads as a server problem rather than as a client bug.
+
+Two things to carry forward, because the shape will recur wherever a platform API is named in a portable file:
+**the identifier crossing the port is a *call*, not a class** — `android.*` and `java.*` names were the ones being
+watched, and this one lives in `javax.net.ssl` and is spelled identically on both platforms. And the response is
+the family's: `buildPinnedClient` is top-level and `internal` so `PinnedClientTlsTest` can drive real handshakes
+against a loopback server with a generated certificate, which is the only place a trust decision is observable.
 
 ### 5a. Seam 8 is not in v1 (2026-10-15)
 
@@ -653,13 +669,25 @@ selection**, the last unbuilt item on the scope line above — §9's substitutio
 is `wpctl` sink selection remembered per persona, and nothing reads a chosen device yet (`playbackTarget()` consults
 only `earpieceMode`, which is null on a desktop by design). Then the acceptance run itself.
 
-**The acceptance run has a prerequisite that is not satisfied:** hands-free transcribes through the Voice Gateway, and
-the settings on this machine have no server configured at all (`server_bases_v2` is `"[]"`). `--listen` and the
-microphone button both refuse — correctly, that is upstream's guard — and until now the refusal was invisible, because
-the service's own message goes through `updateNotification`, which is a DEBUG line below the printed threshold;
-`Main.kt` now warns in plain sight when a launch armed nothing. Push-to-talk needs a server for the same reason
-(`/transcribe`). So the ten-exchange acceptance waits on a gateway, not on code — and the same absence means the
-machine has no Ollama entry either, so M1's acceptance conversation has not been run on it yet either.]
+**The acceptance splits in two, and only one half is blocked (2026-10-16).** The earlier note above is kept for the
+history — it was written when `server_bases_v2` was `"[]"` and applied.
+
+- **Voice-out is testable now.** The local route (`espeak-ng --stdout` → `SpeechSamples` → `AudioPlayback`) needs
+  nothing but a headset: it was verified end to end in this milestone (76,240 bytes, 22,050 Hz, 1,728 ms) and its
+  playback path runs through `PwPlayback`, which was verified against PipeWire. A ten-exchange acceptance run cannot
+  happen without the gateway, because every reply begins as a transcript — but "the app can speak, audibly, through
+  the headset" needs only the headset.
+- **Voice-in needs the gateway, and the gateway is now known and configured.** An Android backup imported through the
+  app's own restore path installed `https://192.0.2.73:8880` as the one server entry, and the app's own
+  `transcribeWithGateway` got an answer from its `/transcribe` route — so **that entry is the Voice Gateway**, and the
+  input half is blocked on nothing but the headset too. (The two other candidates answer on other routes:
+  `:8882/transcribe` is a 404, and `http://192.0.2.106:8888` serves an unrelated web UI.) The two imported TOFU
+  pins survived the import, so no certificate re-approval is waiting.
+
+So the remaining prerequisites for the ten hands-free exchanges are: a headset (D8), a configured gateway (done), and
+the sink selection below if the reply should go anywhere other than the default output. **Until this milestone the
+voice-in path could not have run at all** — every HTTPS call was failing hostname verification, see §5's fourth family
+member; that defect is fixed and guarded by `PinnedClientTlsTest`.]
 
 [Pre-flight, 2026-10-15: buildhost runs PipeWire 1.6.9 with pipewire-pulse and WirePlumber, and `pw-record`, `pw-play`,
 `pw-cat`, `wpctl`, `parec`, `paplay`, `pactl`, `arecord` and `aplay` are all present — so both the primary path and the

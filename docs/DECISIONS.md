@@ -334,3 +334,21 @@ pid, and `--listen` warns plainly when it armed nothing because no gateway is co
 own "No server configured" goes through `updateNotification`, a DEBUG line the default threshold hides —
 found by running the flag on a machine with `server_bases_v2 = "[]"`, where it armed nothing and said
 nothing). → PLAN.md §5 seam 12, §10 M2, §14 Q3; docs/DEVICES.md
+
+## 2026-10-16 — The pinned client is extracted so a trust decision can be tested at all
+
+`createUnsafeOkHttpClient()` was a private member that reached directly into two pieces of service state
+(`settingsManager.getTrustedCertificates()` and `_pendingCertApproval`). It is now the top-level `internal`
+`buildPinnedClient(trustedCerts, onUntrusted)`. Rejected: leaving it private and testing only its parts — a hostname
+or pin decision cannot be observed without a handshake, a handshake needs a client, and constructing
+`AssistantService` needs every collaborator faked (PLAN §11 deliberately defers that to M7). Seam 14 had no test
+before this and now has three, against a loopback TLS server with a `keytool`-generated certificate. The
+`sha256Fingerprint` extension lost its unused `AssistantService` receiver for the same reason: a top-level function
+has no `this` to be the receiver. Both files are PORT+ and the changes are recorded in PROVENANCE.md.
+
+The defect it exists for: `.hostnameVerifier(HttpsURLConnection.getDefaultHostnameVerifier())` — upstream's S1 line
+— names a self-contained verifier on Android and a JDK one on the JVM that returns **false** for every standalone
+caller. Every HTTPS request failed hostname verification; plain HTTP worked, which is why nothing noticed. Removing
+the line restores OkHttp's default, which is the verifier Android's call returned, so this preserves S1's intent
+rather than relaxing it — `PinnedClientTlsTest`'s third case fails if hostname checking is weakened instead.
+→ PLAN.md §5 (the family's fourth member), §10 M2, docs/PROVENANCE.md

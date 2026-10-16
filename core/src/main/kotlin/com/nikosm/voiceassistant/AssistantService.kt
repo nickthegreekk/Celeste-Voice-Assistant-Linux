@@ -913,7 +913,12 @@ class AssistantService(
         vadRecorder?.muted = _micMuted.value
     }
 
-    internal val client: OkHttpClient by lazy { createUnsafeOkHttpClient() }
+    internal val client: OkHttpClient by lazy {
+        buildPinnedClient(
+            trustedCerts = { settingsManager.getTrustedCertificates() },
+            onUntrusted = { _pendingCertApproval.value = it },
+        )
+    }
     internal val publicClient: OkHttpClient by lazy { OkHttpClient.Builder().build() }
     internal val standardClient: OkHttpClient by lazy {
         OkHttpClient.Builder()
@@ -2973,57 +2978,6 @@ class AssistantService(
     }
 
 
-    private fun createUnsafeOkHttpClient(): OkHttpClient {
-        val pinnedTrustManager = object : javax.net.ssl.X509ExtendedTrustManager() {
-            override fun checkClientTrusted(chain: Array<out X509Certificate>?, authType: String?, socket: java.net.Socket?) {}
-            override fun checkServerTrusted(chain: Array<out X509Certificate>?, authType: String?, socket: java.net.Socket?) {
-                val host = (socket as? javax.net.ssl.SSLSocket)?.handshakeSession?.peerHost ?: "unknown"
-                verify(chain, host)
-            }
-            override fun checkClientTrusted(chain: Array<out X509Certificate>?, authType: String?, engine: javax.net.ssl.SSLEngine?) {}
-            override fun checkServerTrusted(chain: Array<out X509Certificate>?, authType: String?, engine: javax.net.ssl.SSLEngine?) {
-                val host = engine?.peerHost ?: "unknown"
-                verify(chain, host)
-            }
-            override fun checkClientTrusted(chain: Array<out X509Certificate>?, authType: String?) {}
-            override fun checkServerTrusted(chain: Array<out X509Certificate>?, authType: String?) {
-                verify(chain, "unknown")
-            }
-            override fun getAcceptedIssuers(): Array<X509Certificate> = arrayOf()
-
-            private fun verify(chain: Array<out X509Certificate>?, host: String) {
-                if (chain == null || chain.isEmpty()) return
-                val cert = chain[0]
-                val fingerprint = sha256Fingerprint(cert)
-                val trusted = settingsManager.getTrustedCertificates()
-                val stored = trusted[host]
-
-                if (stored == null || stored != fingerprint) {
-                    _pendingCertApproval.value = CertApprovalRequest(host, fingerprint, cert)
-                    throw javax.net.ssl.SSLHandshakeException(if (stored == null) "New self-signed cert" else "Cert changed!")
-                }
-            }
-        }
-
-        val sslContext = SSLContext.getInstance("TLS")
-        sslContext.init(null, arrayOf(pinnedTrustManager), SecureRandom())
-        
-        return OkHttpClient.Builder()
-            .sslSocketFactory(sslContext.socketFactory, pinnedTrustManager)
-            // S1: validate the presented cert's SANs against the actual host (RFC 2818/6125,
-            // incl. IP-address hosts) instead of accepting any hostname. The prior blanket
-            // acceptance let an attacker present a cert not even claiming the target host on
-            // the crucial first-connection trust decision; the pinning below still protects
-            // against post-approval impersonation.
-            .hostnameVerifier(javax.net.ssl.HttpsURLConnection.getDefaultHostnameVerifier())
-            .connectTimeout(15, TimeUnit.SECONDS)
-            .readTimeout(120, TimeUnit.SECONDS)
-            .writeTimeout(120, TimeUnit.SECONDS)
-            .retryOnConnectionFailure(true)
-            .build()
-    }
-
-
     companion object {
         // `PROXIMITY_DEBOUNCE_MS` and `PROXIMITY_ARM_DELAY_MS` went with the barge-in subsystem,
         // and `CHANNEL_ID` / `NOTIFICATION_ID` with the ongoing notification; the last surviving
@@ -3171,3 +3125,83 @@ private const val UPDATE_CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000L
 
 /** Latest GitHub release advertised by the update check (AssistantService.checkForAppUpdate). */
 data class UpdateInfo(val version: String, val url: String)
+
+/**
+ * The OkHttp client every ported call site uses — gateway, cloud, RAG, image generation — with
+ * seam 14's TOFU pinning: a certificate is accepted when its SHA-256 fingerprint matches what the
+ * user approved for that host, and is otherwise offered for approval and refused.
+ *
+ * Top-level and `internal` rather than a private member, because that is what makes it testable:
+ * `PinnedClientTlsTest` stands up a loopback TLS server with a generated certificate and drives
+ * real requests through this builder, which is the only way to exercise a trust decision. The two
+ * service members it used to reach for directly are parameters now — the certificate map it reads
+ * and the approval request it raises — so the builder holds no state of its own.
+ *
+ * ## The hostname verifier is OkHttp's default, and that is a fix (2026-10-16)
+ *
+ * Upstream's S1 fix installed `hostnameVerifier(HttpsURLConnection.getDefaultHostnameVerifier())`.
+ * **That call names two different objects on the two platforms.** On Android it returns a
+ * self-contained verifier — `OkHostnameVerifier`, strict, RFC 2818/6125 SANs including IP-address
+ * hosts — which is what S1 wanted. On the JVM it returns
+ * `javax.net.ssl.HttpsURLConnection$DefaultHostnameVerifier`, which is **not self-contained**: it
+ * expects to be called from inside the JDK's own HTTPS connection machinery and returns *false*
+ * when anyone else calls it.
+ *
+ * Measured, against the real gateway: `verify("192.0.2.73", session)` returned false for a
+ * certificate whose SANs contain `IP Address:192.0.2.73`, and returned false for
+ * `api.deepseek.com` against a `*.deepseek.com` SAN — a textbook match. Every HTTPS call through
+ * this client therefore died in hostname verification while plain HTTP kept working, which is why
+ * nothing noticed: every Ollama entry is HTTP, and the failure reads as a server problem.
+ *
+ * Leaving the verifier unset restores `OkHostnameVerifier` — the same verifier Android's call
+ * returned — so the ported behaviour is what S1 meant and no strictness was given up. The shape is
+ * not §5's usual one: nothing lost a property, the replacement kept the *name* and changed the
+ * *object*.
+ */
+internal fun buildPinnedClient(
+    trustedCerts: () -> Map<String, String>,
+    onUntrusted: (CertApprovalRequest) -> Unit,
+): OkHttpClient {
+    val pinnedTrustManager = object : javax.net.ssl.X509ExtendedTrustManager() {
+        override fun checkClientTrusted(chain: Array<out X509Certificate>?, authType: String?, socket: java.net.Socket?) {}
+        override fun checkServerTrusted(chain: Array<out X509Certificate>?, authType: String?, socket: java.net.Socket?) {
+            val host = (socket as? javax.net.ssl.SSLSocket)?.handshakeSession?.peerHost ?: "unknown"
+            verify(chain, host)
+        }
+        override fun checkClientTrusted(chain: Array<out X509Certificate>?, authType: String?, engine: javax.net.ssl.SSLEngine?) {}
+        override fun checkServerTrusted(chain: Array<out X509Certificate>?, authType: String?, engine: javax.net.ssl.SSLEngine?) {
+            val host = engine?.peerHost ?: "unknown"
+            verify(chain, host)
+        }
+        override fun checkClientTrusted(chain: Array<out X509Certificate>?, authType: String?) {}
+        override fun checkServerTrusted(chain: Array<out X509Certificate>?, authType: String?) {
+            verify(chain, "unknown")
+        }
+        override fun getAcceptedIssuers(): Array<X509Certificate> = arrayOf()
+
+        private fun verify(chain: Array<out X509Certificate>?, host: String) {
+            if (chain == null || chain.isEmpty()) return
+            val cert = chain[0]
+            val fingerprint = sha256Fingerprint(cert)
+            val stored = trustedCerts()[host]
+
+            if (stored == null || stored != fingerprint) {
+                onUntrusted(CertApprovalRequest(host, fingerprint, cert))
+                throw javax.net.ssl.SSLHandshakeException(if (stored == null) "New self-signed cert" else "Cert changed!")
+            }
+        }
+    }
+
+    val sslContext = SSLContext.getInstance("TLS")
+    sslContext.init(null, arrayOf(pinnedTrustManager), SecureRandom())
+
+    return OkHttpClient.Builder()
+        .sslSocketFactory(sslContext.socketFactory, pinnedTrustManager)
+        // No `hostnameVerifier(...)` line: see the note above. OkHttp's default is the strict,
+        // self-contained verifier this client must have.
+        .connectTimeout(15, TimeUnit.SECONDS)
+        .readTimeout(120, TimeUnit.SECONDS)
+        .writeTimeout(120, TimeUnit.SECONDS)
+        .retryOnConnectionFailure(true)
+        .build()
+}
