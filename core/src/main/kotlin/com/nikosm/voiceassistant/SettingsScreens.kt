@@ -86,7 +86,16 @@ fun PersonaSelector(
     onRoomSelected: ((Room) -> Unit)? = null
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState, containerColor = MaterialTheme.colorScheme.surface) {
+    // Square, and deliberately not `BottomSheetDefaults.ExpandedShape`: the sheet is not sliding up
+    // from the bottom edge of a phone here, it is a desktop window's list of personas, and the
+    // rounded top corners were the one part of this screen that still read as a phone. Asked for by
+    // the user on 2026-10-16, with the same request for the header frame below it.
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        containerColor = MaterialTheme.colorScheme.surface,
+        shape = RectangleShape,
+    ) {
         val scrollState = rememberScrollState()
         Column(modifier = Modifier.fillMaxWidth().padding(16.dp).verticalScroll(scrollState)) {
             Text("Select Persona", style = MaterialTheme.typography.titleLarge)

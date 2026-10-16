@@ -649,3 +649,46 @@ principle. The general form is worth keeping: when a step is conditional, assert
 itself can be wrong in ways the step never notices.
 
 → PLAN.md §4, §10/M6; `packaging/debian/`
+
+## 2026-10-16 — The window's name, the Desktop copy, and two square frames
+
+Five findings from the user's first day running the installed Arch package. Four are code; all five are decisions about
+things the plan left open, so they are recorded here rather than in a commit message only.
+
+**The window claims `celeste-linux` as its X11 `WM_CLASS`, by reflection and with an `--add-opens`.** A dock draws a running
+application's icon by matching the window's `WM_CLASS` against the entries that claim it; AWT had named ours after the
+bottom frame of the stack that constructed the toolkit — `java-lang-Thread`, measured — so no match was possible and the
+taskbar had a generic icon while the menu entry beside it had the right one. The three ways to fix it, and why this one:
+
+- `-Dsun.awt.X11.XWMClassName=celeste-linux` — **rejected because it does not exist.** It is a JetBrains Runtime feature;
+  the JDK's own `java.desktop` X11 sources do not mention it. A first version of the fix set this property, which is why
+  the sources were read at all.
+- `StartupWMClass=java-lang-thread` in the `.desktop` files — rejected as a measurement written down as an assumption: it
+  depends on how Compose happens to start AWT, and it would break silently the day that changes, with a name in our own file
+  that nobody could explain.
+- Setting `sun.awt.X11.XToolkit.awtAppClassName` reflectively — chosen. The field is what the toolkit actually reads, it is
+  read at *window creation* rather than at toolkit construction, so the toolkit is forced into existence first and the field
+  set afterwards. It needs `--add-opens=java.desktop/sun.awt.X11=ALL-UNNAMED`, declared in `desktop/build.gradle.kts` beside
+  the native-access flag; the failure mode without it is a logged warning and AWT's own name, which is where this started.
+
+`Window(icon = …)` covers the other half — the `_NET_WM_ICON` a taskbar draws for a window it *cannot* match — from the same
+PNG the packages install, wired onto the resource path from `packaging/icons` so there is still one icon file.
+
+**A persona shortcut is written twice: the menu, and the Desktop.** The user's words were "shortcut to persona on Desktop
+can't be created" — and the file *was* being created, in `$XDG_DATA_HOME/applications`, which is a directory they do not
+look in. So the entry now also lands on the Desktop, with two differences that are forced rather than chosen: it is
+**executable** (a `.desktop` file in the menu is read by machinery that ignores the mode, while one on a Desktop is a
+launcher the file manager offers to run, and every desktop requires the bit for that), and it is written **only if the
+Desktop directory already exists** — a machine with no `~/Desktop` is a machine whose owner keeps no shortcuts there, and
+creating one to hold a single file would be this function deciding something that is not its to decide. Removal takes both
+copies, because a shortcut that outlives its persona opens whichever one happens to be selected. The file keeps the
+`celeste-linux-` prefix so it can never collide with something the user put there themselves; the name they *see* comes from
+the entry's `Name=` key either way.
+
+**Two frames are square, deliberately departing from upstream's Material shapes.** The persona selector's
+`ModalBottomSheet` and the header's persona-name frame both carried rounded corners copied from a phone UI. The user asked
+for square on both, and the second had a defect in it rather than a taste: the rounded clip cut into the first glyph of a
+long persona name, because the name is drawn flush to the frame's edge. Both files are **ADAPT**, so this is an ordinary
+edit rather than a COPY demotion, recorded in docs/PROVENANCE.md as the deviation from upstream's appearance that it is.
+
+→ PLAN.md §10/M6; docs/PROVENANCE.md

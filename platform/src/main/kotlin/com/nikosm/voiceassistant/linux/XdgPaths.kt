@@ -35,6 +35,18 @@ class XdgPaths(
      * value that is empty or not absolute falls back the same way `base` does for the others.
      */
     val picturesHome: Path,
+    /**
+     * `XDG_DESKTOP_DIR` — the other *user* dir this port writes into, and the same shape as
+     * [picturesHome]: the user's folder, resolved alone, with `$HOME/Desktop` as the spec's
+     * fallback. It is read for one purpose, the per-persona shortcut the user asked to be able to
+     * put on their Desktop (2026-10-16); nothing else here writes outside `celeste-linux`.
+     *
+     * The environment variable is what is read, not `~/.config/user-dirs.dirs` — the same choice
+     * [picturesHome] already makes, and the reason a localized Desktop directory is not found. The
+     * caller never creates the directory: a Desktop that is not there is a desktop whose owner does
+     * not use one, and inventing `~/Desktop` for them would be the wrong kind of helpfulness.
+     */
+    val desktopHome: Path,
 ) {
     /** Settings, personas, servers, skills, image-generation entries (README.md, *Where things live*). */
     val configDir: Path get() = configHome.resolve(APP_DIR)
@@ -54,6 +66,14 @@ class XdgPaths(
      * either platform lands in the same place within the user's pictures.
      */
     val picturesDir: Path get() = picturesHome.resolve(PICTURES_APP_DIR)
+
+    /**
+     * Where a per-persona shortcut goes when the user asks for one on their Desktop: the Desktop
+     * itself, **not** a `celeste-linux` subdirectory — an icon inside a folder is an icon nobody
+     * sees. Unlike [applicationsDir] this directory is not created if it is missing; see
+     * [desktopHome].
+     */
+    val desktopDir: Path get() = desktopHome
 
     /**
      * Where per-persona `.desktop` entries are written: `$XDG_DATA_HOME/applications`, which is where
@@ -83,6 +103,7 @@ class XdgPaths(
             stateHome = base(env, "XDG_STATE_HOME", home.resolve(".local/state")),
             cacheHome = base(env, "XDG_CACHE_HOME", home.resolve(".cache")),
             picturesHome = base(env, "XDG_PICTURES_DIR", home.resolve("Pictures")),
+            desktopHome = base(env, "XDG_DESKTOP_DIR", home.resolve("Desktop")),
         )
 
         private fun base(env: (String) -> String?, name: String, fallback: Path): Path {

@@ -19,6 +19,16 @@ kotlin {
     jvmToolchain(25)
 }
 
+// The icon as a *resource*, so the window can hand it to AWT: `Window(icon = …)` is what fills in
+// `_NET_WM_ICON`, which is what a taskbar draws and what an alt-tab list shows. The directory is
+// `packaging/icons` rather than a copy under `src/main/resources`, so the one PNG is the file
+// jpackage embeds, the file the packages install into hicolor, and the file the taskbar draws.
+sourceSets {
+    main {
+        resources.srcDir(rootProject.file("packaging/icons"))
+    }
+}
+
 dependencies {
     implementation(project(":core"))
     implementation(project(":platform"))
@@ -109,6 +119,13 @@ compose.desktop {
             // JDK 25 warns that Skiko loads its native library without declaring native access,
             // and PLAN.md §10/§6 asks for this flag in the packaged application's options.
             jvmArgs += listOf("--enable-native-access=ALL-UNNAMED")
+            // `Main.kt` reaches `sun.awt.X11.XToolkit.awtAppClassName` by reflection to give the
+            // window a `WM_CLASS` a dock can match to `celeste-linux.desktop` — without it the
+            // window reports `java-lang-Thread` and wears a generic icon. The package is not
+            // exported, so the reflection needs this open; it is the application's own process and
+            // the one field it touches, and the failure without it is a logged warning rather than
+            // a crash (`claimTheWindowClass`).
+            jvmArgs += listOf("--add-opens=java.desktop/sun.awt.X11=ALL-UNNAMED")
         }
 
         // The plugin's `run` task derives its `executable` from this and **not** from the Kotlin

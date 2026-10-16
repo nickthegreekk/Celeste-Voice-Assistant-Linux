@@ -52,6 +52,26 @@ class XdgPathsTest {
     }
 
     @Test
+    fun `the Desktop is the user's own folder, with no app directory under it`() {
+        // A user dir like the pictures folder, and resolved the same way — but this one is written
+        // to directly: `celeste-linux` under the Desktop would be a shortcut inside a folder nobody
+        // opens, which is what the applications directory already was for this user (2026-10-16).
+        // The `~/Desktop` fallback is the spec's, and the case that matters is the unset one: most
+        // systems set XDG_DESKTOP_DIR nowhere and the environment variable is empty.
+        assertEquals(home.resolve("Desktop"), XdgPaths.resolve(env(), home).desktopDir)
+        assertEquals(home.resolve("Desktop"), XdgPaths.resolve(env("XDG_DESKTOP_DIR" to ""), home).desktopDir)
+        assertEquals(
+            temp.resolve("my-desktop"),
+            XdgPaths.resolve(env("XDG_DESKTOP_DIR" to temp.resolve("my-desktop").toString()), home).desktopDir,
+        )
+        assertEquals(
+            "a relative value is invalid and falls back, as it does for every other path here",
+            home.resolve("Desktop"),
+            XdgPaths.resolve(env("XDG_DESKTOP_DIR" to "Desktop"), home).desktopDir,
+        )
+    }
+
+    @Test
     fun `absolute values are honoured`() {
         val paths = XdgPaths.resolve(
             env(

@@ -1196,6 +1196,36 @@ container: `pacman -U` pulls all seven declared dependencies, `celeste-linux --s
 containers print are the documented graceful answer to having no sound server. What M6 still owes is the README's install
 section — which can now be written from what the containers actually did rather than from the packaging's intent.
 
+**[2026-10-16, the installed Arch package in daily use — five findings, four of them fixed here.]**
+
+**The taskbar icon was missing, and the cause was a name no dock could match.** Measured on the running process:
+`WM_CLASS(STRING) = "java-lang-Thread", "java-lang-Thread"`. `sun.awt.X11.XToolkit`'s constructor names the class after the
+**bottom frame of the stack trace that built it**, and Compose builds AWT from a coroutine on a Swing thread — so the window
+said `java-lang-Thread` while `celeste-linux.desktop` claimed `celeste-linux`, and a dock that cannot match falls back to a
+generic icon. The fix is two halves that have to agree: `Main.kt` claims the class, and the three `.desktop` files (the
+package's and each persona's) say `StartupWMClass=celeste-linux`. **The obvious way to claim it does not work** —
+`-Dsun.awt.X11.XWMClassName` is a JetBrains Runtime feature, not stock OpenJDK, and grepping the JDK's own `java.desktop`
+X11 sources for it returns nothing; the first version of this fix set that property and would have changed nothing. What
+exists is the private static `awtAppClassName`, read when a *window* is created rather than when the toolkit is, so
+`claimTheWindowClass` forces the toolkit into existence, sets the field reflectively, and
+`--add-opens=java.desktop/sun.awt.X11=ALL-UNNAMED` (declared beside the native-access flag) is what makes it reachable. The
+window also carries the icon itself now — `Window(icon = …)` reads the same PNG the packages install, wired onto the
+resource path from `packaging/icons` so there is one icon file and not two.
+
+**Hardware acceleration was already there, measured rather than assumed.** The question was whether the animations could use
+the GPU; the answer is that they already do. The running process's address space holds `libGL.so.1`, `libGLX.so.0`,
+`libGLX_mesa.so.0`, `libgallium-26.2.4` and `libdrm_amdgpu.so.1` — Skiko renders through OpenGL into Mesa's gallium on the
+AMD driver, with no `llvmpipe` anywhere in it. There is no video decode in this application to accelerate: the animations are
+Skia drawing on the GPU, and what they cost is composition, not codecs.
+
+**Three smaller ones, all the user's own list.** A persona shortcut can now go on the **Desktop** as well as into the
+application menu — the menu entry had been written and worked, and it was somewhere they do not look; the Desktop copy is
+executable (every desktop requires that bit for a launcher found there) and is written only if a Desktop directory already
+exists, so nothing invents `~/Desktop` for someone who does not keep one. The persona selector's sheet and the header's name
+frame are **square** now, on request: the header's rounded clip was cutting into the first glyph of a long persona name, and
+a frame that eats the first letter of the thing it frames is not a style. Both are in ADAPT files, so both are recorded as
+deliberate deviations from upstream's appearance rather than as ports (docs/PROVENANCE.md).
+
 That leaves **M7 (hardening)**, which is an estimate rather than a measurement, and therefore where the remaining percentage is
 softest.
 entries, the rooms screens, and the spontaneous controls in the persona editor.

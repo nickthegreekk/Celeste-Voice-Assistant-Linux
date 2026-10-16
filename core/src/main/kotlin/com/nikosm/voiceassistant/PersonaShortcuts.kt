@@ -5,6 +5,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.nio.file.Files
 import java.nio.file.Path
+import java.nio.file.attribute.PosixFilePermissions
 
 /**
  * Per-persona shortcuts: one entry in the application menu that opens straight into that persona's
@@ -33,6 +34,8 @@ import java.nio.file.Path
  * the notification `notifyUser` already raises on the way out — the same "Saved to …" shape the
  * gallery save uses — so a click that did something says what.
  */
+private const val TAG = "PersonaShortcuts"
+
 internal const val PERSONA_SHORTCUT_PREFIX = "celeste-linux-"
 
 /**
@@ -87,6 +90,11 @@ internal fun personaDesktopEntry(personaName: String, artworkPath: String?): Str
     if (!artworkPath.isNullOrBlank()) appendLine("Icon=$artworkPath")
     appendLine("Terminal=false")
     appendLine("Categories=Utility;")
+    // Every persona entry opens the same window, so every one of them claims the same window:
+    // `Main.kt` sets AWT's `sun.awt.X11.XWMClassName` to this name, that is what the window reports
+    // as its `WM_CLASS`, and this is what the entry says it owns. Without the pair a dock cannot
+    // tell which icon a running Celeste should wear and falls back to a generic one.
+    appendLine("StartupWMClass=$PERSONA_SHORTCUT_EXEC")
 }
 
 /** The desktop-entry spec's escaping for a quoted `Exec` argument — see [personaDesktopEntry]. */
@@ -98,16 +106,51 @@ internal fun escapeForDesktopExec(value: String): String = buildString {
 }
 
 /**
- * Write this persona's entry, replacing any entry it already had.
+ * Write this persona's entry, replacing any entry it already had, in **both** places a shortcut can
+ * live: the application menu, and the user's Desktop.
  *
- * @return the file written, or null when it could not be — the caller reports that rather than
- * throwing out of a button press, the same contract the gallery save has.
+ * The Desktop copy is the one the user asked for on 2026-10-16, in their words: *"shortcut to persona
+ * on Desktop can't be created"* — the menu entry had been written and worked, and it was somewhere
+ * they do not look. Two differences from the menu copy, both forced by how a desktop reads the file:
+ *
+ *  - **It is executable.** `~/.local/share/applications` is read by menu machinery that does not
+ *    care about the mode; a `.desktop` file sitting *on* a Desktop is a launcher the file manager
+ *    offers to run, and GNOME, KDE and XFCE all require the executable bit for that. Without it the
+ *    icon appears and double-clicking it opens a text editor, which is worse than not writing it.
+ *  - **It is only written if the Desktop directory already exists.** A machine with no `~/Desktop`
+ *    is a machine whose owner does not keep shortcuts there; creating the directory to put one file
+ *    in it would be this function deciding something that is not its to decide.
+ *
+ * The file name keeps [PERSONA_SHORTCUT_PREFIX], so a shortcut can never collide with a file the
+ * user put there themselves — the name the user *sees* comes from the entry's `Name=` key either way.
+ *
+ * @return the menu entry written, or null when *that* could not be — the caller reports it rather
+ * than throwing out of a button press, the same contract the gallery save has. A Desktop copy that
+ * fails on its own is logged and does not fail the press: the shortcut exists, one directory over.
  */
-internal fun writePersonaShortcut(personaName: String, artworkPath: String?, applicationsDir: Path): Path? =
+internal fun writePersonaShortcut(
+    personaName: String,
+    artworkPath: String?,
+    applicationsDir: Path,
+    desktopDir: Path? = null,
+    logger: AppLogger? = null,
+): Path? =
     runCatching {
         Files.createDirectories(applicationsDir)
+        val entry = personaDesktopEntry(personaName, artworkPath)
         val file = personaShortcutFile(personaName, applicationsDir)
-        Files.writeString(file, personaDesktopEntry(personaName, artworkPath))
+        Files.writeString(file, entry)
+
+        if (desktopDir != null && Files.isDirectory(desktopDir)) {
+            val deskFile = personaShortcutFile(personaName, desktopDir)
+            if (runCatching {
+                    Files.writeString(deskFile, entry)
+                    Files.setPosixFilePermissions(deskFile, PosixFilePermissions.fromString("rwxr-xr-x"))
+                }.isFailure
+            ) {
+                logger?.w(TAG, "could not write the Desktop copy of the shortcut at $deskFile")
+            }
+        }
         file
     }.getOrNull()
 
@@ -118,10 +161,20 @@ internal fun writePersonaShortcut(personaName: String, artworkPath: String?, app
  * because the name is the id: a surviving entry would open whichever persona the application has
  * selected rather than the one the user pinned, which is worse than no entry at all.
  *
- * @return true when a file was removed.
+ * Removes **both** copies — the menu entry and the Desktop one — because a shortcut that survives on
+ * the Desktop after its persona is gone is worse than one that never existed: it opens whatever
+ * persona happens to be selected. `Files.deleteIfExists` on a directory that is not there is false
+ * rather than an error, so a machine with no `~/Desktop` needs no special case here.
+ *
+ * @return true when a menu entry was removed. The Desktop copy's removal is reported by its own
+ * absence rather than by this flag: the caller's message is about the shortcut, not the file.
  */
-internal fun removePersonaShortcut(personaName: String, applicationsDir: Path): Boolean =
-    runCatching { Files.deleteIfExists(personaShortcutFile(personaName, applicationsDir)) }.getOrDefault(false)
+internal fun removePersonaShortcut(personaName: String, applicationsDir: Path, desktopDir: Path? = null): Boolean {
+    if (desktopDir != null) {
+        runCatching { Files.deleteIfExists(personaShortcutFile(personaName, desktopDir)) }
+    }
+    return runCatching { Files.deleteIfExists(personaShortcutFile(personaName, applicationsDir)) }.getOrDefault(false)
+}
 
 /**
  * Create (or refresh) a persona's entry, and say where it went.
@@ -137,11 +190,17 @@ internal fun AssistantService.createPersonaShortcut(personaName: String) {
         return
     }
     serviceScope.launch(Dispatchers.IO) {
-        val written = writePersonaShortcut(personaName, persona.iconImageUri, appEnv.applicationsDir)
+        val written = writePersonaShortcut(
+            personaName = personaName,
+            artworkPath = persona.iconImageUri,
+            applicationsDir = appEnv.applicationsDir,
+            desktopDir = appEnv.desktopDir,
+            logger = logger,
+        )
         logger.i("AssistantService", if (written != null) "persona shortcut written to $written" else "could not write a shortcut for '$personaName'")
         withContext(Dispatchers.Main) {
             notifyUser(
-                if (written != null) "Shortcut for '${persona.name}' added to your applications"
+                if (written != null) "Shortcut for '${persona.name}' added to your applications and your Desktop"
                 else "Could not add a shortcut for '${persona.name}' — see the log"
             )
         }

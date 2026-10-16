@@ -4,11 +4,13 @@ import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.nio.file.Files
 import java.nio.file.Path
+import java.nio.file.attribute.PosixFilePermissions
 
 /**
  * Per-persona `.desktop` entries: the half that can be pinned without a desktop menu.
@@ -67,6 +69,11 @@ class PersonaShortcutsTest {
             entry.contains("Exec=$PERSONA_SHORTCUT_EXEC --persona \"Friend\""),
         )
         assertFalse("no artwork, no Icon line rather than an empty one", entry.contains("Icon="))
+        // A dock draws a running window's icon by matching the window's `WM_CLASS` against the
+        // entries that claim it. `Main.kt` sets AWT's `sun.awt.X11.XWMClassName` to this same
+        // string; if these two ever drift, every entry loses its icon rather than the wrong one
+        // being drawn — which is exactly what happened before either of them existed.
+        assertEquals("StartupWMClass=$PERSONA_SHORTCUT_EXEC", entry.lineSequence().first { it.startsWith("StartupWMClass=") })
     }
 
     @Test
@@ -100,6 +107,59 @@ class PersonaShortcutsTest {
 
         assertTrue("the entry existed and went", removePersonaShortcut("Friend", applications))
         assertFalse("and a second removal is not a failure", removePersonaShortcut("Friend", applications))
+    }
+
+    @Test
+    fun `the Desktop copy is written when there is a Desktop, and it is executable`() {
+        // The mode is the point of this one. `~/.local/share/applications` is read by menu machinery
+        // that ignores it; a `.desktop` file sitting *on* a Desktop is a launcher the file manager
+        // offers to run, and GNOME, KDE and XFCE all require the executable bit for that. Without it
+        // the icon appears and double-clicking opens a text editor — worse than not writing it.
+        // Asked for by the user on 2026-10-16, whose Desktop is where they keep their shortcuts.
+        val desktop = root.resolve("Desktop").also { Files.createDirectories(it) }
+
+        val written = writePersonaShortcut("Friend", null, applications, desktop)
+
+        val onDesktop = personaShortcutFile("Friend", desktop)
+        assertEquals(applications, written?.parent)
+        assertTrue("the Desktop copy exists", Files.exists(onDesktop))
+        assertEquals(
+            "byte for byte the same entry, so the two copies cannot drift apart",
+            Files.readString(written!!),
+            Files.readString(onDesktop),
+        )
+        assertEquals(
+            "rwxr-xr-x, or it is not a launcher",
+            "rwxr-xr-x",
+            PosixFilePermissions.toString(Files.getPosixFilePermissions(onDesktop)),
+        )
+    }
+
+    @Test
+    fun `a machine with no Desktop gets no Desktop copy, and no new directory`() {
+        // Not creating `~/Desktop` is the decision, not an oversight: a desktop whose owner keeps
+        // nothing there should not grow a folder to hold one file, and the caller is told the
+        // shortcut exists (it does — in the menu) rather than that the press failed.
+        val missing = root.resolve("Desktop")
+
+        val written = writePersonaShortcut("Friend", null, applications, missing)
+
+        assertNotNull("the menu entry is still written", written)
+        assertFalse("and nothing invented a Desktop", Files.exists(missing))
+    }
+
+    @Test
+    fun `removal takes the Desktop copy too`() {
+        val desktop = root.resolve("Desktop").also { Files.createDirectories(it) }
+        writePersonaShortcut("Friend", null, applications, desktop)
+
+        assertTrue(removePersonaShortcut("Friend", applications, desktop))
+
+        assertFalse(Files.exists(personaShortcutFile("Friend", applications)))
+        assertFalse(
+            "a shortcut that outlives its persona opens whichever one is selected",
+            Files.exists(personaShortcutFile("Friend", desktop)),
+        )
     }
 
     @Test

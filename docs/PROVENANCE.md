@@ -753,3 +753,19 @@ source root to build from otherwise), and `Containerfile`, which is the Debian 1
 build has to happen in. `packaging/OnnxSmokeTest.java` moved up one directory at the same time: it
 was written for the PKGBUILD's `check()` and is now the probe both packagings run, so the two ONNX
 cuts cannot drift apart without one of them failing.
+
+## The installed package's first day: two ADAPT files depart from upstream's appearance (2026-10-16)
+
+`MainVoiceScreen.kt` and `SettingsScreens.kt` are ADAPT files, so these are ordinary edits rather than COPY demotions —
+recorded here because they change what the user *sees* relative to upstream, which is the kind of difference this file
+exists to keep track of.
+
+| Where | Upstream | Here | Why |
+|---|---|---|---|
+| `SettingsScreens.kt` — `PersonaSelector`'s sheet | `BottomSheetDefaults.ExpandedShape`: rounded top corners | `RectangleShape` | The user asked for square corners. The sheet is not sliding up from the bottom edge of a phone here; it is a desktop window's list of personas, and the rounded top corners were the last part of that screen still reading as a phone. |
+| `MainVoiceScreen.kt` — `HeaderTarget`'s clip | `MaterialTheme.shapes.small` | `RectangleShape` | The user's report, and a defect rather than a taste: the rounded corner was clipping the first glyph of a long persona name, because the name is drawn flush to the frame's edge. |
+
+Two things outside `core/` changed with them, both recorded in the same commit: `Main.kt` gained a window icon (from
+`packaging/icons/celeste-linux.png`, now also a build resource) and `claimTheWindowClass`, the reflective half of the
+`WM_CLASS` fix; and the three `.desktop` files — the one the packages install and the ones `PersonaShortcuts.kt` writes per
+persona — gained `StartupWMClass=celeste-linux`, which is the other half of the same fix and has to agree with it.

@@ -1773,7 +1773,7 @@ class AssistantService(
                     // is renamed either way, and the worst case is a dead entry the user can see and
                     // delete — the same shape upstream used for its launcher call, which it also
                     // wrapped rather than let throw.
-                    runCatching { removePersonaShortcut(oldName, appEnv.applicationsDir) }
+                    runCatching { removePersonaShortcut(oldName, appEnv.applicationsDir, appEnv.desktopDir) }
                         .onSuccess { removed ->
                             if (removed) Log.d("AssistantService", "persona shortcut for '$oldName' withdrawn")
                         }
@@ -2101,7 +2101,7 @@ class AssistantService(
             // application happens to select. Deletion is already the path where "the name is the
             // id" costs something, so this joins the history drop it sits beside.
             serviceScope.launch(Dispatchers.IO) {
-                runCatching { removePersonaShortcut(removedName, appEnv.applicationsDir) }
+                runCatching { removePersonaShortcut(removedName, appEnv.applicationsDir, appEnv.desktopDir) }
                     .onSuccess { removed ->
                         if (removed) Log.d("AssistantService", "persona shortcut for '$removedName' withdrawn")
                     }

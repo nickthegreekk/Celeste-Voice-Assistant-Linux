@@ -1257,9 +1257,13 @@ private fun HeaderTarget(
     modifier: Modifier = Modifier,
     content: @Composable () -> Unit
 ) {
+    // Square rather than `MaterialTheme.shapes.small`. The rounded corner was cutting into the first
+    // glyph of a long persona name — the user's report, 2026-10-16, on the same screen as the
+    // selector sheet above — because the name is drawn flush to the frame's edge and the shape
+    // clips it. A frame that eats the first letter of the thing it frames is not a style.
     Box(
         modifier = modifier
-            .clip(MaterialTheme.shapes.small)
+            .clip(RectangleShape)
             .clickable(onClick = onClick)
             .semantics(mergeDescendants = true) { this.contentDescription = contentDescription },
         contentAlignment = Alignment.Center

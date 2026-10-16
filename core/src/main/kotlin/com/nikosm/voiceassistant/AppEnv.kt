@@ -71,6 +71,17 @@ interface AppEnv {
      */
     val applicationsDir: Path
 
+    /**
+     * The user's Desktop, for the second copy of a persona shortcut — the one they asked for on
+     * 2026-10-16, after the menu entry turned out to be somewhere they do not look.
+     *
+     * A user dir like [picturesDir], resolved by `XdgPaths` for the same reason, and the one path
+     * here that **may not exist**: a machine with no `~/Desktop` is a machine whose owner does not
+     * keep shortcuts on one, so callers write there only when the directory is already there rather
+     * than creating it.
+     */
+    val desktopDir: Path
+
 
     /**
      * Whether conversation-content logging is on — the port of `BuildConfig.DEBUG`.

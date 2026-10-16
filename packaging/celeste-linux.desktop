@@ -9,6 +9,12 @@ Exec=celeste-linux
 Icon=celeste-linux
 Terminal=false
 Categories=Utility;AudioVideo;
+# Which window belongs to this entry. AWT would otherwise report the main class as the window's
+# `WM_CLASS` — measured once as `java-lang-Thread`, which no dock can match — so `Main.kt` sets
+# AWT's `sun.awt.X11.XWMClassName` to this same name. Both halves are needed: the property is what
+# the window says, and this line is what the entry claims, and a dock only draws the right icon when
+# they agree. (The per-persona entries carry the same line for the same reason.)
+StartupWMClass=celeste-linux
 Keywords=assistant;voice;chat;tts;stt;
 # `--listen` is the hotkey affordance (seam 12) and `--headless` the daemon; both are flags of this
 # same binary, so the menu entry and the tray are two doors into one process (PLAN.md §3/D1).

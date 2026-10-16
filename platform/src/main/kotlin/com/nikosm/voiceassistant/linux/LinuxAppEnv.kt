@@ -43,6 +43,7 @@ class LinuxAppEnv(
     override val cacheDir: Path get() = paths.cacheDir
     override val picturesDir: Path get() = paths.picturesDir
     override val applicationsDir: Path get() = paths.applicationsDir
+    override val desktopDir: Path get() = paths.desktopDir
 
     /**
      * Points the process-wide [LogSink] at this environment's logger, so a COPY file calling

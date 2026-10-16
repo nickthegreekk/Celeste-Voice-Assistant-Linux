@@ -263,6 +263,9 @@ class FreshStartNetworkTest {
         override val cacheDir: Path get() = root.resolve("cache")
         override val picturesDir: Path get() = cacheDir.resolve("Pictures")
     override val applicationsDir: Path get() = cacheDir.resolve("applications")
+    // No Desktop in a test: `null` is not possible on the interface, so this points at a directory
+    // that does not exist — which is exactly the case the writer has to skip (it never creates it).
+    override val desktopDir: Path get() = cacheDir.resolve("no-such-desktop")
         override val debugLogging: Boolean get() = false
         override val logger: AppLogger get() = StderrLogger
         // Both throw rather than no-op: a first run posts nothing and arms nothing, so a fake that

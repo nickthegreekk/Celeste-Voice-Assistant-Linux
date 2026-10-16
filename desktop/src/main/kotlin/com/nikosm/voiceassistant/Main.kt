@@ -6,6 +6,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.application
@@ -22,6 +23,7 @@ import com.nikosm.voiceassistant.linux.PwPlayback
 import com.nikosm.voiceassistant.linux.ProcessTextToSpeech
 import com.nikosm.voiceassistant.linux.SingleInstance
 import com.nikosm.voiceassistant.ui.theme.VoiceAssistantTheme
+import java.awt.Toolkit
 import java.io.IOException
 import java.nio.file.Files
 import java.nio.file.Path
@@ -189,6 +191,11 @@ fun main(args: Array<String>) {
         return
     }
 
+    // Before any window exists, and only on the path that opens one: tell AWT what to call this
+    // application in X11's `WM_CLASS`, which is the name a dock matches a window against to find the
+    // menu entry that owns it — and therefore which icon a running Celeste wears.
+    claimTheWindowClass(appEnv.logger)
+
     application {
         // `--send-text` / `--send-file`: parsed once, before the window exists, and handed to the
         // composition. Deliberately a *cold start* affordance — a second launch while one is running
@@ -224,6 +231,11 @@ fun main(args: Array<String>) {
             },
             title = "Celeste",
             state = windowState,
+            // The taskbar and alt-tab icon, from the same PNG the packages install into hicolor and
+            // jpackage embeds as the launcher's (`desktop/build.gradle.kts` puts `packaging/icons`
+            // on the resource path). Without it a dock has nothing to draw for a window it could
+            // not match to an entry — which, until the WM class above, was every dock.
+            icon = painterResource("celeste-linux.png"),
         ) {
             VoiceAssistantTheme {
                 // Held in composition state so the landing can clear it. Nothing else clears it, and
@@ -300,6 +312,57 @@ private fun reportAudio(devices: AudioDevices) {
 }
 
 /** The pin the sync script writes on every successful copy (PLAN.md §7a). */
+/**
+ * The name X11's `WM_CLASS` reports for this application's window, and the name the `.desktop`
+ * entries claim with `StartupWMClass=` — see [claimTheWindowClass] for why it takes reflection to
+ * make the window say it.
+ */
+private const val WINDOW_CLASS = "celeste-linux"
+
+/**
+ * Tell AWT what this application is called in X11's `WM_CLASS`, which is what a dock matches a
+ * window against to find the menu entry that owns it — and therefore which icon a running Celeste
+ * wears next to its window.
+ *
+ * ## The derivation this overrides, and the bug it caused
+ *
+ * `sun.awt.X11.XToolkit`'s constructor takes the **bottom frame of the stack trace that constructed
+ * it** and sanitizes it into `awtAppClassName`; `XWindow.postInit` then hands that to
+ * `XSetClassHint`. Compose starts AWT from a coroutine on a Swing thread, so the bottom frame is
+ * `java.lang.Thread` — measured on the installed application, `WM_CLASS(STRING) =
+ * "java-lang-Thread", "java-lang-Thread"` — and no dock can match that to `celeste-linux.desktop`.
+ * The window came up with a generic taskbar icon while the menu entry beside it had the right one.
+ *
+ * ## Why this is reflection and not a system property
+ *
+ * The obvious fix is `-Dsun.awt.X11.XWMClassName=…`. **That property does not exist in stock
+ * OpenJDK**: it is a JetBrains Runtime feature, and grepping the JDK's own `java.desktop` X11
+ * sources for it finds nothing — which is how this was caught, after a first version of this
+ * function set the property and would have changed nothing. The *field* is what exists, it
+ * is read when a window is created rather than when the toolkit is, and
+ * `--add-opens java.desktop/sun.awt.X11=ALL-UNNAMED` (declared in `desktop/build.gradle.kts` beside
+ * the native-access flag) is what makes it reachable.
+ *
+ * Order matters twice: the toolkit is forced into existence first, because its constructor is what
+ * *writes* the field — set it earlier and the constructor would overwrite it — and the window has
+ * yet to exist, which is why this runs before `application { }`.
+ *
+ * Failure is logged and survivable: a JDK that renames the field leaves the window with whatever
+ * class AWT chose, which is the behaviour before this function existed, and the `Window(icon = …)`
+ * icon still reaches the taskbar through `_NET_WM_ICON`.
+ */
+private fun claimTheWindowClass(logger: AppLogger) {
+    val field = runCatching {
+        Toolkit.getDefaultToolkit() // constructs XToolkit, which assigns the field itself
+        Class.forName("sun.awt.X11.XToolkit").getDeclaredField("awtAppClassName").apply { isAccessible = true }
+    }.getOrElse {
+        logger.w("Main", "could not reach AWT's WM class field, so the window keeps AWT's own name: ${it.message}")
+        return
+    }
+    runCatching { field.set(null, WINDOW_CLASS) }
+        .onFailure { logger.w("Main", "could not name the window class $WINDOW_CLASS: ${it.message}") }
+}
+
 private const val PIN_RESOURCE = "upstream-commit.txt"
 
 private fun selfTest(): Int {
