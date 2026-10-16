@@ -1002,7 +1002,16 @@ channel and summary ids) and is recorded in `docs/TEST-MAP.md` as not taken, wit
 rather than adds, `isArmed` is true for the whole life of a run — the property `refreshSpontaneousSchedule`'s guard
 reads — and a delivery that throws does not end the chain silently.
 
-Still to come in M4: the tray and `--headless` (the "only the tray process" half), the systemd unit and the `.desktop`
+**`--headless` landed next**, which is the other half of "while only the tray process runs" and needs no
+tray to be useful: the same program with no window, the service up, seam 10 arming, and a spontaneous message
+arriving as a desktop notification with nothing on screen. It is deliberately not a Compose application with an
+empty composition — AWT's event thread exits when no window is displayable, and would take the process with it — but
+the same JVM with the service running and a latch holding the main thread. Teardown is a shutdown hook, so Ctrl-C and
+`systemctl --user stop` run the very same `shutdown()` the window's close button does: the settings flush and the
+audio teardown happen on all three paths rather than only the one with a UI. What it does *not* yet give is a way to
+reach the running service from the desktop — no tray icon, no Open, no Quit — which is the next slice.
+
+Still to come in M4: the tray (seam 11, "AWT `SystemTray` menu (Listen now, Mute mic, Open, Quit)" per §5), the systemd unit and the `.desktop`
 entries, the rooms screens, and the spontaneous controls in the persona editor.
 
 *Accept:* a spontaneous message arrives as a desktop notification while only the tray process runs;

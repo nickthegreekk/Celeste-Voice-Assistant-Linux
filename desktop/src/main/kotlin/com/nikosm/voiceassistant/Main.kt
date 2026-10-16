@@ -21,6 +21,7 @@ import com.nikosm.voiceassistant.ui.theme.VoiceAssistantTheme
 import java.io.IOException
 import java.nio.file.Files
 import java.nio.file.Path
+import java.util.concurrent.CountDownLatch
 import kotlin.system.exitProcess
 
 /**
@@ -45,8 +46,8 @@ import kotlin.system.exitProcess
  * pin can still be perfectly usable, and a smoke test that fails for a reason unrelated to the
  * machine it is testing is worse than no smoke test.
  *
- * The remaining flags (`--headless`, `--send-text`) still arrive with the milestones that build
- * them; guessing at them now would be inventing a CLI.
+ * `--send-text` / `--send-file` arrived in M3 and `--headless` in M4; what remains unbuilt is
+ * nothing, so there is no flag here that only pretends to work.
  */
 fun main(args: Array<String>) {
     if (args.contains("--selftest")) exitProcess(selfTest())
@@ -118,6 +119,27 @@ fun main(args: Array<String>) {
                     "The window is open and push-to-talk needs a server for the same reason.",
             )
         }
+    }
+
+    // `--headless`: the same program with no window — D1's "a flag, not a separate program". This
+    // is the half of M4's acceptance that reads "while only the tray process runs": the service is
+    // up, seam 10 arms, and a spontaneous message arrives as a desktop notification with nothing on
+    // screen. It is deliberately *not* a Compose application with an empty composition — AWT's
+    // event thread exits when no window is displayable, which would take the process with it — but
+    // the same JVM with the service running and a latch holding the main thread.
+    //
+    // Teardown is the JVM's shutdown hook, so Ctrl-C and `systemctl --user stop` run the very same
+    // `shutdown()` the window's close button does: the settings flush and the audio teardown happen
+    // on all three paths rather than only the one with a UI.
+    if (args.contains("--headless")) {
+        appEnv.logger.i(
+            "Main",
+            "--headless: no window; the service is up and spontaneous messages arrive as " +
+                "notifications. Ctrl-C stops it, and so will the systemd unit M4 still owes."
+        )
+        Runtime.getRuntime().addShutdownHook(Thread({ service.shutdown() }, "service-teardown"))
+        CountDownLatch(1).await()
+        return
     }
 
     application {
