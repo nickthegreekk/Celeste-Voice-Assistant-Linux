@@ -106,6 +106,16 @@ class FsToolTurnTest {
     }
 
     @Test
+    fun `an Ollama tool turn that ends in silence answers with a sentence`() = runTest {
+        assertSilentToolTurnSpeaks(Dialect.OLLAMA)
+    }
+
+    @Test
+    fun `a cloud tool turn that ends in silence answers with a sentence`() = runTest {
+        assertSilentToolTurnSpeaks(Dialect.CLOUD)
+    }
+
+    @Test
     fun `an Ollama tool round is not carried out once the turn is superseded`() = runTest {
         assertSupersededRoundIsNotRun(Dialect.OLLAMA)
     }
@@ -292,6 +302,31 @@ class FsToolTurnTest {
         // write, so reading `_state` at the instant the transcript looks complete is a race — and it
         // is the kind that passes on a quiet machine and fails on a busy one.
         settle(service, "the turn to land in IDLE") { service._state.value == AssistantState.IDLE }
+    }
+
+    /**
+     * **A tool turn with no prose answers with a sentence rather than an empty bubble.** A model that
+     * has just been handed a file listing frequently says nothing at all; an empty bubble tells the
+     * user nothing about what happened, and — because it is empty — is not spoken either, so a
+     * hands-free user gets silence. The sentence flows through the ordinary apply block, so it lands
+     * in the transcript *and* is read aloud like any other reply.
+     */
+    private suspend fun TestScope.assertSilentToolTurnSpeaks(dialect: Dialect) {
+        Files.writeString(workspace.resolve("notes.md"), "milk, and the shopping list\n")
+        val service = serviceWith(dialect, workspace = workspace)
+        runCurrent()
+
+        // The second round answers with nothing: content present and empty, which is what both
+        // dialects send for "I have nothing to say".
+        scriptToolRound(dialect, listOf(TOOL_LIST to """{"path":"."}"""), "")
+        service.sendTextMessageToServer("list my files", service.personas.value.first())
+        settle(service, "the turn to answer") {
+            service._messages.value.lastOrNull()?.role == "assistant"
+        }
+
+        val reply = service._messages.value.last()
+        assertEquals("I used 1 file operation and have nothing to add.", reply.text)
+        assertEquals("and the call did happen", 1, readFsToolAudit(env.stateDir, 10).size)
     }
 
     /**

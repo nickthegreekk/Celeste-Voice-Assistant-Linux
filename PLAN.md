@@ -1341,16 +1341,17 @@ apply blocks and the cloud builders in view at once, which is why they were not 
    (`and the folder goes with it expected null, but was:</home/u/work>` with the old code back); the **name wiring does
    not, and cannot**: it is a Compose callback, which no JVM test in this repo reaches — the same reason the output
    device's identical fix has none.
-6. **A cloud tool turn whose final answer is blank writes an empty bubble** *(noted while fixing item 1, 2026-10-16)*.
-   The Ollama loop answers that case with a sentence — `withToolSummary`, and DECISIONS.md records the rule ("an empty
-   bubble is worse than a sentence", and the reply is then *spoken*, which is what a hands-free user gets instead of
-   silence) — but the cloud loop has no equivalent, so a model that uses three files and then says nothing leaves the
-   user with an empty bubble and no sign that anything was touched. **Not a regression**: a blank cloud reply was an
-   empty bubble before this milestone too, on the ordinary path. What item 1's fix changes is that the tool-specific
-   case is now reachable at all. The carrier is the open question and the reason this is its own item: the apply block
-   lives inside `performCloudChat` while the count lives in the loop, so either the count rides in `TurnContext` (it is
-   in `toolTurns`, whose `FsToolTurn` does not currently carry the calls) or the round takes it as one more defaulted
-   parameter. Pick one and give it a test — a blank reply after calls is easy to script in `FakeProviderServer`.
+6. ~~**A cloud tool turn whose final answer is blank writes an empty bubble** *(noted while fixing item 1,
+   2026-10-16)*.~~ **Fixed 2026-10-16, by the carrier the note guessed at.** `FsToolTurn` now records `calls`, which it
+   could not derive from `messages` — that list is one assistant message and one result per call for two dialects and
+   a single message for the other two — so `performCloudChat`'s apply block reads the turn's own rounds through
+   `TurnContext.toolTurns` and needs no parameter of its own. The words are shared with the Ollama loop
+   (`fsToolSummarySentence`), deliberately: two copies of a sentence are two sentences within one edit, and a user with
+   both routes configured should not be able to tell which produced the reply. `FsToolTurn`'s four construction sites
+   name the count rather than defaulting it, so a fifth dialect cannot forget. **The two tests do not have the same
+   teeth and the commit says so**: the Ollama one passes with the fix reverted (its loop has had this since it was
+   written), and the cloud one fails with `expected:<[I used 1 file operation and have nothing to add.]> but was:<[]>`
+   — which is the defect, verbatim.
 
 That leaves **M7 (hardening)**, which is an estimate rather than a measurement, and therefore where the remaining percentage is
 softest.

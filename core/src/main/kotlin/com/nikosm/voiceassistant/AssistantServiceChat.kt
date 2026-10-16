@@ -1364,7 +1364,9 @@ internal fun AssistantService.performCloudChat(text: String, persona: Persona, u
                         // feeds the on-device engines (3rd element); the chat bubble/history
                         // keep the original markdown.
                         val cleanedForTts = cleanTextForTts(responseText)
-                        Triple(responseText, reasonText, cleanedForTts)
+                        // M8: and a turn that used files and then said nothing answers with a
+                        // sentence — see withCloudToolSummary.
+                        withCloudToolSummary(Triple(responseText, reasonText, cleanedForTts), turnContext)
                     }
                 } finally {
                     // A6: clear the in-flight reference on success AND failure — but only
@@ -1483,6 +1485,26 @@ internal fun AssistantService.performCloudChat(text: String, persona: Persona, u
             }
         }
     }
+}
+
+/**
+ * M8: **a cloud tool turn that ends in silence answers with a sentence.** The twin of the Ollama
+ * loop's `withToolSummary`, sharing its words through [fsToolSummarySentence] — and it needs no
+ * parameter of its own because the count is read from the turn's own rounds, which is what
+ * `TurnContext.toolTurns` carries and why [FsToolTurn] now records them.
+ *
+ * The blank case is not hypothetical: a model that has just been handed a file listing frequently
+ * answers with nothing at all, and an empty bubble tells the user nothing about what happened — while
+ * a sentence is also *spoken*, which is what a hands-free user gets instead of silence.
+ */
+private fun withCloudToolSummary(
+    reply: Triple<String, String?, String?>,
+    turnContext: TurnContext,
+): Triple<String, String?, String?> {
+    val calls = turnContext.toolTurns.sumOf { it.calls }
+    if (reply.first.isNotBlank() || calls == 0) return reply
+    val sentence = fsToolSummarySentence(calls)
+    return Triple(sentence, reply.second, sentence)
 }
 
 /**

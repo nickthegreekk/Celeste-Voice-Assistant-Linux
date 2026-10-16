@@ -289,14 +289,18 @@ private fun withToolSummary(
     callsMade: Int,
 ): Triple<String, String?, ByteArray?> =
     if (outcome.first.isBlank() && callsMade > 0) {
-        Triple(
-            "I used ${callsMade} file operation${if (callsMade == 1) "" else "s"} and have nothing to add.",
-            outcome.second,
-            outcome.third,
-        )
+        Triple(fsToolSummarySentence(callsMade), outcome.second, outcome.third)
     } else {
         outcome
     }
+
+/**
+ * The sentence a turn with no prose answers with — **one string, because two loops say it.** A user
+ * with both a local and a cloud persona configured should not be able to tell which route produced
+ * the reply, and two copies of a sentence are two sentences within one edit.
+ */
+internal fun fsToolSummarySentence(callsMade: Int): String =
+    "I used $callsMade file operation${if (callsMade == 1) "" else "s"} and have nothing to add."
 
 /**
  * Whether a round's calls may still be carried out: the turn that asked for them is still the newest,

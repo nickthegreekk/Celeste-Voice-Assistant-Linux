@@ -50,7 +50,16 @@ internal class FsToolResult(val callId: String, val name: String, val text: Stri
  * dialects from drifting, and a neutral shape would have to be re-serialised into four shapes that
  * could each be subtly wrong.
  */
-internal class FsToolTurn(val messages: List<JSONObject>)
+internal class FsToolTurn(
+    val messages: List<JSONObject>,
+    /**
+     * How many calls this round made. Not derivable from [messages] — that list is one assistant
+     * message and one result per call for two dialects and one message for the other two — and the
+     * apply block needs it: a turn that used files and then answered with nothing says so instead of
+     * writing an empty bubble (see `withCloudToolSummary`).
+     */
+    val calls: Int,
+)
 
 // ---------------------------------------------------------------------------- declarations
 
@@ -270,7 +279,8 @@ internal fun fsToolTurnFor(
 
     return when (provider) {
         FsToolProvider.OLLAMA -> FsToolTurn(
-            listOfNotNull(
+            calls = calls.size,
+            messages = listOfNotNull(
                 // The received message, verbatim: it already carries the calls in whatever form this
                 // server sent, which is the form it will accept back.
                 body.optJSONObject("message"),
@@ -284,7 +294,8 @@ internal fun fsToolTurnFor(
         )
 
         FsToolProvider.OPENAI -> FsToolTurn(
-            listOf(
+            calls = calls.size,
+            messages = listOf(
                 JSONObject()
                     .put("role", "assistant")
                     .put("content", JSONObject.NULL)
@@ -313,7 +324,8 @@ internal fun fsToolTurnFor(
         )
 
         FsToolProvider.ANTHROPIC -> FsToolTurn(
-            listOf(
+            calls = calls.size,
+            messages = listOf(
                 JSONObject().put("role", "assistant").put(
                     "content",
                     JSONArray().apply {
@@ -345,7 +357,8 @@ internal fun fsToolTurnFor(
         )
 
         FsToolProvider.GEMINI -> FsToolTurn(
-            listOf(
+            calls = calls.size,
+            messages = listOf(
                 JSONObject().put("role", "model").put(
                     "parts",
                     JSONArray().apply {
