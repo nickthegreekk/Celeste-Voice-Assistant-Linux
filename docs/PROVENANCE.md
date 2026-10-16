@@ -744,3 +744,12 @@ what came from where, and which of their facts were measured rather than chosen.
 | `packaging/celeste-linux.desktop` | the menu entry | the `Exec` and `Icon` names the user unit and `PersonaShortcuts.kt` already use, so there is one name for the binary rather than three |
 | `packaging/icons/celeste-linux.png` | a drawn placeholder, 256×256 | jpackage wants a real file; the same shape of stand-in as the tray's drawn icon, and the same caveat |
 | `packaging/systemd/celeste-linux.service` | the user unit (written in M4) | PLAN.md §9's substitution for Android's foreground service, and §12's lingering note |
+
+The Debian half of M6 (2026-10-16) added `packaging/debian/` — `control`, `rules`, `changelog`,
+`copyright`, `celeste-linux.install`, `celeste-linux.links`, `source/format`, plus the two files that
+are about *building* it rather than about the package: `build-package.sh`, which stages the tree the
+way `dpkg-buildpackage` requires (this repository keeps `debian/` under `packaging/`, so there is no
+source root to build from otherwise), and `Containerfile`, which is the Debian 13 environment the
+build has to happen in. `packaging/OnnxSmokeTest.java` moved up one directory at the same time: it
+was written for the PKGBUILD's `check()` and is now the probe both packagings run, so the two ONNX
+cuts cannot drift apart without one of them failing.

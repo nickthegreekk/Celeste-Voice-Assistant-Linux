@@ -1,0 +1,98 @@
+#!/usr/bin/make -f
+# debian/rules — the Debian package (PLAN.md §4's `packaging/debian`, §10/M6).
+#
+# ## What it packages, and why it needs no system JDK
+#
+# The jpackage **app image** under `/usr/lib/celeste-linux`, with its own trimmed runtime inside it,
+# plus the three files this repository owns — installed by `celeste-linux.install`, symlinked by
+# `celeste-linux.links` — so that an installed Celeste is the *same artefact* as the Arch package's,
+# down to the paths, which is what lets the two packages be compared at all. `/usr/bin/celeste-linux`
+# is a symlink into the image, because that is the name the unit's `ExecStart`, the menu entry's
+# `Exec` and the per-persona entries the application writes for itself (`PersonaShortcuts.kt`) use.
+#
+# ## The two things this file does that a `debian/rules` normally does not
+#
+# **It cuts the ONNX jar.** `onnxruntime-*.jar` ships natives for five platforms and this package can
+# load one; the four it cannot use go, and the jar lands at 5.7 MB from 90 MB (measured — see the
+# same cut, with the same measurement, in `packaging/arch/PKGBUILD`). It lives here rather than in
+# `desktop/build.gradle.kts` because that file says what the application *is* while this says what
+# one distribution leaves out. **`zip -d` exits non-zero when a pattern matches nothing**, which is
+# what a rebuild of an already-trimmed image looks like, so the cut is guarded and idempotent.
+#
+# **It tests the cut.** `override_dh_auto_test` compiles `packaging/OnnxSmokeTest.java` against the
+# image's own jars and creates an ONNX session over the model the application ships — the call
+# `VADDetector` makes. No test in the Gradle build can see the cut, because `:core`'s tests link the
+# *untrimmed* Gradle dependency.
+#
+# ## The JDK
+#
+# `openjdk-25-jdk-headless` is a Build-Depends for two reasons at once: it is the toolchain the
+# project compiles with (`jvmToolchain(25)`), and Debian ships `jmods` inside it, which is what
+# `jlink` needs to build the runtime that goes into the package. On this machine
+# `desktop/build.gradle.kts` pins `javaHome` at Arch's JDK 27 for the same reason; in the container
+# the toolchain *is* that JDK, so the fallback in that file picks it up and nothing here has to know.
+
+export DH_VERBOSE = 1
+
+# The version comes from `changelog`, and the built image has to agree with it: the jar inside is
+# named `core-<version>-<hash>.jar`, so a drift is caught here rather than shipped.
+VERSION = $(shell dpkg-parsechangelog -SVersion)
+
+APP_IMAGE = desktop/build/compose/binaries/main/app/celeste-linux
+PKGDIR = debian/celeste-linux
+
+# The JDK the smoke test runs on. `JAVA_HOME` when the build set one — `packaging/debian/Containerfile`
+# does — and the newest under `/usr/lib/jvm` otherwise. Deliberately *not* "whatever `java` is on
+# `PATH`": Arch's default is JDK 17, which cannot compile for or run the JVM-25 classes in the image,
+# and the PKGBUILD's `check()` takes the same care for the same reason.
+JDK ?= $(or $(JAVA_HOME),$(shell ls -d /usr/lib/jvm/*/bin/javac 2>/dev/null | sort -V | tail -1 | sed 's|/bin/javac||'))
+
+%:
+	dh $@
+
+override_dh_auto_build:
+	./gradlew :desktop:createDistributable
+	# A shell test and not `$(wildcard …)`: make expands that when it *reads* this file, which is
+	# before Gradle has built anything, so it would fail exactly the clean build it is meant to guard.
+	ls $(APP_IMAGE)/lib/app/core-$(VERSION)-*.jar >/dev/null 2>&1 || \
+	  { echo "no core-$(VERSION) jar in the app image: changelog and the build's version have drifted apart" >&2; exit 1; }
+	found=0; \
+	for jar in $(APP_IMAGE)/lib/app/onnxruntime-*.jar; do \
+	  [ -e "$$jar" ] || continue; \
+	  found=1; \
+	  unzip -l "$$jar" | grep -q 'ai/onnxruntime/native/win-x64/' || continue; \
+	  zip -q -d "$$jar" \
+	    'ai/onnxruntime/native/win-x64/*' \
+	    'ai/onnxruntime/native/osx-x64/*' \
+	    'ai/onnxruntime/native/osx-aarch64/*' \
+	    'ai/onnxruntime/native/linux-aarch64/*'; \
+	done; \
+	[ "$$found" = 1 ] || \
+	  { echo "no onnxruntime jar in the app image: the cut has nothing to cut, and this package would ship every platform's natives" >&2; exit 1; }
+
+override_dh_auto_test:
+	test -n "$(JDK)" || { echo "no JDK with a compiler found — set JAVA_HOME, or install one under /usr/lib/jvm" >&2; exit 1; }
+	rm -rf build/onnx-smoke && mkdir -p build/onnx-smoke
+	$(JDK)/bin/javac --release 25 -cp "$(APP_IMAGE)/lib/app/*" -d build/onnx-smoke packaging/OnnxSmokeTest.java
+	$(JDK)/bin/java --enable-native-access=ALL-UNNAMED -cp "build/onnx-smoke:$(APP_IMAGE)/lib/app/*" \
+	  OnnxSmokeTest assets/silero_vad.onnx
+
+override_dh_auto_install:
+	install -d $(PKGDIR)/usr/lib/celeste-linux
+	cp -a $(APP_IMAGE)/. $(PKGDIR)/usr/lib/celeste-linux/
+	# jpackage always creates this one and here it holds nothing; `--resource-dir` is unused, so
+	# nothing reads it, and an empty directory in the package is lintian's to ask about.
+	rmdir $(PKGDIR)/usr/lib/celeste-linux/lib/app/resources 2>/dev/null || true
+
+# Nothing to configure, clean or compress: the build *is* Gradle, the source tree is the checkout,
+# and the app image arrives already compressed. `dh_auto_clean` is overridden to an empty recipe so
+# that a `debian/rules clean` does not walk into Gradle's build directory, which dpkg has no
+# business deleting.
+override_dh_auto_configure:
+override_dh_auto_clean:
+
+# No public shared libraries here: everything under `/usr/lib/celeste-linux` is the application's own
+# private runtime, so there is no `shlibs` file to generate and no package should ever link against
+# it. (`dh_makeshlibs` would otherwise process `libjvm.so` and friends and ask why they are not in a
+# public library path — the answer being that they are not libraries, they are this application.)
+override_dh_makeshlibs:

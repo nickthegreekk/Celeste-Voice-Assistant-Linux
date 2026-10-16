@@ -1,0 +1,9 @@
+celeste-linux (0.1.0) unstable; urgency=medium
+
+  * Initial packaging: the jpackage app image with its own trimmed runtime under
+    /usr/lib/celeste-linux, the application menu entry, the hicolor icon and the
+    systemd user unit (installed, not enabled). The ONNX Runtime jar is cut to
+    the platform this package can load, 90 MB -> 5.7 MB, and the build refuses
+    to proceed if the cut has nothing to cut (PLAN.md §4, §10/M6).
+
+ -- Nikos <nikos@localhost>  Thu, 16 Oct 2026 21:20:00 +0300

@@ -20,9 +20,9 @@
 # and a real `sha256sums`; nothing else in this file changes. The cost of the honest form is that
 # this packages a *checkout* — built from what is committed plus whatever is in the working
 # directory, which is the thing `makepkg` cannot check for us — and it is what `namcap` reports as
-# "File referenced in $startdir", five times, for the files this file reads from its own directory
-# (`$startdir/OnnxSmokeTest.java`) and from the tree above it. A released PKGBUILD has all of them
-# in `source=()` and that error goes with them.
+# "File referenced in $startdir", for the files this file reads from the tree above it and from
+# `packaging/OnnxSmokeTest.java`, the probe it shares with `packaging/debian/rules`. A released
+# PKGBUILD has all of them in `source=()` and that error goes with them.
 #
 # ## The cut that belongs in the packaging rather than in the build
 #
@@ -141,7 +141,7 @@ check() {
 
   mkdir -p "$srcdir/classes"
   "$jdk/bin/javac" --release 25 -cp "$app/lib/app/*" -d "$srcdir/classes" \
-    "$startdir/OnnxSmokeTest.java"
+    "$startdir/../OnnxSmokeTest.java"
   "$jdk/bin/java" --enable-native-access=ALL-UNNAMED -cp "$srcdir/classes:$app/lib/app/*" \
     OnnxSmokeTest assets/silero_vad.onnx
 }

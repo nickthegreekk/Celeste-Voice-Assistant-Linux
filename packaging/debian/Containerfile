@@ -1,0 +1,41 @@
+# Containerfile — the Debian 13 environment the .deb is built in (PLAN.md §10/M6's acceptance).
+#
+#   podman build -f packaging/debian/Containerfile -t celeste-linux-deb .
+#   mkdir -p packaging/out
+#   podman run --rm -v "$PWD:/src:ro" -v "$PWD/packaging/out:/out" celeste-linux-deb \
+#     /src/packaging/debian/build-package.sh /out
+#
+# The image is the *toolchain* and nothing else: the source is mounted read-only at run time rather
+# than copied in, so a build never depends on what happened to be in a build context, and the
+# checkout is never written to (`dpkg-buildpackage` works on a staged copy — see `build-package.sh`).
+#
+# ## Why Debian 13, and why that JDK
+#
+# The package has to be built on Debian because the bundled runtime and Skiko link the build host's
+# glibc, so the container is the whole point rather than a convenience (PLAN.md §12).
+#
+# `openjdk-25-jdk-headless` is Debian 13's own JDK 25, and it covers both jobs at once: it is the
+# toolchain the project compiles with (`jvmToolchain(25)` in every module) and it ships `jmods`,
+# which is what `jlink` builds the packaged runtime from. That second half is not free on every
+# distribution — §10/M6 records the day this machine's Gradle-provisioned Adoptium 25 turned out to
+# have no `jmods` at all and the app image could not be built. `JAVA_HOME` is set so that
+# `debian/rules`' smoke test uses this JDK rather than whatever `java` a PATH may hold.
+#
+# `zip` makes the ONNX cut; `debhelper` and `dpkg-dev` are the packaging; `fakeroot` is what
+# `dpkg-buildpackage` reaches for on the way.
+FROM debian:trixie
+
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends \
+      debhelper \
+      dpkg-dev \
+      fakeroot \
+      zip \
+      ca-certificates \
+      openjdk-25-jdk-headless \
+ && rm -rf /var/lib/apt/lists/*
+
+ENV JAVA_HOME=/usr/lib/jvm/java-25-openjdk
+ENV PATH=/usr/lib/jvm/java-25-openjdk/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+WORKDIR /src

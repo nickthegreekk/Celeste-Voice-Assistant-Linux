@@ -1,0 +1,6 @@
+# The three files this repository owns, installed where the session looks for them. `rules` installs
+# the app image itself; these are the parts of the port that have nothing to do with the image and
+# everything to do with being installed — the same three the PKGBUILD's `package()` puts down.
+packaging/celeste-linux.desktop        usr/share/applications
+packaging/icons/celeste-linux.png      usr/share/icons/hicolor/256x256/apps
+packaging/systemd/celeste-linux.service usr/lib/systemd/user

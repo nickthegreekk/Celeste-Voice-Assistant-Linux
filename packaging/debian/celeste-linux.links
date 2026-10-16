@@ -1,0 +1,4 @@
+# /usr/bin/celeste-linux, because that is the name the user unit's ExecStart, the menu entry's Exec
+# and the per-persona .desktop entries the application writes for itself (PersonaShortcuts.kt) all
+# use — the image's own launcher stays where jpackage put it.
+usr/lib/celeste-linux/bin/celeste-linux  usr/bin/celeste-linux

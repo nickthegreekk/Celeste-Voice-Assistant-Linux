@@ -1,0 +1,47 @@
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: Celeste — the VoiceAssistant Android application, ported to Linux
+Source: no published home yet; the port is pinned to one upstream commit, recorded in docs/PROVENANCE.md
+
+# Order matters: the last stanza that matches a file is the one that applies, which is why the
+# catch-all is first and the two exclusions are after the glob they carve out of.
+
+Files: *
+Copyright: 2026 Nikos, and the author of the upstream VoiceAssistant application
+License: GPL-3.0-only
+ Celeste is a derivative work of the VoiceAssistant Android application, which is GPL-3.0-only: no
+ upstream source file carries a per-file licence header, and the upstream README says "GNU General
+ Public License v3.0" with no "or later" clause. The port is GPL-3.0-only for the same reason, and
+ so is everything here that is not a third-party component — including the packaging, the drawn
+ placeholder icon, and the ported files under core/.
+ .
+ The full text is at /usr/share/common-licenses/GPL-3.
+
+Files: usr/lib/celeste-linux/lib/runtime/*
+Copyright: 1994-2026 Oracle and/or its affiliates, and contributors
+License: GPL-2.0-with-classpath-exception
+ The Java runtime in the app image is a jlink image built from the JDK's own modules. Its licence
+ and its third-party notices travel with it: `lib/runtime/legal/` in this package holds the files
+ jlink copies for precisely this reason, and they are the authoritative record — this stanza is a
+ pointer to them, not a summary of them. The Classpath exception as it applies here is stated in
+ `lib/runtime/legal/java.base/ASSEMBLY_EXCEPTION` and `ADDITIONAL_LICENSE_INFO`.
+ .
+ GPL-2.0 is at /usr/share/common-licenses/GPL-2.
+
+Files: usr/lib/celeste-linux/lib/app/*.jar
+Copyright: the respective upstream projects
+License: Apache-2.0 or MIT or JSON
+ The application's third-party JVM libraries, each under its own licence and each carrying its own
+ notice inside the jar: Kotlin, Compose Multiplatform, androidx, kotlinx, Coil, OkHttp, Okio and
+ Skiko are Apache-2.0; ONNX Runtime is MIT; `json-20240303.jar` is the JSON License. Transcribing
+ forty notices here would be a worse record than the jars, which do ship their `META-INF` notices
+ and are the thing actually distributed.
+ .
+ Apache-2.0 is at /usr/share/common-licenses/Apache-2.0.
+
+Files: usr/lib/celeste-linux/lib/app/core-*.jar
+ usr/lib/celeste-linux/lib/app/platform-*.jar
+ usr/lib/celeste-linux/lib/app/desktop-*.jar
+Copyright: 2026 Nikos, and the author of the upstream VoiceAssistant application
+License: GPL-3.0-only
+ The application's own three jars — the ported code, the Linux seam implementations and the window —
+ matched back out of the glob above. They are the GPL-3.0-only work described in the first stanza.

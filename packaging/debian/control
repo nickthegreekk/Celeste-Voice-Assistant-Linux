@@ -1,0 +1,38 @@
+Source: celeste-linux
+Section: sound
+Priority: optional
+Maintainer: Nikos <nikos@localhost>
+Build-Depends: debhelper-compat (= 13), openjdk-25-jdk-headless, zip
+Standards-Version: 4.7.0
+Rules-Requires-Root: no
+# No `Homepage:` — there is no published home for this port or for the upstream Android app, and a
+# URL invented to fill a required-looking field is worse than an absent one. Same decision, same
+# reason, as `packaging/arch/PKGBUILD`'s empty `url=`.
+
+Package: celeste-linux
+Architecture: amd64
+# The library dependencies are computed, not listed: `dh_shlibdeps` reads the `NEEDED` entries of
+# everything in the app image, which is how `libxtst6`, `libxi6` and `libglvnd0` arrive — the same
+# three that `namcap` found by hand on the Arch side, found here by the tool that owns the question.
+Depends: ${shlibs:Depends}, ${misc:Depends},
+ pipewire-bin | pulseaudio-utils | alsa-utils,
+ libnotify-bin,
+ libglib2.0-bin,
+ hicolor-icon-theme
+Recommends: wireplumber, speech-dispatcher, espeak-ng
+Description: voice assistant that talks to your own models
+ Celeste listens, answers and speaks, on your machine and against your own
+ models: speech in and speech out, chat, and image generation through a local
+ ComfyUI. It is a port of the VoiceAssistant Android application to the Linux
+ desktop, and it is deliberately quiet — no telemetry, no analytics, no update
+ check, and no network call the user did not configure.
+ .
+ Speech recognition and the higher-quality voices come from a self-hosted Voice
+ Gateway the user points it at; on-device voice activity detection (Silero VAD,
+ via ONNX Runtime) decides when somebody is speaking, and eSpeak-NG or
+ Speech Dispatcher can speak without any server at all.
+ .
+ It carries its own trimmed Java runtime, so no system JDK is needed, and it
+ installs the same three things the desktop already knows how to read: an
+ application menu entry, a hicolor icon, and a systemd *user* unit which is
+ installed but deliberately not enabled.
