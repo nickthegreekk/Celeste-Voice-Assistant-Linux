@@ -44,7 +44,12 @@ interface AppLogger {
  */
 object StderrLogger : AppLogger {
     override fun log(level: LogLevel, tag: String, message: String, error: Throwable?) {
-        val logger = Logger.getLogger(tag)
+        // **A namespace, so a level can be raised for this application and nothing else.** JUL's
+        // root logger is shared with the JDK's own logging, and raising *that* switches on `sun.awt`
+        // and friends — measured on 2026-10-17 at 166 MB of chatter in under a minute, into a tmpfs.
+        // The prefix is invisible in the output: JUL's default formatter prints the source class and
+        // method, never the logger's name.
+        val logger = Logger.getLogger("celeste.$tag")
         val jul = when (level) {
             LogLevel.VERBOSE -> Level.FINEST
             LogLevel.DEBUG -> Level.FINE

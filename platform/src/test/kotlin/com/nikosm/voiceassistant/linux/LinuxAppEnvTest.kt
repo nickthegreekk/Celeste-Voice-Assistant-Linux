@@ -112,26 +112,34 @@ class LinuxAppEnvTest {
      * the failure this flag's fail-closed resolver exists to prevent, one layer down.
      */
     @Test
-    fun `the debug switch reaches the logging framework, and only when it is on`() {
+    fun `the debug switch reaches the application's own loggers, and only those`() {
+        val app = java.util.logging.Logger.getLogger("celeste")
         val root = java.util.logging.Logger.getLogger("")
-        val levelBefore = root.level
         val handlerLevels = root.handlers.map { it.level }
         try {
             LinuxAppEnv.resolve(env(DEBUG to "1"), home).installLogging()
             assertTrue(
                 "with the switch on, a DEBUG line must be loggable — otherwise the flag is inert",
-                root.isLoggable(java.util.logging.Level.FINE),
+                app.isLoggable(java.util.logging.Level.FINE),
+            )
+            // **The assertion that would have caught the firehose.** Raising the root logger turns on
+            // the JDK's own logging: `sun.awt` at FINEST wrote 166 MB into a tmpfs in under a minute,
+            // which is worse than the inert flag it was meant to fix.
+            assertEquals(
+                "and the ROOT logger must be left alone — it is shared with the JDK's own logging",
+                java.util.logging.Level.INFO,
+                root.level,
             )
 
-            root.level = java.util.logging.Level.INFO
+            app.level = java.util.logging.Level.INFO
             root.handlers.forEach { it.level = java.util.logging.Level.INFO }
             LinuxAppEnv.resolve(env(), home).installLogging()
             assertFalse(
                 "with it off, FINE stays discarded — the fail-closed direction",
-                root.isLoggable(java.util.logging.Level.FINE),
+                app.isLoggable(java.util.logging.Level.FINE),
             )
         } finally {
-            root.level = levelBefore
+            app.level = null
             root.handlers.forEachIndexed { i, h -> h.level = handlerLevels[i] }
         }
     }

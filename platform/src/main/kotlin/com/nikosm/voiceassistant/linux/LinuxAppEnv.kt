@@ -66,10 +66,12 @@ class LinuxAppEnv(
         // way on 2026-10-17: a diagnosis ran for an hour with `CELESTE_DEBUG=1` set and no debug
         // output to show for it, because the flag was working and the handler was not.
         //
-        // Only when the switch is on. With it off, FINE stays discarded by the framework's own
-        // default, which is the fail-closed direction this flag is built around.
+        // Only when the switch is on, and **only for the application's own namespace**: the root
+        // logger is shared with the JDK, and raising it turns on `sun.awt`'s chatter — measured at
+        // 166 MB in under a minute, into a tmpfs. With the switch off, FINE stays discarded by the
+        // framework's own default, which is the fail-closed direction this flag is built around.
         if (debugLogging) {
-            Logger.getLogger("").level = Level.ALL
+            Logger.getLogger("celeste").level = Level.FINEST
             Logger.getLogger("").handlers.forEach { it.level = Level.ALL }
         }
         return this
