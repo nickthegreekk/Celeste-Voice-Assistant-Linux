@@ -24,27 +24,13 @@ dependencies {
 
     implementation(compose.desktop.currentOs)
 
-    // material3 and the icon set, which `compose.desktop.currentOs` does not bring. Both come
-    // through the Compose *plugin's* accessors rather than as coordinates here: Compose
-    // Multiplatform versions material3 on its own release line, independently of `compose`
-    // (libs.versions.toml), so writing a version would be a guess that drifts silently. The
-    // plugin is pinned, and these follow it.
+    // material3, the icon set and Coil are NOT declared here. They went to :core, which holds the
+    // ported screens; this module is the desktop shell — the window, the tray, packaging and
+    // `Main.kt` — and a `Main.kt` that only opens a window does not need any of them. The Compose
+    // artifacts :desktop does need arrive transitively, because :core exposes them as `api`.
     //
-    // The upstream app gets material3 from the AndroidX Compose BOM and its icons from
-    // `androidx.compose.material:material-icons-extended:1.7.8`. Neither coordinate has a
-    // desktop variant — the AndroidX artifacts are Android-only — so the Android *version* is
-    // not transferable here and the plugin's own version is the correct pin.
-    //
-    // Measured rather than assumed: tools/compose-probe.sh reports 81 unresolved imports
-    // without these two lines and 9 with them (PLAN.md D2).
-    implementation(compose.material3)
-    implementation(compose.materialIconsExtended)
-
-    // Coil 3, for persona artwork, message attachments and generated images — the same
-    // coordinate the upstream app declares. See libs.versions.toml for why no network fetcher
-    // accompanies it.
-    implementation(libs.coil.compose)
-
+    // `compose.desktop.currentOs` stays: it is what brings the Skiko runtime and the desktop
+    // window toolkit, which is desktop-specific and has no counterpart in :core.
     // Compose Desktop runs on the Swing EDT; without this, `Dispatchers.Swing` and the
     // Main dispatcher that the desktop UI needs are missing at runtime.
     implementation(libs.kotlinx.coroutines.swing)

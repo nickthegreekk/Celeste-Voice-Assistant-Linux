@@ -52,16 +52,7 @@ REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 UPSTREAM_APP="$UPSTREAM/app/src/main"
 UPSTREAM_SRC="$UPSTREAM_APP/java/com/nikosm/voiceassistant"
 DEST_SRC="$REPO_ROOT/core/src/main/kotlin/com/nikosm/voiceassistant"
-DEST_UI="$REPO_ROOT/desktop/src/main/kotlin/com/nikosm/voiceassistant"
 
-# The two source roots a copy can land in, keyed by the module tag a list entry carries.
-dest_root() {
-  case "$1" in
-    core)    printf '%s\n' "$DEST_SRC" ;;
-    desktop) printf '%s\n' "$DEST_UI" ;;
-    *) echo "unknown module '$1' — expected core or desktop" >&2; exit 2 ;;
-  esac
-}
 DEST_TEST="$REPO_ROOT/core/src/test/kotlin/com/nikosm/voiceassistant"
 PIN_FILE="$REPO_ROOT/core/src/main/resources/upstream-commit.txt"
 
@@ -88,6 +79,18 @@ COPY_SOURCES=(
   "m1|AssistantServiceSpontaneous.kt"
   "m1|AssistantServiceImageGen.kt"
   "m1|TurnSink.kt"
+  # The three UI files that compile here byte-for-byte. Each was checked by copying it and
+  # building, not by reading it: the compiler is the only thing that knows whether a file uses an
+  # `android.*` API, and reading found none in the five that turned out to need 458 fixes.
+  "m1|UIComponents.kt"
+  "m1|WelcomeScreen.kt"
+  "m1|CelestialHud.kt"
+  # The theme package's three pure-Compose files: no `android.*`, no `Context`, nothing the platform
+  # supplies. The fourth, `ui/theme/Theme.kt`, reads Build.VERSION.SDK_INT and LocalContext for
+  # Material You's dynamic colour, so it is on PORT_SOURCES instead.
+  "m1|ui/theme/Color.kt"
+  "m1|ui/theme/Shape.kt"
+  "m1|ui/theme/Type.kt"
 )
 
 # GROUP|upstream-name — pure JVM tests, byte-identical, same rule as above
@@ -102,42 +105,36 @@ TEST_SOURCES=(
   "m0|ScriptLanguageDetectionTest.kt"
 )
 
-# GROUP|upstream-name — COPY files that belong to :desktop rather than :core, because they are
-# Compose UI and :core must not depend on Compose (AGENTS.md §2: ":core — ported upstream files and
-# done-and-tested logic"; ":desktop — Compose UI, window, tray, packaging"). Same byte-identity
-# rule and same --check coverage as COPY_SOURCES; only the destination differs.
-#
-# This is a list rather than a path rule on purpose. Most of the UI is at the top level of the
-# package — `MainVoiceScreen.kt` sits beside `AssistantService.kt` upstream — so "files under ui/
-# are UI" would be true of the theme package and false of everything else that is going to land
-# there in M3-M5.
-UI_SOURCES=(
-  # Three of the theme package's four files are pure Compose: no `android.*`, no `Context`, nothing
-  # the platform supplies. The fourth, `ui/theme/Theme.kt`, reads Build.VERSION.SDK_INT and
-  # LocalContext for Material You's dynamic colour, so it is on PORT_SOURCES instead.
-  "m1|ui/theme/Color.kt"
-  "m1|ui/theme/Shape.kt"
-  "m1|ui/theme/Type.kt"
-  # UI files that carry no Android dependency at all and compile here unchanged. Each was checked
-  # by compiling it rather than by reading it — the first attempt at this group is whatever the
-  # compiler accepted byte-for-byte, and anything it rejects moves to PORT_SOURCES.
-  # The M1 UI screens are NOT on this list, and the reason is a finding rather than an oversight:
-  # they cannot compile in :desktop. See docs/DECISIONS.md — the service's types are `internal`
-  # (301 top-level declarations in :core, 46 of them used by the UI) and Kotlin does not share
-  # `internal` across modules, so the ported UI has to live in :core beside them. Which module
-  # hosts the UI is a §10.3 question and is open.
-)
 
 # PORT+ verdicts (PLAN.md §7) that are large enough that a diff beats a retype, and that need a
 # module chosen for them. These are seeded with --seed and then hand-adapted; they are expected to
 # differ from upstream forever, so --check reports them but never counts them as drift. Every one
 # must have a row in the adapted-files table of docs/PROVENANCE.md (AGENTS.md §3).
 #
-#   GROUP|module|upstream-name    module is `core` or `desktop`
 PORT_SOURCES=(
-  "m1|core|AssistantService.kt"
-  "m1|core|AssistantServiceChat.kt"
-  "m1|desktop|ui/theme/Theme.kt"
+  "AssistantService.kt"
+  "AssistantServiceChat.kt"
+  "ui/theme/Theme.kt"
+  # The M1 UI screens. None of these could be copied byte-identical — between them they carry 458
+  # compile errors, of which 340 are the Android surface D2's probe predicted and 118 are the
+  # `internal` visibility the module move was about.
+  "ChatComponents.kt"
+  "ModelPicker.kt"
+  "MainVoiceScreen.kt"
+  "PersonaEditor.kt"
+  "SettingsScreens.kt"
+  "MainActivity.kt"
+  # Shared leaves. The M3-M5 screens are not separable from the M1 ones by file, because they host
+  # general-purpose widgets the M1 screens call (PLAN.md §5's shared-block rule). These three come
+  # in with M1: ImageWorkflowImport.kt whole, since it is 63 lines and mostly the leaf itself; and
+  # ModelScreens.kt and RoomScreens.kt PARTIALLY, keeping only what M1's screens use. A partially
+  # ported file is a state, and PLAN.md §7 and docs/PROVENANCE.md say so in words rather than
+  # leaving it to be inferred from a diff.
+  "ImageWorkflowImport.kt"
+  "ModelScreens.kt"
+  "RoomScreens.kt"
+  "SpontaneousScreens.kt"
+  "SharedContent.kt"
 )
 
 # GROUP|label|source|destination
@@ -205,13 +202,11 @@ echo
 if [ "$MODE" = "seed" ]; then
   # The name must be one the plan classifies as PORT+, so this can never become a general-purpose
   # copy escape hatch around the group lists.
-  module=""
-  for entry in "${PORT_SOURCES[@]}"; do
-    entry_name="${entry##*|}"
-    [ "$entry_name" = "$SEED" ] || continue
-    module="${entry#*|}"; module="${module%%|*}"
+  listed=""
+  for name in "${PORT_SOURCES[@]}"; do
+    [ "$name" = "$SEED" ] && listed="yes"
   done
-  if [ -z "$module" ]; then
+  if [ -z "$listed" ]; then
     echo "refusing to seed: '$SEED' is not a PORT+ file (PLAN.md §7)." >&2
     echo "PORT_SOURCES holds:" >&2
     printf '  %s\n' "${PORT_SOURCES[@]}" >&2
@@ -220,7 +215,7 @@ if [ "$MODE" = "seed" ]; then
   fi
 
   src="$UPSTREAM_SRC/$SEED"
-  dst="$(dest_root "$module")/$SEED"
+  dst="$DEST_SRC/$SEED"
   if [ ! -f "$src" ]; then
     echo "MISSING UPSTREAM  $SEED (looked at $src)" >&2
     exit 1
@@ -315,10 +310,6 @@ for entry in "${COPY_SOURCES[@]}"; do
   sync_one "$grp" "$name" "$UPSTREAM_SRC/$name" "$DEST_SRC/$name"
 done
 
-for entry in "${UI_SOURCES[@]}"; do
-  grp="${entry%%|*}"; name="${entry#*|}"
-  sync_one "$grp" "$name" "$UPSTREAM_SRC/$name" "$DEST_UI/$name"
-done
 
 for entry in "${COPY_DATA[@]}"; do
   grp="${entry%%|*}"; rest="${entry#*|}"
@@ -350,12 +341,10 @@ done
 # "ported" means — so listing them beside the COPY files serves only to say which ones have started
 # and to keep their existence in front of whoever runs --check.
 if [ "$MODE" = "list" ] || [ "$MODE" = "check" ]; then
-  for entry in "${PORT_SOURCES[@]}"; do
-    module="${entry#*|}"; module="${module%%|*}"
-    name="${entry##*|}"
+  for name in "${PORT_SOURCES[@]}"; do
     if [ "$MODE" = "list" ]; then
-      printf 'PORT+  %-7s %s\n' "$module" "$name"
-    elif [ -f "$(dest_root "$module")/$name" ]; then
+      printf 'PORT+  %s\n' "$name"
+    elif [ -f "$DEST_SRC/$name" ]; then
       printf 'ported            %s  (diff against upstream, never byte-identical)\n' "$name"
     else
       printf 'not yet ported    %s\n' "$name"

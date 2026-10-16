@@ -180,6 +180,17 @@ class AssistantService(
     /** Seam 1. Microphone access for push-to-talk and the hands-free loop. */
     internal val audioCapture: AudioCapture,
     /**
+     * Seam 13. Every file the user chooses — persona artwork, a message attachment, an imported
+     * ComfyUI workflow, an exported or imported backup.
+     *
+     * A constructor parameter and not a member of [AppEnv], by the rule this milestone pinned
+     * down: `AppEnv` carries a seam only when a caller that cannot be edited forces it, and every
+     * caller here is a Composable this port owns. Contrast [Notifier] and [Scheduler], which are
+     * on `AppEnv` because a byte-identical COPY file hands over `applicationContext` and nothing
+     * else.
+     */
+    internal val fileDialogs: FileDialogs,
+    /**
      * Seams 7 and 15 already bound together: the settings blob, its corruption recovery, and the
      * image codec it needs for persona artwork.
      *

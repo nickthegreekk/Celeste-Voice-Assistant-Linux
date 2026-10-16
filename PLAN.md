@@ -552,15 +552,45 @@ utterance, and the latency budget in §6 met.
 
 **M3 — Images and files (3–4 d).** ComfyUI + A1111, workflow library and per-character binding,
 image viewer, attachments, backup export/import round trip.
+
+[Receives from M1, 2026-10-16 — the feature gaps M1's markers name, so this milestone reads its own
+to-do list rather than reconstructing it from a grep. Each is a `DEFERRED TO M3` comment at its call
+site; `grep -rn 'DEFERRED TO M3' core/` finds them. **Rooms:** `RoomChatArea` (MainVoiceScreen),
+`RoomPickerRows` and the `"Rooms" -> RoomSettings(...)` branch (SettingsScreens), and with them the
+rest of `RoomScreens.kt` — the editor, the member list, the round-status line and the pure room
+helpers above them. **Skills:** the `"Skills" -> SkillSettings(...)` branch and the Skills section in
+the persona editor (`SkillSettings`, `PersonaSkillSection`, and `SkillScreens.kt` with them).
+**Models:** `ModelsScreen` and its `ModelsHeader`/`filterEmptyMessage`/`ModelRow` helpers, which are
+the half of `ModelScreens.kt` M1 did not take — the shared widgets came across, the screen did not.]
+
+Note what M1 got *for free* from this list and what it cost. The markers are 7 of the 15; the other
+8 belong to M4 and M5. Nothing here is a hole in a screen: every cut is a whole feature, and the
+screens that host them render without them rather than around them.
 *Accept:* an image generated from a persona against the real ComfyUI on buildhost and rendered in the
 chat; the same workflow tokens (`%PROMPT%`, `%NEGATIVE%`, `%SEED%`) behave as on Android.
 
 **M4 — Rooms, spontaneous, daemon (4–6 d).** Room screens, spontaneous scheduler in the core, tray,
 notifications, systemd user unit, autostart `.desktop`, per-persona `.desktop` entries.
+
+[Receives from M1, 2026-10-16 — five `DEFERRED TO M4` markers. **Tray:** the Quick Settings tile
+row (`QuickSettingsTileRow()`, the whole composable) and the `"Shortcuts"` section that held it; §9
+drops the tile and the tray is its equivalent, and the user's one-tap voice entry is what the section
+comes back for. **Spontaneous:** the Spontaneous Messages section in the persona editor
+(`PersonaSpontaneousSection`) — the *controls*; the eligibility verdict that gates them is already in
+M1, because a persona that has become ineligible must not keep speaking on a schedule nobody can
+reach the controls for. **Shortcuts:** the "add to home screen" button in the persona list, and the
+two `removePersonaShortcut` call sites in `AssistantService.kt` that §9 already records.]
 *Accept:* a spontaneous message arrives as a desktop notification while only the tray process runs;
 the unit starts at login and stops cleanly.
 
 **M5 — The rest (3–4 d).** Translator mode, skills, RAG, web search, usage, thinking mode.
+
+[Receives from M1, 2026-10-16 — three `DEFERRED TO M5` markers, all in `ChatComponents.kt`, plus the
+share target §2 leaves out of v1. **Image actions:** the "Save to gallery" button (upstream inserted
+into `MediaStore.Images` through a resolver, with three `Build.VERSION.SDK_INT` guards) and the
+full-screen image viewer. **Share:** the message menu's Share entry, which §7 substitutes with a
+`--send-text` command-line flag — and which is also what will want the one-shot handoff slot
+`MainVoiceScreen` no longer takes a parameter for.]
 *Accept:* a spoken translation round trip; RAG and web search answers.
 
 **M6 — Packaging (3–5 d).** `PKGBUILD`, `debian/`, jpackage app image with a bundled runtime,

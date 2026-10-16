@@ -122,6 +122,16 @@ in this table that is not written down here is one nobody can review.
 | `VADAudioRecorder.kt` | **NEW** | `app/src/main/java/com/nikosm/voiceassistant/VADAudioRecorder.kt` | `AudioRecord`→seam 1, `AcousticEchoCanceler` deleted (§3/D8, no marker — a decision, not a deferral), `File`→`Path`, the WAV writer extracted to `WavFile.kt`. Every constant and invariant kept verbatim. Detail below. |
 | `VADDetector.kt` | ADAPT | `app/src/main/java/com/nikosm/voiceassistant/VADDetector.kt` | Seam 4, which turns out not to be a seam: the `ai.onnxruntime` classes are identical on both sides, so the only change is that the model is a classpath resource instead of an APK asset — which is why the `Context` parameter is gone. Detail below. |
 | `Scheduler.kt` | **NEW** | seam 10, plus three functions from `SpontaneousDeliveryWorker.kt` | The interface, and the three functions a byte-identical COPY file calls. `SpontaneousDeliveryWorker.kt` itself stays out of M1. Detail below. |
+| `MainVoiceScreen.kt` | ADAPT | `app/src/main/java/com/nikosm/voiceassistant/MainVoiceScreen.kt` | Seams 13; permissions deleted; `Uri`→`Path`; `Toast`→`notifyUser`; the share target and the update banner deleted. Detail below. |
+| `ChatComponents.kt` | ADAPT | `app/src/main/java/com/nikosm/voiceassistant/ChatComponents.kt` | Clipboard to AWT; `MediaStore` and the image viewer deferred to M5; `LocalConfiguration` to the window's size. Detail below. |
+| `PersonaEditor.kt` | ADAPT | `app/src/main/java/com/nikosm/voiceassistant/PersonaEditor.kt` | Seams 13; the Skills and Spontaneous sections deferred to M3/M4. Detail below. |
+| `SettingsScreens.kt` | ADAPT | `app/src/main/java/com/nikosm/voiceassistant/SettingsScreens.kt` | Seams 13; `Toast`→`notifyUser`; the Rooms, Skills and Models screens and the Quick Settings tile deferred. Detail below. |
+| `MainActivity.kt` | ADAPT | `app/src/main/java/com/nikosm/voiceassistant/MainActivity.kt` | The `ComponentActivity` **class** deleted entirely (D1: one process, no binder); the composables below it kept. Detail below. |
+| `ModelScreens.kt` | ADAPT | `app/src/main/java/com/nikosm/voiceassistant/ModelScreens.kt` | **Partially ported in M1**: the shared model-list widgets only. Detail below. |
+| `RoomScreens.kt` | ADAPT | `app/src/main/java/com/nikosm/voiceassistant/RoomScreens.kt` | **Partially ported in M1**: `personaBackdropPath` only. Detail below. |
+| `SpontaneousScreens.kt` | ADAPT | `app/src/main/java/com/nikosm/voiceassistant/SpontaneousScreens.kt` | **Partially ported in M1**: the pure schedule helpers only. Detail below. |
+| `SharedContent.kt` | ADAPT | `app/src/main/java/com/nikosm/voiceassistant/SharedContent.kt` | **Partially ported in M1**: the composer's tag constants and the pure draft append. Detail below. |
+| `FileDialogs.kt` | **NEW** | seam 13 | The interface the six pickers call, synchronous where SAF was a callback. Detail below. |
 | `ui/theme/Theme.kt` | ADAPT | `app/src/main/java/com/nikosm/voiceassistant/ui/theme/Theme.kt` | Material You's dynamic-colour branches deleted — no desktop counterpart; `Activity` and `Build` gone; the file moved to `:desktop`. Detail below. |
 | `WavFile.kt` | **NEW** | the header writer inside `VADAudioRecorder.kt` | Extracted so that two producers — the VAD loop and push-to-talk — write one layout, which `wavDurationSeconds` reads back. Detail below. |
 | `TtsChunkSequencer.kt` | **NEW** | policy extracted from `AssistantServiceAudio.kt` | Chunk order, the one-at-a-time rule, the cancel-previous guard and the progress arithmetic — lifted out of upstream's `playChunkedTtsGateway`/`startChunkPlayback` so they can be tested at all. Detail below. |
@@ -429,6 +439,61 @@ words rather than silently no-opped — which is what upstream's own comment ask
 
 `android.app.Activity` was an unused import upstream and is simply gone. `android.os.Build` had two
 uses, both the gate.
+
+### The M1 UI: what came across unchanged, and why that number matters
+
+Five files were copied and compiled with **no edits at all**: `UIComponents.kt` (249),
+`WelcomeScreen.kt` (207), `CelestialHud.kt` (621), and the theme package's `Color.kt`, `Shape.kt` and
+`Type.kt` (63). That is 1,140 lines of Compose that needed nothing — not a re-typed import, not a
+cast, nothing.
+
+They are the strongest evidence for D2 there is, and stronger than the import probe that predicted
+it, because this is the compiler rather than a list. `tools/compose-probe.sh` asked whether 203
+distinct imports resolve; these six files answer it by compiling. The probe said 194 of 203 would
+resolve, and named the nine that would not; the five files that needed work between them needed
+exactly those nine, plus 340 Android call sites the probe's second list predicted.
+
+**Three files are partially ported, and that is a state this project had not had before.** PLAN.md
+§7's rows say so and this section says why:
+
+| File | Kept in M1 | Deferred | Why it split |
+|---|---|---|---|
+| `ModelScreens.kt` (467) | `LoadingRow`, `StaleNote`, `EmptyNote`, `ModelRowBody`, `FavoriteStar`, `ModelsEntryRow` (258 lines) | `ModelsScreen` and its private `ModelsHeader` / `filterEmptyMessage` / `ModelRow` | The widgets are general-purpose and `ModelPicker.kt` — an M1 file — calls all five; the screen is the model-browsing feature. |
+| `RoomScreens.kt` (996) | `personaBackdropPath` (32 lines) | everything else | One two-line helper `MainVoiceScreen` calls; the rest is room mode. |
+| `SpontaneousScreens.kt` (394) | the pure schedule helpers (201 lines) | `PersonaSpontaneousSection` and its two `@Preview`s | `spontaneousSectionEligibility` gates the editor's *commit*, not just its drawing — the verdict is M1's even though the controls are M4's. |
+| `SharedContent.kt` (106) | the four composer tags, the text cap, `appendSharedTextToDraft` (51 lines) | the `ACTION_SEND` parser and `SharedRequest` | The composer carries the tags; the share target is §2's out-of-scope item. |
+
+The rule that decided every split is PLAN.md §5's shared-block rule: **a shared building block
+arrives with its first caller, and only whole features are deferred.** The alternative — cutting
+every edge into the M3–M5 screens — was rejected because several of the cut sites are *widget
+definitions* the kept screens need, so a few would have had to be reimplemented inline, and every
+cut would have left a visible hole rather than a missing feature.
+
+### `FileDialogs.kt` — seam 13, and the shape a synchronous dialog forces
+
+Six pickers across four files: persona artwork (×2), a ComfyUI workflow (×2), message attachments,
+RAG knowledge documents, and the backup export/import pair. Upstream each was a
+`rememberLauncherForActivityResult` with an `ActivityResultContracts` type and an `onResult` lambda
+that survived configuration changes; here each is a call that returns a path or null.
+
+**That difference is the whole seam, and it changed the ported code rather than merely wrapping it.**
+Three call sites carried comments explaining that the read *had* to happen inside the callback —
+"a content URI's read grant does not survive this callback, so the bytes must be read now rather
+than referenced for later", "the same lesson the share target learned" — and those constraints are
+gone with the URI, not ported. The read-then-validate order survives at each site because it is the
+order the validation wants, not because a grant expires. That is the kind of thing a mechanical port
+preserves for the wrong reason and a reader six months later cannot tell apart.
+
+`AwtFileDialogs` is the implementation: `java.awt.FileDialog`, shown with `invokeAndWait` (a
+composition can be driven from a non-EDT dispatcher, and showing a dialog off the EDT either throws
+or deadlocks against the toolkit lock), disposed in a `finally` (AWT dialogs are heavyweight peers
+and are not collected on their own), and filtered by extension as a *hint* — the filter is honoured
+by AWT's own X11 dialog and advisory under peers that route to a portal chooser, so every caller
+validates what it got, which it would have to do anyway.
+
+The seam went in as a constructor parameter on `AssistantService`, not on `AppEnv`: by the rule this
+milestone pinned down, `AppEnv` carries a seam only when a caller that cannot be edited forces it,
+and every caller here is a composable this port owns.
 
 ## Hand-written files in `core/`
 

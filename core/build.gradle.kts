@@ -12,6 +12,13 @@
 plugins {
     alias(libs.plugins.kotlin.jvm)
     alias(libs.plugins.kotlin.serialization)
+    // Both Compose plugins, because this module now holds the ported Compose UI: the Compose
+    // Multiplatform plugin supplies the `compose.*` dependency accessors below, and the Kotlin
+    // Compose plugin is the compiler plugin that makes `@Composable` mean anything. A module with
+    // the first and not the second compiles the imports and fails on the semantics; one with the
+    // second and not the first cannot name the artifacts.
+    alias(libs.plugins.compose)
+    alias(libs.plugins.kotlin.compose)
 }
 
 kotlin {
@@ -20,6 +27,24 @@ kotlin {
 }
 
 dependencies {
+    // The ported Compose UI lives in this module, not in :desktop, and the reason is upstream's
+    // `internal` visibility rather than a preference (AGENTS.md §2, PLAN.md §3/D4). `:core` holds
+    // 301 top-level `internal` declarations and the ported screens need 46 of them; Kotlin does
+    // not share `internal` across Gradle modules, so a module boundary drawn between the service
+    // and its UI would cut through upstream's visibility — and the declarations are in COPY files
+    // that may not be edited. The rule this produced is written down in PLAN.md §3 D4: the module
+    // boundary must not cut through upstream's visibility.
+    //
+    // `api`, not `implementation`: :desktop compiles composables that call into these screens and
+    // would otherwise have to restate the whole Compose stack. material3 and the icon set come
+    // through the plugin's accessors because CMP versions material3 on its own release line, so a
+    // hand-written coordinate would drift silently — the same reasoning as :desktop's block, which
+    // is now only about the desktop shell.
+    api(compose.foundation)
+    api(compose.material3)
+    api(compose.materialIconsExtended)
+    api(libs.coil.compose)
+
     implementation(libs.kotlinx.coroutines.core)
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.okhttp)

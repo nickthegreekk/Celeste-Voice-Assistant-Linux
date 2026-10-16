@@ -13,6 +13,32 @@ not stop for it. Stop only for the four cases listed in AGENTS.md §10.
 
 ---
 
+## 2026-10-16 — The ported UI lives in `:core`, because the module boundary must not cut upstream's visibility
+
+`:core` has 301 top-level `internal` declarations and the ported screens need 46 of them. They are in
+COPY files — `ModelCatalog.kt` 40, `ComfyJobs.kt` 33, `AssistantServiceImageGen.kt` 30,
+`ComfyWorkflow.kt` 21 — which may not be edited, and Kotlin does not share `internal` across Gradle
+modules. So a module boundary drawn between the service and its UI cuts through upstream's
+visibility, and 118 of the UI's first compile errors were exactly that rather than the Android
+surface. `:core` gains the Compose UI stack and Coil; `:desktop` keeps the window, the tray,
+packaging and `Main.kt`. The invariant is now written into PLAN.md §3 D4. Rejected: `-Xfriend-paths`,
+which is not a supported Gradle-Kotlin-plugin feature for plain JVM modules and breaks silently on
+an upgrade; and demoting the 46 declarations, which is a mass demotion of byte-identical files. This
+also supersedes the earlier same-day decision that put the theme in `:desktop` — the theme moved
+back with the rest.
+
+## 2026-10-16 — A shared building block arrives with its first caller, one layer up from the seam rule
+
+The M3–M5 screens are not separable from the M1 ones by file: `ModelScreens.kt` hosts five
+general-purpose widgets that `ModelPicker.kt` calls, `RoomScreens.kt` hosts a helper `MainVoiceScreen`
+calls, and `SpontaneousScreens.kt` hosts the eligibility verdict that gates the persona editor's
+*commit* rather than only its drawing. So M1 takes those leaves — 442 lines across four files, with
+each large file recorded as **partially ported in M1** in PLAN §7 and PROVENANCE, because that is a
+state worth stating rather than implying. Only whole *features* are deferred, each with a
+`DEFERRED TO M<n>` marker at its call site, so the markers are the feature-gap list and no screen has
+a hole in it. The receiving milestones' §10 scope lines now name what they receive in the same
+commit, so M3–M5 read their own to-do lists. → PLAN.md §5
+
 ## 2026-10-15 — The UI dependencies: Coil 3 with no fetcher, and a module for the theme
 
 **Coil.** `io.coil-kt.coil3:coil-compose:3.1.0` — the coordinate and the version the upstream app
