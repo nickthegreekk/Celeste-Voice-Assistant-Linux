@@ -1630,7 +1630,12 @@ internal suspend fun AssistantService.performDirectOllamaChat(baseUrl: String, m
         // resolveHistoryBudget(). Throws (and sends nothing) when the system prompt,
         // this message/attachment and the reserved output alone already exceed the
         // window, since no history trimming can make such a request fit.
-        val budget = resolveHistoryBudget(contextWindow, reservedOutput, finalSystemPrompt, modelText)
+        val budget = resolveHistoryBudget(
+            contextWindow, reservedOutput, finalSystemPrompt, modelText,
+            // M8: this turn's earlier rounds ride in the request after the user turn, so the estimate
+            // that decides whether it fits has to include them.
+            extraFixed = fsToolTurnsText(turnContext.toolTurns),
+        )
 
         // A1: positional slice — the caller says whether the current user turn is
         // already the last entry in _messages (text flow appends it before the
@@ -1935,7 +1940,10 @@ private suspend fun AssistantService.buildCloudRequest(api: CloudApiSetting, per
     // Fix #6 (numCtx overflow): same shared budget math + pre-flight refusal as the
     // direct-Ollama path — see resolveHistoryBudget(). A cloud request whose fixed
     // parts don't fit the persona's Context Window Size is refused the same way.
-    val budget = resolveHistoryBudget(contextWindow, reservedOutput, finalSystemPrompt, modelText)
+    val budget = resolveHistoryBudget(
+        contextWindow, reservedOutput, finalSystemPrompt, modelText,
+        extraFixed = fsToolTurnsText(turnContext.toolTurns),
+    )
     
     // A1: positional slice — the caller says whether the current user turn is already
     // the last entry in _messages (text flow appends it; voice flow does not). No
@@ -2807,16 +2815,35 @@ Do you want a summary?
 // distinguished — a long system prompt, a long message, a large attachment or any
 // combination of them are one and the same problem here, and take the same fix — which is
 // why the check lives in this single shared helper rather than at each call site.
-internal fun AssistantService.resolveHistoryBudget(contextWindow: Int, reservedOutput: Int, systemPrompt: String, modelText: String): Int {
+internal fun AssistantService.resolveHistoryBudget(
+    contextWindow: Int,
+    reservedOutput: Int,
+    systemPrompt: String,
+    modelText: String,
+    /**
+     * M8: the parts of *this turn* that are not history and not the current message — the tool calls
+     * and results the loop has already accumulated, which the builders append after the user turn.
+     * Defaulted, because the room caller in the COPY file passes named arguments and must compile
+     * untouched.
+     *
+     * Without it the arithmetic left out the largest thing in the request: a turn may read 64 KiB of
+     * files (~16k tokens), and a request that "fits" by this function's count would go out over the
+     * persona's window and be truncated server-side — silently, which is the exact failure this
+     * function exists to refuse out loud.
+     */
+    extraFixed: String = "",
+): Int {
     val systemPromptTokens = estimateTokens(systemPrompt)
     val modelTextTokens = estimateTokens(modelText)
-    val promptTokens = systemPromptTokens + modelTextTokens
+    val extraTokens = if (extraFixed.isBlank()) 0 else estimateTokens(extraFixed)
+    val promptTokens = systemPromptTokens + modelTextTokens + extraTokens
     val rawBudget = contextWindow - reservedOutput - promptTokens
     if (rawBudget < 0) {
         val fixedTokens = promptTokens + reservedOutput
-        android.util.Log.w("AssistantService", "numCtx overflow — refusing request: contextWindow=$contextWindow, reservedOutput=$reservedOutput, systemPrompt=$systemPromptTokens, currentMessage=$modelTextTokens, fixedTotal=$fixedTokens tokens")
+        android.util.Log.w("AssistantService", "numCtx overflow — refusing request: contextWindow=$contextWindow, reservedOutput=$reservedOutput, systemPrompt=$systemPromptTokens, currentMessage=$modelTextTokens, toolTurns=$extraTokens, fixedTotal=$fixedTokens tokens")
         throw Exception(
-            "Your message and system prompt (~$fixedTokens tokens) exceed this persona's Context Window Size ($contextWindow). " +
+            "${if (extraTokens > 0) "Your message, system prompt and this turn's file contents" else "Your message and system prompt"} " +
+                "(~$fixedTokens tokens) exceed this persona's Context Window Size ($contextWindow). " +
                 "Try a shorter message, a smaller attachment, or increase Context Window Size in this persona's settings."
         )
     }

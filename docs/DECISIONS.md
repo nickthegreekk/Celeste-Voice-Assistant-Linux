@@ -13,6 +13,43 @@ not stop for it. Stop only for the four cases listed in AGENTS.md §10.
 
 ---
 
+## 2026-10-16 — A cap is a number the request is checked against, not a number in a comment
+
+M8's open list, item 3, was four findings that turned out to be one: the caps were arithmetic that
+nothing consulted. `MAX_TURN_RESULT_BYTES` was enforced by an executor built *inside* each round, so
+the bound reset whenever the model asked again; the read cap was compared against `String.length`
+(UTF-16 units) while being named in bytes; and the 64 KiB a turn may read never reached
+`resolveHistoryBudget`, so the one number that decides whether a request *fits* ignored the largest
+thing in it — a turn that read 64 KiB adds ~16k tokens, and the request went out over the persona's
+window and was truncated server-side, silently, which is exactly what that function exists to refuse
+out loud.
+
+**Decided: one `FsToolExecutor` per turn** (both loops build it before their `while` and pass it into
+each round), **byte counts everywhere** — the cap, the audit's `bytes`, and the `spent` accumulator —
+and **`resolveHistoryBudget(contextWindow, reservedOutput, systemPrompt, modelText, extraFixed = "")`**,
+where the two tool-aware builders pass `fsToolTurnsText(turnContext.toolTurns)`. Defaulted, because
+the room caller lives in a COPY file, exactly as the plan's own constraint requires.
+
+Rejected: **counting the tool output as history.** `budgetedHistory` trims history to fit, and tool
+turns must not be trimmed — a result the model is halfway through reading is not something to drop
+quietly; it is a fixed part of this turn's request, so it belongs in the same bucket as the system
+prompt, and a request that cannot fit should be refused rather than sent short.
+
+**Where the two bounds meet, and why the tests say so.** On a default 8k window the budget refuses a
+turn that has read 80 KB before the executor's byte cap can speak — a wider window is needed to test
+the cap in isolation, and that is written into the test rather than left as a puzzle for the next
+reader. Neither bound is redundant: the budget asks whether the *request* fits, the cap asks how much
+one turn may put in it.
+
+**And the read path got a number it did not have.** `Files.readAllBytes` had no bound at all, so the
+caps were downstream of an allocation proportional to the file. `MAX_READ_SCAN_BYTES` (8 MiB) is that
+bound, and it is deliberately far above anything a person reads: passing it costs the exact line
+total in the header and nothing else, which is why the whole of the existing behaviour below it is
+unchanged.
+
+→ PLAN.md §10 (M8), `FsToolExecutor.kt`, `AssistantServiceFsTools.kt`, `FsToolProtocol.kt`,
+`AssistantServiceChat.kt` (`resolveHistoryBudget`)
+
 ## 2026-10-16 — The currency guard belongs where the work happens, not where the text arrives
 
 M8's open list, item 2: a tool round was carried out after Stop, a persona switch or a newer message, because the

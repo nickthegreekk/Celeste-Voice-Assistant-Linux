@@ -242,6 +242,17 @@ private inline fun callsFrom(array: JSONArray?, build: (JSONObject, Int) -> FsTo
  * twice. Anthropic and Gemini take **all** results in one user message; OpenAI and Ollama take one
  * message per result, because that is what their APIs pair ids and names against.
  */
+/**
+ * Everything this turn's earlier rounds will add to the request, as text — for the budget to count.
+ *
+ * The rounds are appended after the current user turn by both builders, and they are neither history
+ * nor the message, so nothing measured them: a turn that reads 64 KiB of files added ~16k uncounted
+ * tokens to a request whose whole point was to be checked for fitting. Rendering the messages as
+ * their JSON is exact enough for a token *estimate*, and it is what the model will be sent.
+ */
+internal fun fsToolTurnsText(turns: List<FsToolTurn>): String =
+    turns.joinToString("\n") { turn -> turn.messages.joinToString("\n") { it.toString() } }
+
 internal fun fsToolTurnFor(
     provider: FsToolProvider,
     body: JSONObject,

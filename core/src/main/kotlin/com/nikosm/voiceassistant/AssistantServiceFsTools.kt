@@ -118,6 +118,7 @@ internal suspend fun AssistantService.performOllamaChatWithTools(
     var rounds = 0
     var callsMade = 0
     val touched = LinkedHashSet<String>()
+    val executor = fsExecutorFor(workspace, excluded, persona)
 
     while (true) {
         var captured: JSONObject? = null
@@ -148,12 +149,10 @@ internal suspend fun AssistantService.performOllamaChatWithTools(
         }
 
         val turn = fsRunToolRound(
+            executor = executor,
             provider = FsToolProvider.OLLAMA,
             body = body,
             calls = calls,
-            workspace = workspace,
-            excluded = excluded,
-            persona = persona,
             onCall = { touched += it.name },
         )
         rounds++
@@ -187,6 +186,7 @@ internal suspend fun AssistantService.performCloudChatWithTools(
     var context = turnContext
     var rounds = 0
     var callsMade = 0
+    val executor = fsExecutorFor(workspace, excluded, persona)
 
     return serviceScope.launch {
         // M8: **the loop holds THINKING, not the round** — the rounds pass `ownsThinkingState =
@@ -231,7 +231,7 @@ internal suspend fun AssistantService.performCloudChatWithTools(
                     notifyUser(refusal)
                     return@launch
                 }
-                val turn = fsRunToolRound(toolProvider, body, calls, workspace, excluded, persona)
+                val turn = fsRunToolRound(executor, toolProvider, body, calls)
                 rounds++
                 callsMade += calls.size
                 context = context.copy(toolTurns = context.toolTurns + turn)
@@ -247,27 +247,36 @@ internal suspend fun AssistantService.performCloudChatWithTools(
  * the executor, the approval gate and the audit cannot be wired differently in one of them.
  */
 private suspend fun AssistantService.fsRunToolRound(
+    executor: FsToolExecutor,
     provider: FsToolProvider,
     body: JSONObject,
     calls: List<FsToolCall>,
-    workspace: FsWorkspace,
-    excluded: List<Path>,
-    persona: Persona,
     onCall: (FsToolCall) -> Unit = {},
 ): FsToolTurn {
-    val executor = FsToolExecutor(
-        workspace = workspace,
-        excluded = excluded,
-        personaName = persona.name,
-        approveWrite = { request -> requestFsWriteApproval(request, workspace) },
-        audit = ::auditFsToolCall,
-    )
     val results = calls.map { call ->
         onCall(call)
         executor.execute(call)
     }
     return fsToolTurnFor(provider, body, calls, results)
 }
+
+/**
+ * The executor for one turn — **one, for all of its rounds**, which is what makes its caps mean a
+ * turn rather than a round.
+ *
+ * It used to be built inside [fsRunToolRound], and the byte bound it enforces ("no more bytes than
+ * [FsToolExecutor.MAX_TURN_RESULT_BYTES]") reset with every round: a model that asked for one file
+ * per round could read eight times the 64 KiB the cap promises, in a turn whose whole purpose is to
+ * bound what one turn can put in the next request.
+ */
+private fun AssistantService.fsExecutorFor(workspace: FsWorkspace, excluded: List<Path>, persona: Persona): FsToolExecutor =
+    FsToolExecutor(
+        workspace = workspace,
+        excluded = excluded,
+        personaName = persona.name,
+        approveWrite = { request -> requestFsWriteApproval(request, workspace) },
+        audit = ::auditFsToolCall,
+    )
 
 /**
  * A turn that only ever called tools has no prose to show, and an **empty bubble is worse than a

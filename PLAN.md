@@ -1292,10 +1292,26 @@ apply blocks and the cloud builders in view at once, which is why they were not 
    rather than preventing anything — one place deciding "may this round run" is worth more than two deciding when to
    stop reading. `FsToolTurnTest` covers both dialects; **verified by making the guard return `true`**, which fails
    both with `a superseded turn must not ask again: [2 requests]`.
-3. **Read safety**: `Files.readAllBytes` before the cap (a 20 GB file is an OOM) and no `isRegularFile` check, so a FIFO
-   in the workspace blocks the turn forever. Then the caps themselves: `spent` resets per round (the executor is built
-   per round), the counts are UTF-16 units rather than bytes, and accumulated tool output is never counted against
-   `resolveHistoryBudget` — the `extraFixed` parameter the design named does not exist.
+3. ~~**Read safety**: `Files.readAllBytes` before the cap (a 20 GB file is an OOM) and no `isRegularFile` check, so a
+   FIFO in the workspace blocks the turn forever. Then the caps themselves: `spent` resets per round (the executor is
+   built per round), the counts are UTF-16 units rather than bytes, and accumulated tool output is never counted
+   against `resolveHistoryBudget` — the `extraFixed` parameter the design named does not exist.~~ **Fixed 2026-10-16**,
+   in two commits, and it was one hole wider than the finding: **`write_file` had both halves of it too.**
+   *What a read may touch:* `isRegularFile` (a FIFO is not a folder, and `readAllBytes` on one blocks forever with no
+   timeout above it — one `mkfifo` in a workspace the model was given was a turn that never ended); a **bounded read**
+   of at most 8 MiB, cut at the last newline so no line and no character is split, with the header stating the file's
+   real size and what the read covered, and a `start_line` past the scan saying *that* rather than claiming the file is
+   short. *What a write may touch:* the identical-content check compared by reading the existing file into memory (a
+   20 GB overwrite was the same OOM) and now compares size first — sound because the new content is itself capped — and
+   a target must be a regular file, or an empty-content overwrite of a FIFO blocked before the user was asked.
+   *The caps:* bytes rather than UTF-16 units (a file of emoji was measured at a third of its size, in the audit's
+   `bytes` column too); **one executor per turn**, so the 64 KiB bound means a turn rather than resetting every round; and
+   `resolveHistoryBudget` takes the `extraFixed` the design named — the tool turns ride in the request after the user
+   turn, and a turn that read 64 KiB added ~16k uncounted tokens to a request whose whole point was to be checked for
+   fitting. Eight tests, all failing before (a pipe refused in both directions, past the scan bound, the byte cap on
+   accented text, a second read refused by the turn's cap, and the oversized turn refused instead of sent).
+   **The two bounds interact, which the tests had to be written around**: on a default 8k window the *budget* refuses
+   a turn that reads 80 KB before the executor's byte cap can speak, so the cap's test uses a 32k window and says why.
 4. **The timeout is invisible**: `requestFsWriteApproval` tests `pending.value != null` *after* the gate cleared it, so
    the notifier branch is dead code, and the audit records a timeout as `confirmed = "denied"` — the documented
    `timeout` and `session-trust` values are never written. `denyPending()` has no caller at all, despite the design

@@ -108,6 +108,26 @@ class FsToolTurnTest {
     }
 
     @Test
+    fun `an Ollama turn reads at most one turn's worth, not one round's worth`() = runTest {
+        assertTurnByteCapHolds(Dialect.OLLAMA)
+    }
+
+    @Test
+    fun `a cloud turn reads at most one turn's worth, not one round's worth`() = runTest {
+        assertTurnByteCapHolds(Dialect.CLOUD)
+    }
+
+    @Test
+    fun `an Ollama turn that would overflow the window is refused, not truncated`() = runTest {
+        assertOversizedTurnIsRefused(Dialect.OLLAMA)
+    }
+
+    @Test
+    fun `a cloud turn that would overflow the window is refused, not truncated`() = runTest {
+        assertOversizedTurnIsRefused(Dialect.CLOUD)
+    }
+
+    @Test
     fun `a persona with no workspace is one request and declares no tools`() = runTest {
         val service = serviceWith(Dialect.CLOUD, workspace = null)
         runCurrent()
@@ -204,7 +224,10 @@ class FsToolTurnTest {
         val assistant = service._messages.value.filter { it.role == "assistant" }
         assertEquals("one reply and no bubble for the call: $assistant", 1, assistant.size)
         assertEquals("Your workspace holds notes.md.", assistant.single().text)
-        assertEquals(AssistantState.IDLE, service._state.value)
+        // Waited for rather than sampled: the bubble is written before the turn's own terminal state
+        // write, so reading `_state` at the instant the transcript looks complete is a race — and it
+        // is the kind that passes on a quiet machine and fails on a busy one.
+        settle(service, "the turn to land in IDLE") { service._state.value == AssistantState.IDLE }
     }
 
     /**
@@ -262,6 +285,8 @@ class FsToolTurnTest {
         dialect: Dialect,
         workspace: Path?,
         mode: FsToolMode = FsToolMode.READ_ONLY,
+        numCtx: Int = 8192,
+        maxTokens: Int = 2048,
     ): AssistantService {
         when (dialect) {
             Dialect.OLLAMA -> settings.saveOllamaBases(listOf(ServerConfig(name = OLLAMA_SERVER, url = provider.baseUrl)))
@@ -282,7 +307,7 @@ class FsToolTurnTest {
             settings.saveFsMode(mode)
             settings.saveFsWorkspace(workspace.toString())
         }
-        settings.savePersonas(listOf(persona(dialect)))
+        settings.savePersonas(listOf(persona(dialect, numCtx, maxTokens)))
         val service = AssistantService(
             appEnv = env,
             audioPlayback = SilentAudioPlayback,
@@ -302,8 +327,10 @@ class FsToolTurnTest {
         return service
     }
 
-    private fun persona(dialect: Dialect): Persona = Persona(
+    private fun persona(dialect: Dialect, numCtx: Int = 8192, maxTokens: Int = 2048): Persona = Persona(
         name = PERSONA,
+        numCtx = numCtx,
+        maxTokens = maxTokens,
         themeColor = Color(0xFF4ADE80),
         model = when (dialect) {
             Dialect.OLLAMA -> "[$OLLAMA_SERVER] fake-model"
@@ -318,20 +345,100 @@ class FsToolTurnTest {
     )
 
     /** One tool round and then a prose answer, in [dialect]'s own wire shape. */
-    private fun scriptToolRound(dialect: Dialect, tool: String, arguments: String, answer: String) {
+    private fun scriptToolRound(dialect: Dialect, tool: String, arguments: String, answer: String) =
+        scriptToolRound(dialect, listOf(tool to arguments), answer)
+
+    /** [calls] in the order the model asks for them, then a prose answer. */
+    private fun scriptToolRound(dialect: Dialect, calls: List<Pair<String, String>>, answer: String) {
         when (dialect) {
             Dialect.OLLAMA -> {
-                provider.replyNdjson(
-                    ollamaChunk(toolCalls = JSONArray().put(ollamaToolCall(tool, arguments))),
-                    ollamaDone(),
-                )
+                calls.forEach { (tool, arguments) ->
+                    provider.replyNdjson(
+                        ollamaChunk(toolCalls = JSONArray().put(ollamaToolCall(tool, arguments))),
+                        ollamaDone(),
+                    )
+                }
                 provider.replyNdjson(ollamaChunk(answer), ollamaDone())
             }
             Dialect.CLOUD -> {
-                provider.reply(openAiToolCall(tool, arguments))
+                calls.forEach { (tool, arguments) -> provider.reply(openAiToolCall(tool, arguments)) }
                 provider.reply(openAiReply(answer))
             }
         }
+    }
+
+    /**
+     * **The executor's byte cap is a turn's, not a round's.** It was enforced by an executor built
+     * inside each round, so the bound reset every time the model asked again: eight rounds could read
+     * eight times the 64 KiB the cap promises, and every byte of it travels in the *next request*.
+     *
+     * The fixture file is one long line under the per-read cap, so the first round's result is
+     * returned in full and pushes the turn over the bound on its own.
+     */
+    private suspend fun TestScope.assertTurnByteCapHolds(dialect: Dialect) {
+        Files.writeString(workspace.resolve("big.txt"), "x".repeat(80_000))
+        Files.writeString(workspace.resolve("small.txt"), "the small file's contents")
+        // A window wide enough to *hold* the 80 KB the first round read (~20k tokens), deliberately:
+        // the byte cap being tested here is a different bound from the history budget, and on the
+        // default 8k window the budget would refuse the turn first and this would prove nothing.
+        val service = serviceWith(dialect, workspace = workspace, numCtx = 32_768)
+        runCurrent()
+
+        scriptToolRound(
+            dialect,
+            listOf(TOOL_READ to """{"path":"big.txt"}""", TOOL_READ to """{"path":"small.txt"}"""),
+            "I read what I could.",
+        )
+        service.sendTextMessageToServer("read both files", service.personas.value.first())
+        settle(service, "the turn to finish") {
+            service._messages.value.lastOrNull()?.text == "I read what I could."
+        }
+
+        // The second call still reaches the executor — a refusal is a *result the model reads*, not a
+        // stopped turn — and comes back as the sentence the cap has always promised.
+        val results = provider.turns.last().messages().let { messages ->
+            (0 until messages.length()).map { messages.getJSONObject(it) }.filter { it.optString("role") == "tool" }
+        }
+        assertTrue(
+            "the second read must be refused by the turn's byte cap: ${results.map { it.optString("content").take(60) }}",
+            results.any { it.optString("content").contains("already read as much as it may") },
+        )
+        assertTrue(
+            "and the file it asked for must not have been read at all",
+            provider.turns.none { it.body.contains("the small file's contents") },
+        )
+        assertEquals("both calls are audited, one of them as a refusal", 2, readFsToolAudit(env.stateDir, 10).size)
+        assertEquals("denied", readFsToolAudit(env.stateDir, 10).first().result)
+    }
+
+    /**
+     * **The tool output is part of what has to fit.** A turn that has read 64 KiB has ~16k tokens
+     * riding in the next request, and nothing counted them: the budget saw a system prompt and a
+     * short message, said the request fitted, and the provider truncated it — silently, which is the
+     * failure `resolveHistoryBudget` exists to refuse out loud.
+     */
+    private suspend fun TestScope.assertOversizedTurnIsRefused(dialect: Dialect) {
+        Files.writeString(workspace.resolve("big.txt"), "x".repeat(80_000))
+        val service = serviceWith(dialect, workspace = workspace, numCtx = 2_000, maxTokens = 1_024)
+        runCurrent()
+
+        scriptToolRound(dialect, TOOL_READ, """{"path":"big.txt"}""", "this answer must never be asked for")
+        service.sendTextMessageToServer("read the big file", service.personas.value.first())
+        settle(service, "the refusal") {
+            service._messages.value.any { it.isError }
+        }
+
+        val error = service._messages.value.single { it.isError }
+        assertTrue(
+            "the refusal names the window and what filled it: ${error.text}",
+            error.text.contains("Context Window Size") && error.text.contains("this turn's file contents"),
+        )
+        assertEquals(
+            "and the request that would have carried the tool output was never sent",
+            1,
+            provider.turns.size,
+        )
+        assertEquals("the read itself did happen", 1, readFsToolAudit(env.stateDir, 10).size)
     }
 
     /**
