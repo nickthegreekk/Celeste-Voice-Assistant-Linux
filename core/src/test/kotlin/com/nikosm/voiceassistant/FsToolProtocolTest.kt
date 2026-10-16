@@ -24,6 +24,27 @@ import org.junit.Test
  */
 class FsToolProtocolTest {
 
+    // ------------------------------------------------------------------ the contract in the prompt
+
+    @Test
+    fun `the contract names what the mode offers, and nothing it does not`() {
+        assertNull("no tools, no contract — an ordinary conversation is unchanged", fsToolContractFor(FsToolMode.OFF))
+
+        val readOnly = fsToolContractFor(FsToolMode.READ_ONLY)!!
+        assertTrue(readOnly.contains(TOOL_LIST))
+        assertTrue(readOnly.contains(TOOL_READ))
+        assertFalse("a read-only persona must not be told it can write", readOnly.contains(TOOL_WRITE))
+
+        val readWrite = fsToolContractFor(FsToolMode.READ_WRITE)!!
+        assertTrue(readWrite.contains(TOOL_WRITE))
+        assertTrue(
+            "and it says the write is the user's decision, which is what the confirmation enforces",
+            readWrite.contains("confirmed by the user"),
+        )
+        // The sentence a live run added: the model said it had written a file it never asked for.
+        assertTrue(readWrite.contains("Never say you have read, written or changed a file"))
+    }
+
     private fun resultsFor(vararg calls: FsToolCall) =
         calls.map { FsToolResult(it.id, it.name, "result for ${it.name}", ok = true) }
 

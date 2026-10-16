@@ -1693,6 +1693,9 @@ internal suspend fun AssistantService.performDirectOllamaChat(baseUrl: String, m
                 if (persona.stampsHistoryWithTimestamps(ollamaServerNames(), cloudProviderNames())) {
                     add(MODEL_STAMP_INSTRUCTION)
                 }
+                // M8: the tool contract, on the channel the design names — the same `suffix` skills
+                // ride in, so it is counted by resolveHistoryBudget like every other fixed part.
+                fsToolContractFor(turnContext.fsToolMode)?.let { add(it) }
             }.filter { it.isNotBlank() }.joinToString("\n\n")
         )
 
@@ -2005,7 +2008,13 @@ private suspend fun AssistantService.buildCloudRequest(api: CloudApiSetting, per
         // Phase 0: same room-preamble placement as the direct-Ollama path — appended to
         // the persona's own prompt and applied BEFORE resolveHistoryBudget below, so the
         // budget math and the overflow refusal see the real system prompt.
-        suffix = turnContext.systemPromptSuffix
+        // M8: the tool contract joins the suffix here too — the cloud routes offer the same tools,
+        // so they say the same things about them. A turn with no tools adds nothing, so the bytes of
+        // an ordinary cloud request are unchanged.
+        suffix = buildList {
+            add(turnContext.systemPromptSuffix)
+            fsToolContractFor(turnContext.fsToolMode)?.let { add(it) }
+        }.filter { it.isNotBlank() }.joinToString("\n\n")
     )
 
     // A-attachments: the model-facing prompt includes extracted file content. The

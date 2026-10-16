@@ -173,6 +173,10 @@ internal fun openAiToolCall(name: String, arguments: String, id: String = "call_
             .put("function", JSONObject().put("name", name).put("arguments", arguments)))))))
     .toString()
 
+/** The system prompt a request carried — always the first message, in every dialect. */
+internal fun FakeProviderServer.Recorded.systemPrompt(): String =
+    JSONObject(body).getJSONArray("messages").getJSONObject(0).getString("content")
+
 /** The messages array of a recorded request, for asserting on what the model was actually sent. */
 internal fun FakeProviderServer.Recorded.messages(): JSONArray =
     JSONObject(body).getJSONArray("messages")

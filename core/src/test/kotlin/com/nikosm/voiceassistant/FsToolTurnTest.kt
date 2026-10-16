@@ -310,6 +310,11 @@ class FsToolTurnTest {
             "and it still answers normally",
             service._messages.value.any { it.role == "assistant" && it.text == "No files for me." },
         )
+        assertFalse(
+            "and with no workspace the prompt says nothing about files: a contract without tools is " +
+                "an invitation to describe a file it cannot read",
+            provider.turns[0].systemPrompt().contains(FS_CONTRACT_MARKER),
+        )
     }
 
     // ------------------------------------------------------------------ the two turns worth asserting
@@ -361,6 +366,18 @@ class FsToolTurnTest {
             "a read-only workspace offers exactly the two read tools",
             listOf(TOOL_LIST, TOOL_READ),
             (0 until tools!!.length()).map { tools.getJSONObject(it).getJSONObject("function").getString("name") },
+        )
+        // **The half that is not in the schema.** A declaration tells a model what it *may* call; the
+        // contract tells it that it must, and — from a live run — that claiming a call it never made
+        // is not an answer. It rides in the suffix skills use, so the budget counts it.
+        val systemPrompt = provider.turns[0].systemPrompt()
+        assertTrue(
+            "the prompt must carry the tool contract: ${systemPrompt.takeLast(200)}",
+            systemPrompt.contains(FS_CONTRACT_MARKER),
+        )
+        assertFalse(
+            "and a read-only persona is not told about a write tool it cannot have",
+            systemPrompt.contains(TOOL_WRITE),
         )
 
         // 2. The call was carried out — against the real folder, and recorded, which is the half a
@@ -681,6 +698,12 @@ class FsToolTurnTest {
     }
 
     private companion object {
+        /**
+         * A phrase from `fsToolContractFor` that nothing else in this application says, so the
+         * assertions are about the contract rather than about a coincidental substring.
+         */
+        const val FS_CONTRACT_MARKER = "Never say you have read, written or changed a file"
+
         const val OLLAMA_SERVER = "Local"
         const val GATEWAY = "Fake Gateway"
         const val PROVIDER = "Fake"
