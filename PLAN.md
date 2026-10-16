@@ -177,7 +177,7 @@ implementation in `platform/`; `core` never imports from `platform`.
 |---|---|---|---|
 | 1 | `AudioCapture` | `AudioRecord` + `AcousticEchoCanceler` | `pw-record` → `parec` → `arecord`, raw s16le mono 16 kHz on stdout |
 | 2 | `AudioPlayback` | `AudioTrack` + marker listener + `AudioFocusRequest` | `pw-play` → `paplay` → `aplay`; "finished" = process exit |
-| 3 | `AudioDevices` | `AudioManager`, earpiece/Bluetooth routing | `wpctl status` / `pactl list` parse; `--target` on capture and playback |
+| 3 | `AudioDevices` | `AudioManager`, earpiece/Bluetooth routing | `pactl` first with `wpctl` as the fallback (2026-10-15 — the id has to be accepted by whichever player runs, and only the PulseAudio node name is taken by both `pw-play --target` and `paplay --device`); `--target` on capture and playback; **monitor sources are excluded from `inputs()`**, because a monitor feeds the system's own playback into the recogniser and fails as an incomprehensible transcript rather than as an error |
 | 4 | `Vad` | ONNX Runtime Android (`ai.onnxruntime.*`) | **Not a seam** (2026-10-15) — an artifact substitution, not an interface: the same `ai.onnxruntime.*` classes exist on both sides, and only the model origin changes, from the Android asset table to a classpath resource, so `VADDetector.kt` needs no abstraction and drops its `Context` parameter |
 | 5 | `SpeechToText` | HTTP `POST /transcribe` | unchanged (already HTTP) |
 | 6 | `TextToSpeech` | Android `TextToSpeech`, bundled eSpeak JNI, gateway HTTP | `spd-say` (speech-dispatcher), `espeak-ng` CLI or JNA to the distro `libespeak_ng.so`, gateway HTTP unchanged |
@@ -630,7 +630,11 @@ fallbacks can be built and hand-tested on the acceptance machine. What is missin
 the motherboard's analog ALCS1200A (line and mic jacks) and no USB audio device is attached, while playback is HDMI or
 analog. D8 makes headphones a hardware requirement for this milestone, so a headset — wired or Bluetooth, and Blueman is
 running — has to be attached before the ten hands-free exchanges can be judged. The implementations are unaffected: they
-can be written and exercised without one.]
+can be written and exercised without one. **Two packages are also missing there:** `speech-dispatcher` and `espeak-ng`
+are both in the EndeavourOS repos and neither is installed, so seam 6's missing-engine path is what has run and its
+happy path stays unverified until the user installs them; the gateway voice keeps working meanwhile. The README
+already lists both as runtime dependencies of the finished app, so this is a gap on the development box rather than
+a new requirement.]
 
 **M3 — Images and files (3–4 d).** ComfyUI + A1111, workflow library and per-character binding,
 image viewer, attachments, backup export/import round trip.
