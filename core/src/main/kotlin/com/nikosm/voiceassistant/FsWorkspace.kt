@@ -186,6 +186,13 @@ private fun resolveForWrite(rootReal: Path, candidate: Path, excluded: List<Path
         if (!targetReal.startsWith(rootReal)) {
             throw FsToolRefusal("that file is a symlink out of the workspace, so it cannot be written.")
         }
+        // The exclusion, asked again on the *resolved* path. The check above it saw only the
+        // spelling, so a link the user made — `notes/settings.json -> ~/.config/celeste-linux/…` —
+        // passed both tests and wrote the credentials file. The read path has always resolved first;
+        // this one now does too.
+        if (isDenied(targetReal, excluded)) {
+            throw FsToolRefusal("that path is always excluded from filesystem tools, whatever the workspace.")
+        }
         if (Files.isDirectory(targetReal)) {
             throw FsToolRefusal("that is a folder, not a file.")
         }

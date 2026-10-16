@@ -1529,6 +1529,11 @@ internal suspend fun AssistantService.performDirectOllamaChat(baseUrl: String, m
     val url = if (resolvedBackend.endsWith("/api/chat")) resolvedBackend else "${resolvedBackend.trimEnd('/')}/api/chat"
     val json = JSONObject()
     json.put("model", model)
+    // M8: the declarations. **This line is the whole feature on this route** — without it the server
+    // is never told a tool exists, so a conforming model answers in prose and the loop above never
+    // sees a call. It was missing in the first cut: the four dialect functions existed and the cloud
+    // builders called them, while this builder called none.
+    fsToolsJsonFor(FsToolProvider.OLLAMA, turnContext.fsToolMode)?.let { json.put("tools", it) }
     // Stage-1 streaming: NDJSON deltas so the UI can render the response as it
     // is generated. Each line carries message.content (and message.thinking
     // for reasoning models); the final line carries done=true plus usage stats.

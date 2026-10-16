@@ -159,6 +159,22 @@ class FsWorkspaceTest {
     }
 
     @Test
+    fun `a write through a link aimed at the keys is refused, though it lands inside the workspace`() {
+        // The hole the adversarial review found. The excluded check saw the *spelling*
+        // ("notes/settings.json") and the containment check saw a path inside the root — both said
+        // yes — while the file actually written was the credentials file the link pointed at. A
+        // dotfile manager creating that link is the ordinary way it happens.
+        val notes = home.resolve("notes").also { Files.createDirectories(it) }
+        val settings = config.resolve("settings.json").also { Files.writeString(it, "{\"apiKey\":\"real\"}") }
+        notes.resolve("settings.json").also { Files.createSymbolicLink(it, settings) }
+
+        val reason = refusal { resolveInside(home, "notes/settings.json", forWrite = true, excluded) }
+
+        assertTrue("it says why: $reason", reason.contains("always excluded"))
+        assertEquals("and the credentials file is untouched", "{\"apiKey\":\"real\"}", Files.readString(settings))
+    }
+
+    @Test
     fun `a sibling folder whose name merely starts the same is not excluded`() {
         // `startsWith` on a `Path` compares elements, so this is true by construction — and it is
         // asserted because the version of this code that compared *strings* would be a bug that
