@@ -563,8 +563,17 @@ the persona editor (`SkillSettings`, `PersonaSkillSection`, and `SkillScreens.kt
 **Models:** `ModelsScreen` and its `ModelsHeader`/`filterEmptyMessage`/`ModelRow` helpers, which are
 the half of `ModelScreens.kt` M1 did not take — the shared widgets came across, the screen did not.]
 
-Note what M1 got *for free* from this list and what it cost. The markers are 7 of the 15; the other
-8 belong to M4 and M5. Nothing here is a hole in a screen: every cut is a whole feature, and the
+The counts, settled by the anchored grep rather than by a mention count:
+
+```
+grep -rnE '^[[:space:]]*(//|\*)?[[:space:]]*DEFERRED TO M[0-9]' core/ platform/
+```
+
+gives **15 markers — 6 × M3, 6 × M4, 3 × M5**. A plain `grep -o 'DEFERRED TO M[0-9]'` gives 18,
+because three of them are *mentioned* rather than carried: the file headers of `ModelScreens.kt`,
+`RoomScreens.kt` and `SpontaneousScreens.kt` each say "the call site carries the `DEFERRED TO M3/M4`
+marker" while the marker itself is elsewhere. The unanchored number is the one to distrust — it was
+published as 18 once and as a 7/5/3 split before that, and neither was the ledger. Nothing here is a hole in a screen: every cut is a whole feature, and the
 screens that host them render without them rather than around them.
 *Accept:* an image generated from a persona against the real ComfyUI on buildhost and rendered in the
 chat; the same workflow tokens (`%PROMPT%`, `%NEGATIVE%`, `%SEED%`) behave as on Android.
@@ -572,7 +581,7 @@ chat; the same workflow tokens (`%PROMPT%`, `%NEGATIVE%`, `%SEED%`) behave as on
 **M4 — Rooms, spontaneous, daemon (4–6 d).** Room screens, spontaneous scheduler in the core, tray,
 notifications, systemd user unit, autostart `.desktop`, per-persona `.desktop` entries.
 
-[Receives from M1, 2026-10-16 — five `DEFERRED TO M4` markers. **Tray:** the Quick Settings tile
+[Receives from M1, 2026-10-16 — six `DEFERRED TO M4` markers. **Tray:** the Quick Settings tile
 row (`QuickSettingsTileRow()`, the whole composable) and the `"Shortcuts"` section that held it; §9
 drops the tile and the tray is its equivalent, and the user's one-tap voice entry is what the section
 comes back for. **Spontaneous:** the Spontaneous Messages section in the persona editor
