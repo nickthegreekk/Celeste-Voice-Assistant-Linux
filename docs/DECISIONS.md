@@ -13,6 +13,45 @@ not stop for it. Stop only for the four cases listed in AGENTS.md §10.
 
 ---
 
+## 2026-10-16 — A failure that names no route is not a diagnosis, and a cancellation is not an error
+
+Two defects from the acceptance run, one of them needing a measurement before it could be called
+anything. **The unspoken replies** — three `chunk 0 could not be synthesised` lines, no reason —
+turned out to be a *decision* by the gateway, correctly provoked and invisibly reported: the reply
+quoted one Russian phrase, so the on-device script heuristic classified it as Russian (a rule kept
+exactly as upstream wrote it: a translation reply must be spoken in the target language), the gateway
+answered `200 application/json` with `{"audio": null, "note": "Russian has no TTS voice available —
+text only."}`, and that note was logged at DEBUG — FINE, which `java.util.logging` never prints.
+
+**So the reason travels, in the caller's words, to the line a user reads.** `synthesizeWithGateway`
+returns a `GatewaySpeech` whose `noAudioReason` is non-null exactly when the audio is null;
+`gatewayRefusal()` frames it with the route, the engine, the voice and the language, because "gateway
+or local engine" is the first thing a reader has to rule out and the language is usually the whole
+answer when a gateway declines; and the chunked pipeline's `synthesize` callback returns
+`Synthesis.Ready`/`Unavailable` rather than a nullable `Path`, so `PlaybackEnd.Failed` carries the
+reason instead of "chunk 0 could not be synthesised" alone. Rejected: logging the reason at its
+source and leaving the failure message generic. It is cheaper by one type, and it fails the test that
+matters — the message a user reads was the thing that discarded the cause, and a second line beside
+it is a line that can be missing, reordered or scrolled past.
+
+**The refusal is logged at WARN, not DEBUG.** The outcome is a reply that is in the transcript and
+never reached the speakers; that is what WARN means here, and the DEBUG level it had is why three
+turns' worth of answers existed only in a body nobody printed.
+
+**What was deliberately not done: an automatic fallback to the local engine.** espeak-ng speaks the
+Russian and Greek that this gateway's Kokoro voices do not, so the substitution would make the reply
+audible — in a different voice from the one the user configured for the persona. That is a product
+decision rather than a repair, it is not in any milestone's scope line, and the diagnostics are what
+make it decidable: the log now says which route declined and why. → PLAN.md §5, §10
+
+**A cancellation is not an error, in every loop that can be cancelled.** Both capture loops caught
+`Exception` around their chunk loop, so `VADAudioRecorder.stop()`'s cancellation — delivered at the
+paused branch's `delay(200)` — was logged as `Recording error: StandaloneCoroutine was cancelled` at
+SEVERE, making every stop look like a fault. `CancellationException` is now caught first and
+rethrown, which is also the only value that keeps the coroutine cancelled. The rule generalises and
+belongs in the ported code's habits: a `catch (e: Exception)` in a suspendable loop needs the
+cancellation case above it, or normal teardown is reported as breakage. → PLAN.md §10
+
 ## 2026-10-16 — §6's latency budget gets an instrument, and the marks are the definition
 
 §6 states two spans as M2's to verify and nothing measured either: "capture start to first chunk < 50 ms; utterance
