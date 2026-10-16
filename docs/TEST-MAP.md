@@ -111,9 +111,23 @@ own header comment and helper (`fail(decision, expected)`) came across with it.
 
 ## M8 — new tests, none of them ported (2026-10-16)
 
-The filesystem tools have no upstream counterpart, so nothing here is a ported or adapted test: four new
-files (`FsWorkspaceTest`, `FsToolSettingsTest`, `FsToolProtocolTest`, `FsToolExecutorTest`) cover the
-containment rules and their escape shapes, the settings family's three lifecycle legs, the four provider
-dialects in both directions, and the executor's caps, atomic write and framing. The parts with no test are
-named where they live: the two loops and the two screens, which need a provider and a display — M8's live
-run is their verification, and M7 owns the desktop UI tests that would cover the screens.
+The filesystem tools have no upstream counterpart, so nothing here is a ported or adapted test. Five files
+cover the policy and the plumbing: `FsWorkspaceTest` (containment and its escape shapes),
+`FsToolSettingsTest` (the settings family's three lifecycle legs), `FsToolProtocolTest` (the four provider
+dialects in both directions), and `FsToolExecutorTest` (the caps, the atomic write, the framing, and what a
+read may not touch).
+
+`FsToolTurnTest` (13) is the one that runs a **turn**, and it exists because the review found three defects
+that no test beside it could see. It drives both dialects end to end against `FakeProviderServer` —
+loopback, `com.sun.net.httpserver`, no new dependency — so `fsToolCallsFrom` parses a body the test did not
+write, the executor runs against a real temporary folder, and the next request carries the result back:
+tools declared on the wire and only when a workspace exists, the call carried out and audited, the result
+in the next request, no bubble for the call, THINKING held across the rounds, a superseded round not
+carried out, a turn past the byte cap refused, a turn past the persona's window refused rather than sent,
+and a tool turn with no prose answered with a sentence. Each was verified by restoring the defect it covers.
+The fixtures beside it (`ServiceFakes.kt`, `FakeProviderServer.kt`) are shared rather than copied.
+
+**What still has no test, named where it lives**: the two *screens* (`FsToolScreens`, and the section in the
+persona editor) need a display — M8's live run is their verification, and M7 owns the desktop UI tests that
+would cover them. The editor's fs callbacks are the same case: `PersonaFsSection`'s wiring is a Compose
+callback, so the policy half is tested in `FsToolSettingsTest` and the name it writes under is not.

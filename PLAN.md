@@ -1264,8 +1264,13 @@ overwritten from inside a `$HOME` workspace; two calls to the same tool in one r
 result; an indented marker could close the untrusted-content frame; an absent `content` argument emptied the file; and
 the read header counted a phantom last line on any file ending in a newline.
 
-**Open, and the order they should be taken in** — the first two are hot-path edits that need the stream loop, the three
-apply blocks and the cloud builders in view at once, which is why they were not rushed at the end of a long session:
+**The open list, closed 2026-10-16.** Six entries, taken in the order given below and each struck where it was fixed;
+the notes carry what the fix cost and how it was verified, because the *how* is what a later reader needs. Nothing here
+is outstanding — all six are fixed, tested and committed — and what remains before M8 can be called done is the **live
+run** in the entry above, which needs the installed package and the user's own hardware.
+
+(The first two entries are hot-path edits that need the stream loop, the three apply blocks and the cloud builders in
+view at once, which is why they were not rushed at the end of a long session.)
 
 1. ~~**The cloud loop is unreachable and its sentinel reaches the transcript.**~~ **Fixed 2026-10-16, and it was one
    defect, not two.** The fork tested `turnContext.fsToolMode.allowsReads` — a field that is `OFF` at every real call
