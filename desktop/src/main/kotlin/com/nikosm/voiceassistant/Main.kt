@@ -6,7 +6,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.graphics.painter.BitmapPainter
+import androidx.compose.ui.graphics.painter.Painter
+import androidx.compose.ui.res.loadImageBitmap
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.application
@@ -233,9 +235,8 @@ fun main(args: Array<String>) {
             state = windowState,
             // The taskbar and alt-tab icon, from the same PNG the packages install into hicolor and
             // jpackage embeds as the launcher's (`desktop/build.gradle.kts` puts `packaging/icons`
-            // on the resource path). Without it a dock has nothing to draw for a window it could
-            // not match to an entry — which, until the WM class above, was every dock.
-            icon = painterResource("celeste-linux.png"),
+            // on the resource path). See `windowIcon` for why this is not `painterResource`.
+            icon = remember { windowIcon() },
         ) {
             VoiceAssistantTheme {
                 // Held in composition state so the landing can clear it. Nothing else clears it, and
@@ -312,6 +313,28 @@ private fun reportAudio(devices: AudioDevices) {
 }
 
 /** The pin the sync script writes on every successful copy (PLAN.md §7a). */
+/**
+ * The window's taskbar and alt-tab icon, or null when it cannot be loaded.
+ *
+ * **Why not `painterResource`:** that resolves through Compose's *resources* mechanism, which looks
+ * for a generated resource path rather than a plain classpath entry, and it null-dereferences when
+ * it finds nothing — inside the composition that opens the window, so the failure is an exception
+ * before the first frame. Measured on the installed package: `NullPointerException` at
+ * `ClassLoaderResourceLoader.load`, from this exact line, in the first build that carried the icon.
+ * The PNG *was* in the jar; the lookup was the thing that was wrong, which is a distinction worth
+ * keeping — verifying the file is present is not verifying that anything can find it.
+ *
+ * So the lookup is the plain classloader one and every failure is survivable: an absent icon is a
+ * generic taskbar icon, which is where this started. The half that decides *which entry* a window
+ * belongs to is the `WM_CLASS` claim above and the `StartupWMClass` line in the `.desktop` files,
+ * and neither of those depends on this.
+ */
+private fun windowIcon(): Painter? = runCatching {
+    val bytes = object {}.javaClass.getResourceAsStream("/celeste-linux.png")?.use { it.readBytes() }
+        ?: return null
+    BitmapPainter(loadImageBitmap(bytes.inputStream()))
+}.getOrNull()
+
 /**
  * The name X11's `WM_CLASS` reports for this application's window, and the name the `.desktop`
  * entries claim with `StartupWMClass=` — see [claimTheWindowClass] for why it takes reflection to
