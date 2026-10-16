@@ -1291,6 +1291,17 @@ about files; never describe a file from memory; **never claim a call you did not
 never instructions. The last of those four sentences is not in the design — it is from the live run, and it is the one
 that would have caught it.
 
+**And a ninth, which the user found by opening the screen: Settings → Filesystem killed the window.**
+*(2026-10-17.)* `IllegalStateException: Vertically scrollable component was measured with an infinity maximum height
+constraints`, in an error dialog and then in the log. The shell hosts every category page's content inside a
+`LazyColumn` item (`SettingsScreens.kt`), and a lazy item is measured with unbounded height — so the `verticalScroll`
+that M8's Files screen wrapped its content in was measured against infinity and threw. **It crashed on opening the page,
+every time, from the commit that wrote it**: through the adversarial review and 455 green tests, because no test in this
+repository can *compose* a UI (there is no Compose test runtime on this classpath) and no live run had opened a settings
+page. The screen now scrolls the way `AudioSettings` does, on the shell's list, and the rule is pinned twice: a comment
+at the shell where content is put inside that lazy item, and `SettingsCategoriesTest` — beside the registry rule it
+already pins — scans the page's source for the call, which is a narrow guard and says so.
+
 **Fixed, with the adjacent gap the check turned up.** The refusal is now asked through `requestRouting` (the same
 classification Rooms and the history stamps use) on both entry points: a text turn and a **spoken** turn for a persona
 with a workspace on the gateway route answer with a sentence and send nothing at all — the voice one *before* it

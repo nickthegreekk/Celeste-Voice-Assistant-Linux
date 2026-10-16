@@ -7,8 +7,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
@@ -57,8 +55,14 @@ internal fun FsToolSettings(service: AssistantService, contentPadding: Int = 16)
         audit = readFsToolAudit(service.appEnv.stateDir, FS_AUDIT_ROWS)
     }
 
+    // **No scroll of its own.** This page is rendered inside the settings shell's `LazyColumn`
+    // item (`SettingsScreens.kt`), and a lazy item is measured with unbounded height — so a
+    // `verticalScroll` here is measured against infinity and Compose throws
+    // "Vertically scrollable component was measured with an infinity maximum height constraints".
+    // It did, every time this page was opened, until the first live run that opened it. The shell
+    // scrolls; a category page does not. `ModelPicker` records the same rule for the same reason.
     Column(
-        modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(contentPadding.dp),
+        modifier = Modifier.fillMaxWidth().padding(contentPadding.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Text("Filesystem tools", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)

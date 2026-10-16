@@ -547,6 +547,13 @@ private fun SettingsCategoryScreen(
         }
         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f))
 
+        // **Every category page is hosted inside a lazy item, and a lazy item is measured with
+        // unbounded height.** So a page's content must not bring a scroller of its own: a
+        // `verticalScroll` here is measured against infinity and Compose throws
+        // "Vertically scrollable component was measured with an infinity maximum height
+        // constraints", which kills the window on opening that page. M8's Filesystem page did
+        // exactly that and crashed every time it was opened; `SettingsCategoriesTest` pins the rule
+        // so the next page cannot, and `ModelPicker` states it one host up.
         LazyColumn(
             modifier = Modifier
                 .weight(1f)
