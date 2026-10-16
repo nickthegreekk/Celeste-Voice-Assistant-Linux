@@ -33,14 +33,25 @@ import java.util.concurrent.atomic.AtomicReference
  * [synthesizeLocal] is a function that returns a value and [speakSystem] is one that takes a
  * callback. Flattening the two would lose the duration the UI reveal is built on.
  *
+ * The local engine has one behaviour worth recording because it looks like a silent failure and is
+ * not one: `espeak-ng -v <unknown>` exits 0, writes nothing to stderr, and *speaks in its default
+ * voice* — measured, 9,642 non-zero bytes of real audio for `-v no-such-voice`. So a language whose
+ * code this build of eSpeak lacks is spoken with English phonetics rather than left unspoken, which
+ * is the engine's call to make. It is written down so that the next person to see accented English
+ * out of a Greek persona looks at the voice table instead of at this class.
+ *
  * ## Missing tools are `false` and `null`, never an exception
  *
- * This machine has neither `spd-say` nor `espeak-ng` installed — `speech-dispatcher` and
- * `espeak-ng` are Extra packages — so this class is, as of writing, exercised only on that path.
- * That is the contract's own requirement rather than an accident: "Both routes return null (local)
- * or false (system) when the engine is missing or refuses, because the caller's response is the
- * same either way: release the audio focus this turn retained and land in IDLE." An engine that
- * threw would turn a missing package into a failed turn.
+ * "Both routes return null (local) or false (system) when the engine is missing or refuses, because
+ * the caller's response is the same either way: release the audio focus this turn retained and land
+ * in IDLE." An engine that threw would turn a missing package into a failed turn.
+ *
+ * This paragraph was written when the development box had neither package installed and the missing
+ * path was the only one that could be exercised. Both are now installed — speech-dispatcher 0.12.1
+ * and espeak-ng 1.52.0 — and both happy paths have been run: the system route through a
+ * socket-activated daemon, and the local route through the streaming WAV that [parseSpeechWav]
+ * documents. The failure path is still the one that needs an argument rather than an anecdote, and
+ * [probe]'s caching note is where it is made.
  *
  * ## The once-only local engine, and where it went
  *
@@ -65,17 +76,37 @@ class ProcessTextToSpeech(
     private val speaking = AtomicReference<Utterance?>()
 
     /**
-     * Resolved once. `spd-say` is probed rather than assumed, because a binary on `PATH` with no
-     * speech-dispatcher daemon running is a binary that fails at every utterance.
+     * The probed tool, **remembered only when the probe succeeded**.
+     *
+     * `by lazy` was the first version and it was wrong in the direction that costs a session: it
+     * caches a *failure* as faithfully as a success, so one bad probe — a daemon still starting, a
+     * socket-activated service answering late, a transient `PATH` hiccup — would have judged the
+     * voice unavailable until the process exited. There is no retry anywhere above this: the caller
+     * checks [systemReady] once per turn and lands in IDLE when it is false.
+     *
+     * So a success is cached for the life of the process, because a tool that worked will keep
+     * working and re-probing per utterance would be a process spawn per reply. A failure is **not**
+     * cached: the next call probes again. The cost of that is one `--version` per attempt on a
+     * machine with no engine installed, which is a few milliseconds against an HTTP request already
+     * in flight — and the benefit is that installing the package mid-session starts working on the
+     * next reply rather than on the next launch.
      */
-    private val systemPlayer: Command? by lazy { probe(SYSTEM_CANDIDATES) }
+    @Volatile
+    private var systemPlayerCache: Command? = null
 
-    private val localSynth: Command? by lazy { probe(LOCAL_CANDIDATES) }
+    @Volatile
+    private var localSynthCache: Command? = null
 
-    override val systemReady: Boolean get() = systemPlayer != null
+    private fun systemPlayer(): Command? =
+        systemPlayerCache ?: probe(SYSTEM_CANDIDATES)?.also { systemPlayerCache = it }
+
+    private fun localSynth(): Command? =
+        localSynthCache ?: probe(LOCAL_CANDIDATES)?.also { localSynthCache = it }
+
+    override val systemReady: Boolean get() = systemPlayer() != null
 
     override fun speakSystem(text: String, utteranceId: String, onEnd: (PlaybackEnd) -> Unit): Boolean {
-        val tool = systemPlayer
+        val tool = systemPlayer()
         if (tool == null) {
             logger.w(TAG, "no system speech engine — install speech-dispatcher (spd-say)")
             return false
@@ -109,7 +140,7 @@ class ProcessTextToSpeech(
     }
 
     override fun synthesizeLocal(text: String, voice: String): SpeechSamples? {
-        val tool = localSynth
+        val tool = localSynth()
         if (tool == null) {
             logger.w(TAG, "no local speech engine — install espeak-ng")
             return null
@@ -135,7 +166,7 @@ class ProcessTextToSpeech(
                 logger.e(TAG, "espeak-ng exited ${process.exitValue()} with ${wav.size} bytes")
                 return null
             }
-            parseWav(wav)
+            parseSpeechWav(wav, logger)
         } catch (e: Exception) {
             logger.e(TAG, "local synthesis failed: ${e.message}")
             null
@@ -176,58 +207,6 @@ class ProcessTextToSpeech(
             }
         }
         return null
-    }
-
-    /**
-     * The WAV `espeak-ng --stdout` produces.
-     *
-     * Chunk-walking rather than assuming a 44-byte header, because that assumption holds only for
-     * the files this project writes itself and this one is written by a program with its own idea
-     * of where to put a `LIST` chunk. The scan is the ordinary RIFF walk: read the format from
-     * `fmt `, take the payload from `data`, skip anything else by its declared size. A chunk size
-     * that would run past the end is treated as corruption rather than trusted, since the loop
-     * advances by that number.
-     */
-    private fun parseWav(wav: ByteArray): SpeechSamples? {
-        if (wav.size < 12 || String(wav, 0, 4) != "RIFF" || String(wav, 8, 4) != "WAVE") {
-            logger.e(TAG, "espeak-ng did not produce a RIFF/WAVE stream")
-            return null
-        }
-        var pos = 12
-        var sampleRate = 0
-        var bits = 0
-        var channels = 0
-        var payload: ByteArray? = null
-        while (pos + 8 <= wav.size) {
-            val id = String(wav, pos, 4)
-            val size = ByteBuffer.wrap(wav, pos + 4, 4).order(ByteOrder.LITTLE_ENDIAN).int
-            if (size < 0 || pos + 8 + size > wav.size) break
-            val body = pos + 8
-            when (id) {
-                "fmt " -> if (size >= 16) {
-                    channels = ByteBuffer.wrap(wav, body + 2, 2).order(ByteOrder.LITTLE_ENDIAN).short.toInt()
-                    sampleRate = ByteBuffer.wrap(wav, body + 4, 4).order(ByteOrder.LITTLE_ENDIAN).int
-                    bits = ByteBuffer.wrap(wav, body + 14, 2).order(ByteOrder.LITTLE_ENDIAN).short.toInt()
-                }
-                "data" -> payload = wav.copyOfRange(body, body + size)
-            }
-            // Chunks are word-aligned: an odd size is followed by a pad byte.
-            pos = body + size + (size and 1)
-        }
-
-        val data = payload
-        if (data == null || sampleRate <= 0 || data.isEmpty()) {
-            logger.e(TAG, "espeak-ng's WAV had no usable data chunk")
-            return null
-        }
-        if (channels != 1 || bits != 16) {
-            // The seam's contract is mono signed 16-bit, and `AudioPlayback.playPcm` will play what
-            // it is given. A stereo or 8-bit stream is a different contract, not a different
-            // platform, so it is refused rather than silently misplayed as noise.
-            logger.e(TAG, "espeak-ng produced ${channels}ch/${bits}bit, expected mono 16-bit")
-            return null
-        }
-        return SpeechSamples(pcm = data, sampleRate = sampleRate)
     }
 
     private companion object {
@@ -313,4 +292,82 @@ private fun java.io.InputStream.readBytesAsync(): Thread {
     thread.isDaemon = true
     thread.start()
     return thread
+}
+
+private const val WAV_TAG = "ProcessTextToSpeech"
+
+/**
+ * The WAV `espeak-ng --stdout` produces.
+ *
+ * Chunk-walking rather than assuming a 44-byte header, because that assumption holds only for the
+ * files this project writes itself and this one is written by a program with its own idea of where
+ * to put a `LIST` chunk. The scan is the ordinary RIFF walk: read the format from `fmt `, take the
+ * payload from `data`, skip anything else by its declared size.
+ *
+ * Top-level and `internal` so a test can hand it synthetic bytes: every failure this function can
+ * have is a *parsing* failure, and requiring a real `espeak-ng`, real audio and a real machine to
+ * reach one would leave them all unexercised.
+ *
+ * ## A `data` size that runs past the end is a placeholder, not corruption
+ *
+ * `espeak-ng --stdout` writes to a pipe, and a pipe cannot be seeked back into, so the size it
+ * stamps into the `data` header at the start is one it can never correct when the synthesis ends.
+ * Measured on the development box: the header reads `RIFF$\xf0\xff\x7fWAVE`, with `data` declaring
+ * 2,147,479,552 bytes in a 76,284-byte stream (1.729 s of 22050 Hz mono). The first version of this
+ * parser applied the same bounds check to every chunk, declared the file corrupt and logged "no
+ * usable data chunk" — leaving the local route dead on a machine where `espeak-ng` works perfectly.
+ *
+ * The streaming convention is the fix: **a `data` chunk says "the samples start here", and
+ * everything to the end of the stream is payload.** So the declared size is honoured when it fits
+ * and ignored when it does not; a declaration larger than the file can only mean the writer never
+ * patched it. Nothing else is trusted that way — a `fmt ` chunk that runs past the end is still
+ * corruption, because the walk advances by that number and no convention makes it mean anything
+ * else.
+ *
+ * Reading to the end is safe because the caller has already reaped the process: the bytes it read
+ * are the whole of what was written, so there is no in-flight truncation that could be mistaken for
+ * a short `data` chunk.
+ */
+internal fun parseSpeechWav(wav: ByteArray, logger: AppLogger): SpeechSamples? {
+    if (wav.size < 12 || String(wav, 0, 4) != "RIFF" || String(wav, 8, 4) != "WAVE") {
+        logger.e(WAV_TAG, "espeak-ng did not produce a RIFF/WAVE stream")
+        return null
+    }
+    var pos = 12
+    var sampleRate = 0
+    var bits = 0
+    var channels = 0
+    var payload: ByteArray? = null
+    while (pos + 8 <= wav.size) {
+        val id = String(wav, pos, 4)
+        val size = ByteBuffer.wrap(wav, pos + 4, 4).order(ByteOrder.LITTLE_ENDIAN).int
+        val body = pos + 8
+        if (id == "data") {
+            val available = wav.size - body
+            payload = wav.copyOfRange(body, body + if (size in 0..available) size else available)
+            break
+        }
+        if (size < 0 || body + size > wav.size) break
+        if (id == "fmt " && size >= 16) {
+            channels = ByteBuffer.wrap(wav, body + 2, 2).order(ByteOrder.LITTLE_ENDIAN).short.toInt()
+            sampleRate = ByteBuffer.wrap(wav, body + 4, 4).order(ByteOrder.LITTLE_ENDIAN).int
+            bits = ByteBuffer.wrap(wav, body + 14, 2).order(ByteOrder.LITTLE_ENDIAN).short.toInt()
+        }
+        // Chunks are word-aligned: an odd size is followed by a pad byte.
+        pos = body + size + (size and 1)
+    }
+
+    val data = payload
+    if (data == null || sampleRate <= 0 || data.isEmpty()) {
+        logger.e(WAV_TAG, "espeak-ng's WAV had no usable data chunk")
+        return null
+    }
+    if (channels != 1 || bits != 16) {
+        // The seam's contract is mono signed 16-bit, and `AudioPlayback.playPcm` will play what it
+        // is given. A stereo or 8-bit stream is a different contract, not a different platform, so
+        // it is refused rather than silently misplayed as noise.
+        logger.e(WAV_TAG, "espeak-ng produced ${channels}ch/${bits}bit, expected mono 16-bit")
+        return null
+    }
+    return SpeechSamples(pcm = data, sampleRate = sampleRate)
 }

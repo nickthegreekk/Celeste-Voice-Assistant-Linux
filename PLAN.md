@@ -647,7 +647,16 @@ already lists both as runtime dependencies of the finished app, so this is a gap
 a new requirement. **The machine also has no default capture device:** WirePlumber answers "no target node
 available" to a bare `pw-record`, which is why the fallback above exists and why it logs the device it chose.
 Setting one is the machine's business rather than the app's — `wpctl set-default alsa_input.pci-0000_2f_00.4.analog-stereo`
-— and it makes the app's behaviour predictable instead of dependent on enumeration order. a new requirement.]
+— and it makes the app's behaviour predictable instead of dependent on enumeration order.
+
+[Seam 6's happy paths ran, 2026-10-16: `speech-dispatcher` 0.12.1 and `espeak-ng` 1.52.0 are installed and the
+socket unit is enabled. Both routes are verified on the development box. The system route reported `Finished` twice,
+3,192 ms on the first call — the cold socket activation — and 1,717 ms warm, with `systemReady` still true
+afterwards, which is the cache holding the success. The local route returns 76,240 bytes at 22,050 Hz, 1,728 ms,
+and round-trips through `WavFile`/`wavDurationSeconds` as 76,284 bytes / 1.73 s. Two findings are now in the code
+rather than in this note: the probe cache stores success and re-probes failure (DECISIONS.md, 2026-10-16), and
+`espeak-ng --stdout` writes a streaming WAV whose `data` size is a placeholder it can never patch — see
+`parseSpeechWav`. Both were the difference between a working route and a route that judged the voice missing.]
 
 **M3 — Images and files (3–4 d).** ComfyUI + A1111, workflow library and per-character binding,
 image viewer, attachments, backup export/import round trip.

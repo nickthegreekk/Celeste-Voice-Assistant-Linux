@@ -291,3 +291,19 @@ Measured: M0 cost 0.22 USD for 15.5M tokens, about 96% cache-hit input, so the w
 single-digit dollars. The earlier "stop if M0+M1 exceed 10 USD" rule is retired; the checkpoints exist to catch
 scope creep, not spend. Correctness is the constraint — every defect found so far came from compiling and
 executing, not from reading the plan. → AGENTS.md §8
+
+## 2026-10-16 — A failed tool probe is never cached
+
+Four seams decide "is the helper installed" by running it once, and caching the answer. Three cache a
+*failure* as faithfully as a success, which is how a cold start gets mistaken for a missing package:
+`espeak-ng` was judged absent for a session because a socket-activated `spd-say` answered slowly on the
+first call, and `by lazy` has no way to be told the difference. The rule is now: **a success is cached
+for the life of the process, a failure is not — the next call probes again.** Applied to
+`ProcessTextToSpeech` (fixed: was `val … by lazy`); already true of `PwPlayback.detect()` and
+`ProcessAudioCapture.detect()`, which assign the null and so re-probe by construction.
+
+`NotifySendNotifier` keeps its `by lazy`, deliberately and not by omission: its probe is
+`Files.isExecutable` over `$PATH` — a stat with no cold state behind it, so a `false` is a true answer
+about the filesystem rather than a transient one, and the cost of the remaining case (installing
+libnotify mid-session) is one dropped transitory notification. The distinction is process-probe versus
+filesystem-probe, and it is a distinction rather than an exemption. → AGENTS.md §9.6, PLAN.md §5 seam 6
