@@ -456,6 +456,17 @@ M2 implementation - instead of leaving 240 lines of tuned behaviour unchecked un
 **Latency budget to verify in M2:** capture start to first chunk < 50 ms; utterance end to WAV on
 disk < 100 ms; WAV to `/transcribe` to reply to first audio out is dominated by the gateway and the
 model.
+[Measured on the user's own run, 2026-10-16 — `grep -E 'capture start|utterance end'`, because the logger is
+a single facade and the message text never contains the class name: `capture start → first chunk: 404 ms (open
+404 ms, first read 0 ms)` on all three armings, and `utterance end → WAV: 0-1 ms` on all four utterances,
+72-115 KB each. So the second budget passes with 100 ms to spare and the first misses by 354 ms, and every
+millisecond of the miss is `open` — the deliberate 400 ms liveness grace in `ProcessAudioCapture.open`, not the
+subprocess spawn this section's risk row worried about. Two things the numbers settle. Capture is opened **per
+arming, not per utterance**: three opens against four utterances in one run, so the 404 ms is paid when listening
+starts rather than on every turn. And the span the user actually feels is the *resume* after playback, which this
+section never named. The budget as written measures the wrong moment for a design that spawns a process: state it
+as arming and resume, and keep the grace, whose cost is invisible exactly where it is paid.]
+
 
 ## 7. File-by-file migration map
 
@@ -762,7 +773,7 @@ already lists both as runtime dependencies of the finished app, so this is a gap
 a new requirement. **The machine also has no default capture device:** WirePlumber answers "no target node
 available" to a bare `pw-record`, which is why the fallback above exists and why it logs the device it chose.
 Setting one is the machine's business rather than the app's — `wpctl set-default alsa_input.pci-0000_2f_00.4.analog-stereo`
-— and it makes the app's behaviour predictable instead of dependent on enumeration order. (Both packages landed on 2026-10-16 and both voice routes were verified end to end afterwards. **Bluetooth profile lore, measured by the user on 2026-10-16:** opening a Bluetooth headset's microphone switches it to HFP/HSP, which costs the *output* quality — "HSP/HSP=bad, A2DP/SBC-XQ=perfect" — because one radio carries one profile at a time. Two ways to keep both: the picker now allows separate input and output, so the headset's mic can record while playback goes to another sink (the analog jack), or a wired headset avoids the trade entirely and removes Bluetooth's own delay from the round-trip latency. The headset's HFP profile offers **CVSD only** — no `headset-head-unit-msbc` is listed, so wideband HFP (16 kHz) is unavailable on this hardware and the microphone's ceiling is 8 kHz narrowband, which is the oldest and narrowest codec in the family. The A2DP side is already at its best: `a2dp-sink-sbc_xq` active, with WirePlumber marking the headset as the default sink. Neither is a port defect, and the acceptance should be run in the configuration the user can live with rather than the one that happens to be default.)
+— and it makes the app's behaviour predictable instead of dependent on enumeration order. (Both packages landed on 2026-10-16 and both voice routes were verified end to end afterwards. **Bluetooth profile lore, measured by the user on 2026-10-16:** opening a Bluetooth headset's microphone switches it to HFP/HSP, which costs the *output* quality — "HSP/HSP=bad, A2DP/SBC-XQ=perfect" — because one radio carries one profile at a time. Two ways to keep both: the picker now allows separate input and output, so the headset's mic can record while playback goes to another sink (the analog jack), or a wired headset avoids the trade entirely and removes Bluetooth's own delay from the round-trip latency. The headset's HFP profile offers **CVSD only** — no `headset-head-unit-msbc` is listed, so wideband HFP (16 kHz) is unavailable on this hardware and the microphone's ceiling is 8 kHz narrowband, which is the oldest and narrowest codec in the family. The A2DP side is already at its best: `a2dp-sink-sbc_xq` active, with WirePlumber marking the headset as the default sink. Neither is a port defect, and the acceptance should be run in the configuration the user can live with rather than the one that happens to be default.) **Open from the same run:** `Chunked playback failed — chunk 0 could not be synthesised` in three of the turns with no reason logged — the reply was simply not spoken, and the cause is discarded the same way the Ollama 400's was; and `Recording error: StandaloneCoroutine was cancelled` logged at SEVERE although nothing failed, which will make every stop look like a fault.
 
 [Seam 6's happy paths ran, 2026-10-16: `speech-dispatcher` 0.12.1 and `espeak-ng` 1.52.0 are installed and the
 socket unit is enabled. Both routes are verified on the development box. The system route reported `Finished` twice,
