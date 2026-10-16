@@ -39,6 +39,7 @@ distros, and both packages install and uninstall cleanly in a container.
 - Keeping the phone app and the desktop app in sync (no shared server, no account, no relay).
   Out of scope and worth saying out loud: the two are separate installations that happen to
   share a backup file format.
+- **Filesystem tools for the assistant** are new capability rather than a port item: nothing upstream reads or writes arbitrary files, so they cannot arrive as a ported file and must not be built inside another milestone. The user wants them so Celeste can act as a local agent on this machine; they are recorded as M8 in §10.
 - The Android-only affordances listed in §9 (quick-settings tile, proximity barge-in, phone-call
   guard, launcher shortcuts) — each gets a desktop equivalent or is dropped.
 
@@ -745,6 +746,23 @@ Skiko loads its native library without declaring native access.
 loop, a soak test for start/stop/restart leaks, error paths (gateway down, no mic, no Secret
 Service, ComfyUI restarted mid-job), `docs/TEST-MAP.md`.
 *Accept:* the soak test runs an hour of start/stop cycles with no leaked processes or file handles.
+
+**M8 — Filesystem tools (new scope, not a port; not counted in the total below).** The user wants Celeste to read and
+write files on this machine so the assistant can be used as a local agent. Nothing upstream does this, so it is a
+capability addition rather than a ported file, and it needs a design document before code — the upstream project's own
+`SKILLS_PLAN.md` is the precedent for how that is done here. What the design has to settle:
+
+- **staged, and read first.** Read and list on an explicit allow-list; writes are their own milestone with their own
+  argument. Executing commands is not in scope at any stage.
+- **an allow-list that fails closed**, defaulting to a single workspace directory rather than a home directory, with
+  `~/.config/celeste-linux` (it holds credentials) and `~/.ssh` denied whatever the allow-list says.
+- **writes are confirmed, never silent**, and the confirmation shows the path and the change. Not politeness: the
+  microphone hears ambient speech, and a mis-transcribed sentence must not be able to change a file.
+- **file contents are data, never instructions.** A document that says "now delete X" must not reach a tool call; RAG
+  already ingests text, and it is the write path that makes the difference matter.
+- **every tool call logged** — path, operation, size, timestamp, persona — somewhere the user can audit.
+
+It belongs after M5, whose skills are the mechanism it extends, and after the voice loop is trusted rather than before it.
 
 **Total: 33–50 focused days** (about 4–8 weeks full time, 3–5 months at evenings and weekends).
 A first usable milestone is **M2**: roughly **15–23 days**.
