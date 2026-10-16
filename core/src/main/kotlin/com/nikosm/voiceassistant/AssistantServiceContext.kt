@@ -29,6 +29,14 @@ internal const val SUGGESTED_REPLIES_TAG = "AssistantService"
 internal suspend fun AssistantService.fetchWebSearchContext(query: String): String {
     var searxngUrl = settingsManager.getSearxngUrl()
     if (searxngUrl.isNullOrBlank()) return ""
+
+    // An empty query is not a search. Measured on the development instance: `?q=&format=json`
+    // answers `400 {"error":"No query"}`, while every populated query answers 200 in every format
+    // (json included). A blank query arrives from a turn with no text — an image-only turn, or a
+    // silent one — where a search could not have helped anyway, so it is skipped rather than sent
+    // and complained about. `isNewsRequest` above already routes real news queries elsewhere.
+    if (query.isBlank()) return ""
+
     if (!searxngUrl.startsWith("http")) searxngUrl = "http://$searxngUrl"
 
     // S4: logs the search query (and the private SearXNG URL) — debug only.
@@ -43,7 +51,10 @@ internal suspend fun AssistantService.fetchWebSearchContext(query: String): Stri
 
             client.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) {
-                    logger.e("AssistantService", "SearXNG search failed: ${response.code}")
+                    // The instance's own words, not a bare code: its 400s carry
+                    // `{"error":"No query"}`, and a body it does not recognise contributes
+                    // nothing rather than a raw dump (see serverFailure).
+                    logger.e("AssistantService", serverFailure("SearXNG search failed", response))
                     return@withContext ""
                 }
                 val json = JSONObject(response.body.string())

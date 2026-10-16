@@ -352,3 +352,24 @@ caller. Every HTTPS request failed hostname verification; plain HTTP worked, whi
 the line restores OkHttp's default, which is the verifier Android's call returned, so this preserves S1's intent
 rather than relaxing it — `PinnedClientTlsTest`'s third case fails if hostname checking is weakened instead.
 → PLAN.md §5 (the family's fourth member), §10 M2, docs/PROVENANCE.md
+
+## 2026-10-16 — A server's refusal carries the server's words, but only its error field
+
+A 400 from the direct-Ollama path logged as `Ollama error: 400` and nothing else, in the same second as an
+unrelated SearXNG 400 — two failures that could not be told apart from their own messages. Both bodies said
+exactly what was wrong: `{"error":"Multimodal data provided, but model does not support multimodal requests."}`
+and `{"error":"No query"}`. `serverFailure(prefix, response)` now appends the server's reason, truncated to
+200 characters and flattened to one line, at the Ollama, Anthropic, Gemini, OpenAI and gateway call sites and
+in the SearXNG path.
+
+**Only the error field is read — never the raw body.** The suggestion paths in AssistantServiceChat.kt already
+carry an S4 note saying why: a server's raw error body can echo the user's conversation back, and that is why
+they log it at DEBUG only. This message is not DEBUG-gated; the user sees it *and* journald keeps it. So
+`serverErrorReason` walks `error` → `message` → `detail`, unwraps a value that is itself JSON (Ollama nests
+`{"error":{"code":400,"message":…}}` inside a string), and returns **null** for anything else — an HTML error
+page contributes nothing and the message stays status-only. `ServerErrorReasonTest` asserts both directions.
+
+Also fixed on the same path: an empty query is no longer sent to SearXNG. Measured on the development
+instance, a blank `q` is the only thing that produces a 400 (`{"error":"No query"}`) — every populated query
+answers 200 whatever the format, including json — and a blank query only arrives from a turn with no text.
+The guard turns a pointless request and an alarming log line into nothing at all. → PLAN.md §5 seam rules

@@ -491,7 +491,7 @@ internal fun AssistantService.sendAudioToServer(file: Path, currentPersona: Pers
                     currentCall = call
                     try {
                         call.execute().use { response ->
-                            if (!response.isSuccessful) throw Exception("Server error: ${response.code}")
+                            if (!response.isSuccessful) throw Exception(serverFailure("Server error", response))
 
                             val contentType = response.header("Content-Type") ?: ""
                             val uText = response.decodeTextHeader("X-User-Text-B64", "(voice message)")
@@ -905,7 +905,7 @@ internal fun AssistantService.sendTextMessageToServer(inputText: String, current
                     currentCall = call
                     try {
                         call.execute().use { response ->
-                            if (!response.isSuccessful) throw Exception("Server error: ${response.code}")
+                            if (!response.isSuccessful) throw Exception(serverFailure("Server error", response))
 
                             val contentType = response.header("Content-Type") ?: ""
                             _lastWorkingBase.value = base
@@ -1585,7 +1585,7 @@ internal suspend fun AssistantService.performDirectOllamaChat(baseUrl: String, m
     currentCall = call
     try {
         call.execute().use { response ->
-            if (!response.isSuccessful) throw Exception("Ollama error: ${response.code}")
+            if (!response.isSuccessful) throw Exception(serverFailure("Ollama error", response))
 
             // Stage-1 streaming: read the NDJSON line by line. Each line carries
             // an incremental message.content delta (and message.thinking deltas
@@ -2395,7 +2395,7 @@ Do you want a summary?
                         json.put("messages", JSONArray().put(JSONObject().put("role", "user").put("content", promptText)))
                         val req = Request.Builder().url("$baseUrl/v1/messages").header("x-api-key", apiSetting.apiKey).header("anthropic-version", "2023-06-01").header("content-type", "application/json").post(json.toString().toRequestBody(mediaType)).build()
                         suggestionClient.newCall(req).execute().use { resp ->
-                            if (!resp.isSuccessful) throw Exception("Anthropic error: ${resp.code}")
+                            if (!resp.isSuccessful) throw Exception(serverFailure("Anthropic error", resp))
                             val bodyStr = resp.body.string()
                             val resJson = JSONObject(bodyStr)
                             val content = resJson.getJSONArray("content")
@@ -2414,7 +2414,7 @@ Do you want a summary?
                         json.put("system_instruction", JSONObject().put("parts", JSONArray().put(JSONObject().put("text", systemInstruction))))
                         val req = Request.Builder().url("$baseUrl/v1beta/models/$actualModel:generateContent").header("x-goog-api-key", apiSetting.apiKey).post(json.toString().toRequestBody(mediaType)).build()
                         suggestionClient.newCall(req).execute().use { resp ->
-                            if (!resp.isSuccessful) throw Exception("Gemini error: ${resp.code}")
+                            if (!resp.isSuccessful) throw Exception(serverFailure("Gemini error", resp))
                             val bodyStr = resp.body.string()
                             val resJson = JSONObject(bodyStr)
                             val candidate = resJson.getJSONArray("candidates").getJSONObject(0)
@@ -2435,7 +2435,7 @@ Do you want a summary?
                         val url = if (baseUrl.endsWith("/chat/completions")) baseUrl else "$baseUrl/chat/completions"
                         val req = Request.Builder().url(url).header("Authorization", "Bearer ${apiSetting.apiKey}").post(json.toString().toRequestBody(mediaType)).build()
                         suggestionClient.newCall(req).execute().use { resp ->
-                            if (!resp.isSuccessful) throw Exception("OpenAI error: ${resp.code}")
+                            if (!resp.isSuccessful) throw Exception(serverFailure("OpenAI error", resp))
                             val bodyStr = resp.body.string()
                             val resJson = JSONObject(bodyStr)
                             resJson.getJSONArray("choices").getJSONObject(0).getJSONObject("message").optString("content")
