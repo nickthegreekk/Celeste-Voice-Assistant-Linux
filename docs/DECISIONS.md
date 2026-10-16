@@ -692,3 +692,59 @@ long persona name, because the name is drawn flush to the frame's edge. Both fil
 edit rather than a COPY demotion, recorded in docs/PROVENANCE.md as the deviation from upstream's appearance that it is.
 
 → PLAN.md §10/M6; docs/PROVENANCE.md
+
+## 2026-10-16 — M8: native tool calling, the zero-COPY constraint, and a gate that never guesses
+
+The filesystem-tools milestone (PLAN.md §10/M8), ten commits. The forks worth recording, in the order
+they were taken.
+
+**Native tool calling on all four providers, not a fenced JSON block in the prompt.** Prompt-based was
+cheaper to build — one dialect instead of four — and was rejected for a reason specific to this app:
+the model's prose **streams into a chat bubble as it arrives**, so a call written inside the prose would
+be rendered before anything could parse it, and the fix for that is buffering every reply. Native also
+puts the call in a structural channel rather than in text the user can see, and all four providers
+constrain the arguments, so there is no repair pass for a malformed call. The cost was four declaration
+shapes and four result shapes, which is what `FsToolProtocol.kt` is.
+
+**Two COPY files constrain the whole design, and the constraint is load-bearing.**
+`AssistantServiceRoomTurns.kt` calls `performDirectOllamaChat` and reads its `Triple` return;
+`AssistantServiceSpontaneous.kt` calls `resolveHistoryBudget`. So that signature and return type are
+frozen, every new parameter is **defaulted** (`toolSink`, `extraFixed`, `TurnContext.toolTurns`,
+`TurnContext.fsToolMode`), and **the entire milestone touches no COPY file** — which is its own
+acceptance test. The consequence is a real narrowing: **tools are offered in the main chat only**, and
+the reason is safety as much as compilation — a room turn has no single user to answer a write
+confirmation, and an autonomous turn must never write a file at all.
+
+**Tool turns are never persisted.** The calls and results live in the in-flight request only; the
+transcript gets the final reply. Persisting them would re-send a file's contents with every later turn:
+a privacy cost on a cloud provider, a token cost on a small local model, and one more chance for a
+document to be read as instructions. It also avoids foreign `role`s reaching renderers, TTS, replay,
+the 200-message cap and the backup.
+
+**A tool-only turn answers with a sentence.** "I used 2 file operations and have nothing to add." An
+empty bubble is worse than a sentence, and the sentence flows through the ordinary apply block — so it
+is spoken, which is what a hands-free user gets instead of silence.
+
+**The turn's tool output is capped at 64 KiB**, deliberately far below the per-read cap times the round
+cap: that output is *tokens* in the next request, and 256 KiB is roughly 64k of them, which would not
+fit beside a conversation on the local models this port is aimed at.
+
+**In containment, the exclusion is asked before the workspace boundary.** A symlink aimed at `~/.ssh`
+reports "always excluded", not "outside the workspace" — the more specific refusal is the more useful
+sentence, both for the model that reads the result and for whoever reads the audit line. Found by a
+test that asserted the wrong reason and was right to.
+
+**A corrupted per-persona mode resolves to `OFF`, never to "follow the global".** The global may be
+read-write, so following it would let a corrupted byte *widen* access; the decoder's deny-everything
+fallback is the only safe direction, and the asymmetry is commented where it lives.
+
+**The write gate never guesses.** Allow only on the button; **dismissal denies**, an unanswered
+confirmation **times out to deny**, and a superseded turn denies the pending write — so a stale dialog
+can never approve anything, and a hands-free utterance arriving while the prompt is up fails safe.
+Trust is per root, in memory, never persisted: a value that survives a restart is a value that survives
+a backup, and this one must not. **Writes were refused outright from commit 7 to commit 9**, because
+the gate existed and nothing could answer it — a staged milestone's honest intermediate state rather
+than an accident, and the reason the confirmation dialog is in the same milestone as the executor.
+
+→ PLAN.md §10; `FsWorkspace.kt`, `FsToolProtocol.kt`, `FsToolExecutor.kt`, `FsToolAudit.kt`,
+`AssistantServiceFsTools.kt`, `FsToolScreens.kt`

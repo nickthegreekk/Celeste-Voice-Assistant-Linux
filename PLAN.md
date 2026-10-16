@@ -1226,6 +1226,28 @@ frame are **square** now, on request: the header's rounded clip was cutting into
 a frame that eats the first letter of the thing it frames is not a style. Both are in ADAPT files, so both are recorded as
 deliberate deviations from upstream's appearance rather than as ports (docs/PROVENANCE.md).
 
+**[2026-10-16, M8 — the filesystem tools, built.]** Ten commits, 25 files, ~3,000 lines, and **not one COPY
+file touched** — which was the constraint that shaped the design rather than a happy accident: two COPY files call
+into the code this milestone rewrote (`AssistantServiceRoomTurns.kt` reads `performDirectOllamaChat`'s `Triple`;
+`AssistantServiceSpontaneous.kt` calls `resolveHistoryBudget`), so those signatures are frozen and every new
+parameter is defaulted. The narrowing that follows is deliberate and is also the safe answer: **tools are offered in
+the main chat only** — a room turn has no one user to answer a write confirmation, and an autonomous turn must never
+write a file.
+
+What landed: containment decided on resolved paths (symlinks on both ends, writes resolving the parent, the excluded
+paths asked before the workspace boundary so a link aimed at the keys says so); the settings family with all three
+lifecycle legs; the four provider dialects both ways; the executor with its caps, its atomic write and its JSONL
+audit under `stateDir` — the first tenant of a directory README has documented since M1; two bounded loops around the
+unchanged single-turn functions; the Settings screen, the persona section, the write confirmation and the **first
+snackbar host this application has had**, which is what finally makes `notifyUser` visible.
+
+What is *not* proven yet is the half that only a run can prove: the two loops and the two screens have no unit test
+between them, because this repository has no fake provider server and each commit says so rather than implying
+otherwise. 427 `:core` tests and 57 `:platform` tests cover everything either side of them. **The live run is the
+acceptance**: a persona on a model whose capabilities include `tools`, a scratch folder, then a read, a write that
+asks and then stops asking once trusted, and — the negative case — a gateway persona refusing in words rather than
+answering about a file it cannot read.
+
 That leaves **M7 (hardening)**, which is an estimate rather than a measurement, and therefore where the remaining percentage is
 softest.
 entries, the rooms screens, and the spontaneous controls in the persona editor.

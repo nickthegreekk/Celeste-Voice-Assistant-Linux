@@ -107,3 +107,13 @@ which needs one line of that scheme (`alternateSpontaneousSlot`, pinned by `Spon
 names to check. What the port gained is the policy itself — windows, gap, caps, counters, the next-attempt arithmetic
 and the preview's flattening — which is the decision the delivery glue hands to `evaluateSpontaneousCycle`. Upstream's
 own header comment and helper (`fail(decision, expected)`) came across with it.
+
+
+## M8 — new tests, none of them ported (2026-10-16)
+
+The filesystem tools have no upstream counterpart, so nothing here is a ported or adapted test: four new
+files (`FsWorkspaceTest`, `FsToolSettingsTest`, `FsToolProtocolTest`, `FsToolExecutorTest`) cover the
+containment rules and their escape shapes, the settings family's three lifecycle legs, the four provider
+dialects in both directions, and the executor's caps, atomic write and framing. The parts with no test are
+named where they live: the two loops and the two screens, which need a provider and a display — M8's live
+run is their verification, and M7 owns the desktop UI tests that would cover the screens.
