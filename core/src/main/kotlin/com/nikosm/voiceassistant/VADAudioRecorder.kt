@@ -140,6 +140,20 @@ class VADAudioRecorder(
                     }
 
                     val read = stream.read(buffer, chunkSize)
+                    // A read of 0 is the stream *ending*, not a short frame: the recorder process
+                    // exited, the microphone was unplugged, or the sound server restarted. There
+                    // will be no more samples, so this stops rather than reading again.
+                    //
+                    // Without this the loop spun: it only consumed a full chunk, so a stream that
+                    // had ended produced a warning per iteration for as long as the application
+                    // stayed open — a dead microphone as a hot loop, which is the worst shape a
+                    // failure can take. Upstream could not hit this, because `AudioRecord.read`
+                    // blocks on a device that is still open and an unplugged phone microphone is
+                    // not a thing; a subprocess that can exit is.
+                    if (read == 0) {
+                        LogSink.logger.w("VADAudioRecorder", "Capture stream ended — stopping VAD monitoring")
+                        break
+                    }
                     if (read != chunkSize) {
                         LogSink.logger.w("VADAudioRecorder", "Unexpected read size: $read (expected $chunkSize)")
                     }

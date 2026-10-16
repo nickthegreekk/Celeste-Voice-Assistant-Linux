@@ -9,7 +9,7 @@ import com.nikosm.voiceassistant.linux.AwtFileDialogs
 import com.nikosm.voiceassistant.linux.ImageIoCodec
 import com.nikosm.voiceassistant.linux.JsonSettingsStore
 import com.nikosm.voiceassistant.linux.LinuxAppEnv
-import com.nikosm.voiceassistant.linux.StubAudioCapture
+import com.nikosm.voiceassistant.linux.ProcessAudioCapture
 import com.nikosm.voiceassistant.linux.LinuxAudioDevices
 import com.nikosm.voiceassistant.linux.PwPlayback
 import com.nikosm.voiceassistant.linux.ProcessTextToSpeech
@@ -62,7 +62,7 @@ fun main(args: Array<String>) {
         audioPlayback = PwPlayback(appEnv.logger),
         audioDevices = audioDevices,
         tts = ProcessTextToSpeech(appEnv.logger),
-        audioCapture = StubAudioCapture(appEnv.logger),
+        audioCapture = ProcessAudioCapture(audioDevices, appEnv.logger),
         fileDialogs = AwtFileDialogs(appEnv.logger),
         settingsManager = settingsManager,
     )

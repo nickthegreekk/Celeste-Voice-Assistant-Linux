@@ -525,6 +525,49 @@ exercised here, because this box has neither installed (`speech-dispatcher` and 
 packages on EndeavourOS; both are in the repos at 0.12.1-3 and 1.52.0-1). The happy path needs them
 installed, and until then the gateway route is the only working voice, which M1 already had.
 
+### Seam 1, and the machine with no default capture device
+
+`ProcessAudioCapture` runs `pw-record` with `parecord` and `arecord` behind it, writing raw `s16`
+mono PCM to stdout. Raw and not a WAV on disk, and the difference is the caller's shape rather than
+taste: the gateway path records a whole utterance and then sends it, but the VAD loop needs 32 ms
+every 32 ms and needs the most recent one *now*. A file it read back would be a file it was also
+writing, and the VAD would be judging the last 32 ms of speech by however much had been flushed.
+
+**The development machine has no default capture device**, and that turned into the one behaviour
+here that upstream has no counterpart for. `pw-record` with no `--target` asks the session manager
+for a default; on this box WirePlumber answers "no target node available" — `wpctl status` prints the
+analog input with no `*` beside it, and the failure reproduces from a plain shell, so it is the
+machine and not the port. `VADAudioRecorder` calls `open(sampleRate, chunkSize)` naming no device,
+exactly as upstream did, so without a fallback hands-free would never have opened a stream here.
+
+So `open` retries with the first enumerated input when the caller named none, and logs which one and
+the command that would set a default properly. **It does not do this when the caller named a device**
+— silently substituting a different microphone for the one the user picked is how a persona ends up
+listening to the wrong room — which is why a bogus target returns null rather than falling back.
+
+**Verified against PipeWire**, four cases:
+
+| Case | Result |
+|---|---|
+| no target, default unset | falls back to the enumerated input; 100 full chunks, 0 short; 51,200 frames in 3,299 ms = **0.97** of real time |
+| explicit target | 100 full chunks; 51,200 frames in 3,236 ms = **0.99** of real time |
+| a target that cannot be opened | `open` returns null — a named device is not silently replaced |
+| `read` returning 0 | tested by construction rather than by unplugging: see below |
+
+The rates are the point of the table. An earlier measurement read 1.13 and looked like a resampling
+bug; it was the measurement, which started its clock after `open`'s grace sleep had already let
+400 ms of audio accumulate in the pipe. Timing from before `open` gives 0.97–0.99, and a five-second
+`pw-record` run outside this code produces 79,503 frames at 16 kHz — 4.969 s — so the rate is
+honoured. Worth recording because a 13% error would have been silently wrong in the worst way: every
+VAD window the wrong length, every recording pitched and timed wrong, and nothing throwing.
+
+**`read` returning 0 now stops the VAD loop**, and that is a contract change made in the same commit.
+A subprocess can exit — unplugged, PipeWire restarted — and the loop only consumed a full chunk, so
+an ended stream produced a warning per iteration for as long as the application stayed open: a dead
+microphone as a hot loop. Upstream could not hit it, because `AudioRecord.read` blocks on a device
+that is still open. The seam's KDoc now says 0 means the stream has ended, and `VADAudioRecorder`
+breaks on it.
+
 ## Hand-written files in `core/`
 
 Not from upstream, so they have no upstream commit.
