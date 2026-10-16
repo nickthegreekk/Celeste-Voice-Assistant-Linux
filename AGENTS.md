@@ -105,8 +105,9 @@ The fourteen platform seams are listed in [PLAN.md](PLAN.md) §5. Rules:
   features, until a run made a real request to `openrouter.ai` on a fresh install, and a second call of the same
   shape was found behind a default-seeded provider entry. So: grep every hardcoded URL and every HTTP call site in
   `:core` and `:platform` before a milestone closes, and ask of each whether it can fire *without* a user action.
-  `FreshStartNetworkTest` witnesses JVM-wide requests for a first run — extend it to a **second** run, because a
-  seeded default entry only exists then.
+  `FreshStartNetworkTest` witnesses JVM-wide requests for a first run and for a second, because a
+  seeded default entry only exists on the second. `tools/network-audit.sh` does the grep and fails on any URL
+  literal not recorded in PLAN.md §5's table, where each one carries what makes it safe.
 
 ## 6. Build and test
 

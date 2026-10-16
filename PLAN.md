@@ -293,6 +293,48 @@ greppable, and the whole point of auditing before a milestone closes is that the
 `FreshStartNetworkTest` covers both ends: a first run, and a launch-save-launch sequence, because a
 seeded template only exists on the second.
 
+**Every URL in `:core`, and what makes it safe (2026-10-16).** The record the audit checks against.
+AGENTS.md §5 requires that no network call fires without a user action, and the rule is enforced by
+grepping rather than by remembering — so the grep's output belongs somewhere a change to any line can
+be checked against. Nineteen distinct URLs; the file and line are where each is written.
+
+| URL | Where | What makes it safe |
+|---|---|---|
+| `https://api.anthropic.com` | `Models.kt:919` | [1] |
+| `https://api.openai.com/v1` | `Models.kt:920` | [1] |
+| `https://api.deepseek.com/v1` | `Models.kt:921` | [1] |
+| `https://generativelanguage.googleapis.com` | `Models.kt:922` | [1] |
+| `https://api.cline.bot/api/v1` | `Models.kt:923` | [1], and its branch in `fetchCloudModels` uses a static list — it never opens a socket at all |
+| `http://0.0.0.0:11434/v1` | `Models.kt:924` | [1]. The `"OpenAI-Compatible"` template, and the entry the second §5 violation hid behind: it has an empty key and `icon == "C"`, which is what the old kind-based guard tested. |
+| `https://generativelanguage.googleapis.com/v1beta/models` | `AssistantService.kt:2856` | [1] — built inside `fetchCloudModels` from a configured provider's `baseUrl` and key |
+| `https://openrouter.ai/api/v1/models` | `AssistantServiceChat.kt:2120` | **No automatic caller at all.** `syncOpenRouterPricing` is reached only from Settings' "sync prices" button. Was called from `start()` until 2026-10-16. |
+| `http://0.0.0.0:7860` | `AssistantService.kt:1191` | **The seeded A1111 default, and it is inert.** Reached only by an image generation the user starts; the periodic health check walks `_ollamaBaseUrls` and `_serverBases` and never `_imageGenBases`, and the only image-gen probe is `forceCheckHealth(…, true)` from a Settings button. Worth its own row precisely because it looks like the `11434` one. |
+| `http://192.168.1.10:11434` | `WelcomeScreen.kt:94` | [2] |
+| `http://192.168.1.10:8080` | `SettingsScreens.kt:1388` | [2] |
+| `http://192.168.1.10:8880` | `WelcomeScreen.kt:152`, `SettingsScreens.kt:1765` | [2] |
+| `https://192.168.1.10:8882` | `SettingsScreens.kt:1427` | [2] |
+| `http://0.0.0.0:11434/v1/models` | `AssistantService.kt:2802` | [3] — the KDoc on `isUserConfigured()` naming the address the second violation called. Found by running `tools/network-audit.sh`, which is the argument for having it: a URL in a *comment* is still a URL literal, and the audit cannot tell one from a fetch target without a human saying so. Which is the right division — the script finds them, the table says what they are. |
+| `http://host:7860`, `http://host:7860/` | `ServerIdentity.kt:84` | [3] |
+| `http://host:8880`, `http://host:8880/`, `http://host:8880//` | `AssistantServiceGateway.kt:130-131` | [3] |
+
+[1] **A configured provider, or nothing.** Every fetch target here is reached only through
+`fetchCloudModels`, which returns immediately unless `CloudApiSetting.isUserConfigured()` — a
+non-blank key, or a base URL differing from the template `DEFAULT_CLOUD_APIS` seeds. The five
+`Models.kt` rows are that template list and are themselves COPY-file content; being in the list is not
+being fetched. `FreshStartNetworkTest` asserts the negative on both a first and a second run, and
+asserts the positive when a provider is configured, so a template that quietly starts fetching fails
+the build.
+
+[2] **Placeholder text.** A literal inside `Text(...)` — a hint about the shape of an address, shown
+in an empty field and never parsed, resolved or opened.
+
+[3] **Comment text.** KDoc examples about URL normalisation and trailing slashes, in a KDoc and a
+related note. Never executed.
+
+**Adding a row is the point of the table.** A new URL literal in `:core` needs one of three answers:
+it is behind the configuration gate, it is a string a human reads, or it is a comment. A fourth
+answer — "it fires on its own and it is fine because it is loopback" — is the carve-out §5 rejects.
+
 ### 5a. Seam 8 is not in v1 (2026-10-15)
 
 Credentials — provider API keys, server passwords and gateway credentials — live in the settings
