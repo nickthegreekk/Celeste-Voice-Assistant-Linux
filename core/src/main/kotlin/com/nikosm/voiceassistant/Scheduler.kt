@@ -1,5 +1,7 @@
 package com.nikosm.voiceassistant
 
+import kotlinx.coroutines.CoroutineScope
+
 /**
  * Seam 10 (PLAN.md §5): the timing side of spontaneous delivery.
  *
@@ -141,3 +143,26 @@ internal fun disarmSpontaneousWork(context: AppEnv, personaName: String) {
     runCatching { context.scheduler.disarm(personaName) }
         .onFailure { context.logger.w("Spontaneous", "Failed to disarm spontaneous work for '$personaName'", it) }
 }
+
+/**
+ * A [Scheduler] that runs the delivery **in this process**, and therefore has to be told what to run.
+ *
+ * Upstream's WorkManager did not need this: it woke a separate process, which bound the service and
+ * called the turn itself. A coroutine timer is the process it delivers into, so the loop closes the
+ * other way — the service attaches its scope and its delivery, and PLAN.md §10's "spontaneous
+ * scheduler in the core" is what that buys: no IPC, no binder, no second executable (D1).
+ *
+ * The seam itself is unchanged, which is the point of keeping this separate: the three functions the
+ * COPY file calls ([arm], [disarm], [isArmed]) never see it.
+ */
+internal interface InProcessScheduler : Scheduler {
+    /**
+     * Hand over the scope the timer lives in and the run to start when it fires.
+     *
+     * [deliver] is `suspend` so the timer's job stays alive for the length of a run: upstream's
+     * guard counts a *running* chain as armed, and a timer that reported "not armed" the moment it
+     * fired would let a settings refresh arm a second chain beside the one already delivering.
+     */
+    fun attach(scope: CoroutineScope, deliver: suspend (personaName: String, slot: Int) -> Unit)
+}
+

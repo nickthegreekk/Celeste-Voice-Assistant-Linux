@@ -973,6 +973,13 @@ class AssistantService(
      *    matters: pausing and resuming the VAD around playback.
      */
     fun start() {
+        // Seam 10: an in-process scheduler has to be told what to run and where to run it. Attached
+        // here rather than at construction because the delivery *is* this service, and this is the
+        // first moment it exists. The scope is [serviceScope], so `shutdown()` cancels the timers with
+        // everything else — nothing to stop twice.
+        (appEnv.scheduler as? InProcessScheduler)?.attach(serviceScope) { personaName, slot ->
+            runSpontaneousDelivery(personaName, slot)
+        }
         loadSettings()
         // Deleted: `syncOpenRouterPricing()`, which fired here on every launch (throttled to once
         // a day by a stored timestamp, which on a fresh install is zero — so the first launch

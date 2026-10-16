@@ -5,6 +5,7 @@ import com.nikosm.voiceassistant.AppLogger
 import com.nikosm.voiceassistant.LogSink
 import com.nikosm.voiceassistant.Notifier
 import com.nikosm.voiceassistant.Scheduler
+import com.nikosm.voiceassistant.SpontaneousTimer
 import com.nikosm.voiceassistant.StderrLogger
 import java.nio.file.Path
 
@@ -30,7 +31,10 @@ class LinuxAppEnv(
     // The stub is the default and not a temporary placeholder for a better one: M4 chooses between
     // a coroutine and a systemd user timer, and until it does, this is the only implementation that
     // exists. It logs once, at INFO, naming the milestone that replaces it.
-    override val scheduler: Scheduler = StubScheduler(logger),
+    // Seam 10's implementation is a :core class, not a :platform one: a coroutine timer has no
+    // platform API in it, and PLAN.md §10 says "spontaneous scheduler in the core". This was the
+    // last Stub* in this module (`grep -rn 'Stub' platform/src/main` now finds none).
+    override val scheduler: Scheduler = SpontaneousTimer(logger),
 ) : AppEnv {
 
     override val configDir: Path get() = paths.configDir

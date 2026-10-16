@@ -268,8 +268,18 @@ class FreshStartNetworkTest {
         // answered would be hiding a call rather than serving one.
         override val notifier: Notifier
             get() = throw UnsupportedOperationException("a first run posts no notification")
-        override val scheduler: Scheduler
-            get() = throw UnsupportedOperationException("a first run arms no timer")
+        // The guard is on `arm`, not on touching the seam at all: `AssistantService.start()` attaches
+        // its scope to an in-process scheduler (seam 10) so a persona enabled later can be armed —
+        // attaching arms nothing, sends nothing and schedules nothing, and M4 is when that hook had
+        // to exist. What must stay impossible on a first run is a *timer*, and that is what throws.
+        override val scheduler: Scheduler = object : Scheduler {
+            override fun arm(personaName: String, slot: Int, delayMillis: Long): Unit =
+                throw UnsupportedOperationException("a first run arms no timer")
+
+            override fun disarm(personaName: String) = Unit
+
+            override fun isArmed(personaName: String): Boolean = false
+        }
     }
 
     /** The whole store, in a map. No file, no `~/.config`, nothing to restore afterwards. */

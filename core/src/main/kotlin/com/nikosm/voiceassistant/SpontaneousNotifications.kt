@@ -25,11 +25,16 @@ package com.nikosm.voiceassistant
  *
  * ## Ported in stages
  *
- * Only what M1 has a caller for is here. `postSpontaneousNotification` is **not yet ported** — its
- * only caller is the spontaneous delivery worker, which is M4's — and neither are upstream's
- * channel creation and group summary, which have no desktop counterpart at all. When M4 brings the
- * worker it will find the seam, the id rule and the preview helper already in place, and posting
- * becomes a call to [Notifier.post] rather than a new surface to design.
+ * M4 brought the caller, and the posting half with it: [postSpontaneousNotification] is a call to
+ * [Notifier.post] with the id rule and the preview helper below, which is exactly what the staged
+ * port predicted it would be. Upstream's channel creation and group summary stay unported — there is
+ * no channel and no group to make on a desktop, and the *id* discipline was the part doing the work.
+ *
+ * What is still missing, and named rather than implied: a tap on the card cannot deep-link into the
+ * persona's chat yet. Upstream attached a `PendingIntent` carrying [EXTRA_TARGET_PERSONA_NAME], and
+ * `MainScreen` already accepts a `deepLinkPersona` for the tap it never gets — but [Notifier.post]
+ * has no action parameter, so `notify-send` is called without one. The gap is at the seam, not in
+ * the screen, and it closes when something needs it.
  */
 
 /** Deep-link extra naming the persona whose chat the tap must open. Read by the window. */
@@ -88,4 +93,23 @@ internal fun cancelSpontaneousNotification(appEnv: AppEnv, personaName: String) 
     } catch (e: Exception) {
         appEnv.logger.w("Spontaneous", "Notification cancel failed: ${e.message}")
     }
+}
+
+/**
+ * Post the delivery card for [personaName], body [text].
+ *
+ * One card per persona, updated rather than stacked — the id is
+ * [spontaneousNotificationId], which is the rule that survived Android's channels. The preview is
+ * bounded ([spontaneousNotificationPreview]) because a collapsed card is all a desktop daemon is
+ * guaranteed to show, where upstream's `BigTextStyle` expanded to the whole message.
+ *
+ * The full text is not lost by that bound: it is in the persona's chat, which is where the message
+ * was persisted before this was called.
+ */
+internal fun postSpontaneousNotification(notifier: Notifier, personaName: String, text: String) {
+    notifier.post(
+        id = spontaneousNotificationId(personaName),
+        title = personaName,
+        body = spontaneousNotificationPreview(text),
+    )
 }

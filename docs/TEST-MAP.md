@@ -93,3 +93,13 @@ port's copy: what counts as a share, what does not, and which one wins when two 
 `appendSharedTextToDraft` cases came across unchanged in substance, because that function is
 byte-identical ported code; the file is an adaptation, not a copy, and the ledger counts it as
 neither.
+
+## Not taken (one file so far)
+
+`SpontaneousSchedulerTest.kt` — 35 cases, and the majority are pure decision cases (`evaluateSpontaneousCycle`'s
+windows, gaps and caps) that the port would benefit from. It cannot be copied, because the same file also asserts
+the *WorkManager* side: `spontaneousWorkName`'s two-slot scheme, the channel id, the summary id, `ExistingWorkPolicy`.
+Those symbols are upstream's worker file, which M4 does not take — a coroutine timer needs one line of it
+(`alternateSpontaneousSlot`) and has no names to check. Retargeting it means splitting the file and rewriting its
+WorkManager assertions against the timer, which is worth doing and is not done yet; `SpontaneousTurnTest.kt` came
+across byte-identical on the m4 group and covers the turn's own pure half.

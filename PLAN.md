@@ -954,6 +954,39 @@ two `removePersonaShortcut` call sites in `AssistantService.kt` that §9 already
 (MainVoiceScreen), `RoomPickerRows` and the `"Rooms" -> RoomSettings(…)` branch (SettingsScreens) —
 and with them the editor, the member list, the round-status line and the pure room helpers above
 them, because this is the milestone named for rooms.]
+[M4's first slice, 2026-10-16 — the scheduler and the delivery, which are the engine the acceptance exercises.
+**Seam 10 is real and lives in the core**, which is what this line said it should be, and it retires `StubScheduler`:
+`grep -rn 'Stub' platform/src/main` now finds nothing, where `Main.kt` had a comment promising exactly that. The
+choice §5 left open — a coroutine timer versus a systemd timer — is settled by the acceptance criterion itself: "while
+only the tray process runs" requires the process to be up either way, and once it is, a systemd timer would add a
+second scheduling authority that has to agree with `SpontaneousPolicy`'s windows, gaps and caps. The unit is still
+M4's, and it is what a *login* is missing rather than what a delay is.
+
+**The delivery is upstream's worker minus WorkManager.** `SpontaneousDelivery.kt` keeps the decision
+(`evaluateSpontaneousCycle`, a COPY symbol), the preflight, the turn and the re-arm; `useAssistantService`, its
+`ServiceConnection` and its 15-second bind timeout dissolve into D1's single process rather than being translated, and
+what that binding protected — bind late, so an expensive construction happens only when a message is genuinely about
+to be generated — survives as the order the checks run in. Upstream's four contracts came across with it: deliver only
+on a real send, never retry, a throw is logged rather than propagated, and the re-arm goes to the *other* slot.
+`alternateSpontaneousSlot` had to be defined here (upstream keeps it in the worker file, which stays out) and is
+carried with its reasoning, because the caller's contract depends on it.
+
+**The notification's posting half landed too** — `postSpontaneousNotification`, a call to the `Notifier` seam with the
+id rule and the preview helper that M1 had already ported and left waiting for exactly this caller. One thing is
+named rather than implied: a tap on the card cannot open the persona's chat yet, because `Notifier.post` carries no
+action and `notify-send` is called without one; `MainScreen` already accepts a `deepLinkPersona` for a tap it does not
+get. The gap is at the seam.
+
+**Two upstream tests arrived, one could not.** `SpontaneousTurnTest.kt` is byte-identical on a new `m4` arrival group;
+`SpontaneousSchedulerTest.kt` mixes 35 pure decision cases with WorkManager assertions (`spontaneousWorkName`, the
+channel and summary ids) and is recorded in `docs/TEST-MAP.md` as not taken, with what retargeting it would mean.
+`SpontaneousTimerTest` covers the timer on virtual time: the slot survives the round trip, a second arm replaces
+rather than adds, `isArmed` is true for the whole life of a run — the property `refreshSpontaneousSchedule`'s guard
+reads — and a delivery that throws does not end the chain silently.
+
+Still to come in M4: the tray and `--headless` (the "only the tray process" half), the systemd unit and the `.desktop`
+entries, the rooms screens, and the spontaneous controls in the persona editor.
+
 *Accept:* a spontaneous message arrives as a desktop notification while only the tray process runs;
 the unit starts at login and stops cleanly.
 

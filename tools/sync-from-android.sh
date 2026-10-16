@@ -108,6 +108,12 @@ TEST_SOURCES=(
   # function that does not exist here until `FullScreenImageViewer.kt` lands: a test whose subject
   # has not been ported is exactly what the group split exists to keep out of the source set.
   "m3|FullScreenImageViewerBoundsTest.kt"
+  # M4's group: both subjects are already in the port (`SpontaneousScheduler.kt` and
+  # `AssistantServiceSpontaneous.kt` are COPY files), so these arrive byte-identical like the m0 set.
+  # What they need is `androidx.compose.ui.graphics.Color` for the `Persona` fields, which :core has
+  # had since §7a. The two siblings upstream that are NOT here need WorkManager or a Context
+  # (`SpontaneousWorkTotalityTest`, `SpontaneousGuardTest`), and SpontaneousUiTest is instrumented.
+  "m4|SpontaneousTurnTest.kt"
 )
 
 
@@ -157,12 +163,12 @@ GROUP=""
 SEED=""
 case "${1:-}" in
   "")         ;;
-  --group)    MODE="copy"; GROUP="${2:-}"; [ -n "$GROUP" ] || { echo "--group needs a group (m0, m1, m3)" >&2; exit 2; } ;;
+  --group)    MODE="copy"; GROUP="${2:-}"; [ -n "$GROUP" ] || { echo "--group needs a group (m0, m1, m3, m4)" >&2; exit 2; } ;;
   --seed)     MODE="seed"; SEED="${2:-}"; [ -n "$SEED" ] || { echo "--seed needs a file name" >&2; exit 2; } ;;
   --check)    MODE="check" ;;
   --list)     MODE="list" ;;
   -h|--help)  sed -n '2,45p' "$0"; exit 0 ;;
-  *)          echo "usage: $0 --group m0|m1|m3 | --seed <name> | --check | --list" >&2; exit 2 ;;
+  *)          echo "usage: $0 --group m0|m1|m3|m4 | --seed <name> | --check | --list" >&2; exit 2 ;;
 esac
 
 if [ -z "$MODE" ]; then
@@ -172,6 +178,7 @@ refusing to copy: a group is required.
   tools/sync-from-android.sh --group m0     the files that stand alone (PLAN.md §7a)
   tools/sync-from-android.sh --group m1     the files that need AssistantService.kt first
   tools/sync-from-android.sh --group m3     the files that need M3's screens first
+  tools/sync-from-android.sh --group m4     the files that need M4's scheduler first
 
 Copying a file whose dependency has not been ported yet leaves :core unable to compile, which is
 exactly what the group split exists to prevent. --check and --list need no group.
@@ -180,8 +187,8 @@ USAGE
 fi
 
 case "$GROUP" in
-  ""|m0|m1|m3) ;;
-  *) echo "--group takes m0, m1 or m3, not '$GROUP'" >&2; exit 2 ;;
+  ""|m0|m1|m3|m4) ;;
+  *) echo "--group takes m0, m1, m3 or m4, not '$GROUP'" >&2; exit 2 ;;
 esac
 
 # Safety: never point this at a destination inside the upstream tree.

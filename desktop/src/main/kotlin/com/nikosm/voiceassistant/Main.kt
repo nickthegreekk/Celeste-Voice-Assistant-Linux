@@ -82,8 +82,8 @@ fun main(args: Array<String>) {
         appEnv = appEnv,
         // The four audio seams are real as of M2 — `PwPlayback`, `LinuxAudioDevices`,
         // `ProcessTextToSpeech` and `ProcessAudioCapture` — so there is no `Stub*` left here to
-        // name a milestone. `grep -rn 'Stub' platform/src/main` is the whole list, and it is one
-        // file: the scheduler, which is M4's.
+        // name a milestone. `grep -rn 'Stub' platform/src/main` found one file — the scheduler —
+        // until M4 replaced it with a real timer, and now finds none.
         audioPlayback = PwPlayback(appEnv.logger),
         audioDevices = audioDevices,
         tts = ProcessTextToSpeech(appEnv.logger),
