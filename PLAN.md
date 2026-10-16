@@ -835,7 +835,20 @@ Models has no other claimant and stays. The census below is re-counted rather th
 total is unchanged — this moved nine markers, it added no feature to any milestone. What it does
 change is M3's honest size: the image viewer, the save button and `--send-text` are real porting
 (183 lines for the viewer alone, plus a save dialog and two CLI flags), where the rooms and skills
-screens were never M3's work to begin with.]
+screens were never M3's work to begin with.
+
+The first of them landed the same evening. `FullScreenImageViewer.kt` was **seeded** rather than
+retyped (`tools/sync-from-android.sh --seed`, the rule from 2026-10-15), and its entire Android
+surface turned out to be one argument: `decorFitsSystemWindows` is not a parameter of Compose
+Desktop's `DialogProperties` — the compiler said so and nothing else did. The call site in
+`ChatComponents.kt` is restored, and the marker promised it would be one call rather than a rebuild;
+it was. Its pure geometry test came across **byte-identical** on a new `m3` arrival group added to
+the sync script for the purpose — a test whose subject has not been ported is exactly what the group
+split exists to keep out of the source set, and the ledger reconciles with it (82 lines, 0 changes).
+One thing is recorded as *expected but unseen*, in the file and in `docs/PROVENANCE.md`: a Compose
+Desktop `Dialog` sizes itself to its content rather than to the screen, so the black surface should
+end up exactly as large as the picture and the pan bounds are measured against that window. Android's
+is full-screen by construction. If it looks wrong, the repair is one line and is named there.]
 
 The counts, settled by the anchored grep rather than by a mention count:
 

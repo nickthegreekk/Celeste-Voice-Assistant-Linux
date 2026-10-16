@@ -36,6 +36,7 @@
 #
 # Usage:
 #   tools/sync-from-android.sh --group m0       copy the files M0 needs, main and test
+#   tools/sync-from-android.sh --group m3       copy the files M3 needs (an arrival group, like m0/m1)
 #   tools/sync-from-android.sh --group m1       copy the files that arrive with AssistantService
 #   tools/sync-from-android.sh --seed <name>    place one PORT+ file as a starting copy to adapt
 #   tools/sync-from-android.sh --check          report drift, the pin, and what has not arrived yet
@@ -103,6 +104,10 @@ TEST_SOURCES=(
   # during M1. It is byte-identical — JUnit 4 only, no Android surface — and it is the executable
   # specification for the script detector that decides which TTS voice a reply is spoken in.
   "m0|ScriptLanguageDetectionTest.kt"
+  # M3's arrival group is a real group rather than a reuse of m0/m1, because this one tests a
+  # function that does not exist here until `FullScreenImageViewer.kt` lands: a test whose subject
+  # has not been ported is exactly what the group split exists to keep out of the source set.
+  "m3|FullScreenImageViewerBoundsTest.kt"
 )
 
 
@@ -135,6 +140,10 @@ PORT_SOURCES=(
   "RoomScreens.kt"
   "SpontaneousScreens.kt"
   "SharedContent.kt"
+  # M3's first file: ADAPT (Compose only — the touch gestures and the Dialog are the whole port),
+  # and 183 lines is past the size where retyping is cheaper than reviewing a diff. Seeded, then
+  # adapted, exactly like the M1 screens above.
+  "FullScreenImageViewer.kt"
 )
 
 # GROUP|label|source|destination
@@ -148,12 +157,12 @@ GROUP=""
 SEED=""
 case "${1:-}" in
   "")         ;;
-  --group)    MODE="copy"; GROUP="${2:-}"; [ -n "$GROUP" ] || { echo "--group needs m0 or m1" >&2; exit 2; } ;;
+  --group)    MODE="copy"; GROUP="${2:-}"; [ -n "$GROUP" ] || { echo "--group needs a group (m0, m1, m3)" >&2; exit 2; } ;;
   --seed)     MODE="seed"; SEED="${2:-}"; [ -n "$SEED" ] || { echo "--seed needs a file name" >&2; exit 2; } ;;
   --check)    MODE="check" ;;
   --list)     MODE="list" ;;
   -h|--help)  sed -n '2,45p' "$0"; exit 0 ;;
-  *)          echo "usage: $0 --group m0|m1 | --seed <name> | --check | --list" >&2; exit 2 ;;
+  *)          echo "usage: $0 --group m0|m1|m3 | --seed <name> | --check | --list" >&2; exit 2 ;;
 esac
 
 if [ -z "$MODE" ]; then
@@ -162,6 +171,7 @@ refusing to copy: a group is required.
 
   tools/sync-from-android.sh --group m0     the files that stand alone (PLAN.md §7a)
   tools/sync-from-android.sh --group m1     the files that need AssistantService.kt first
+  tools/sync-from-android.sh --group m3     the files that need M3's screens first
 
 Copying a file whose dependency has not been ported yet leaves :core unable to compile, which is
 exactly what the group split exists to prevent. --check and --list need no group.
@@ -170,8 +180,8 @@ USAGE
 fi
 
 case "$GROUP" in
-  ""|m0|m1) ;;
-  *) echo "--group takes m0 or m1, not '$GROUP'" >&2; exit 2 ;;
+  ""|m0|m1|m3) ;;
+  *) echo "--group takes m0, m1 or m3, not '$GROUP'" >&2; exit 2 ;;
 esac
 
 # Safety: never point this at a destination inside the upstream tree.

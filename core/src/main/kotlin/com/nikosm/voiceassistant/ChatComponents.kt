@@ -342,11 +342,13 @@ fun ChatMessageBubble(
         // Full-screen viewer for whichever image this bubble owns. A Dialog paints in its own
         // window, so living inside this Column costs the bubble no layout; the guard makes it
         // free when nothing was tapped, which is every bubble but one at most.
-        // DEFERRED TO M3: the full-screen image viewer. Upstream opens
-        // `FullScreenImageViewer(file = File(path), …)` here — a Compose `Dialog` that paints in
-        // its own window, so living inside this Column costs the bubble no layout. M3 owns the
-        // image screens, and the tap target that set `fullScreenImagePath` is still in place, so
-        // restoring this is one call rather than a feature rebuild.
+        //
+        // The M1 marker stood here until M3. The tap targets that set `fullScreenImagePath` were
+        // left in place then, so restoring it was this call and nothing else — which is what the
+        // marker promised, and it held.
+        fullScreenImagePath?.let { path ->
+            FullScreenImageViewer(file = File(path), onDismiss = { fullScreenImagePath = null })
+        }
     }
 }
 
