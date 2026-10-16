@@ -13,6 +13,35 @@ not stop for it. Stop only for the four cases listed in AGENTS.md §10.
 
 ---
 
+## 2026-10-17 — A spoken turn is a single-chat turn, so it carries the tools
+
+M8's plan says tools are offered on **"single-chat turns only"**, and gives a safety reason for the narrowing: a room
+turn has no single user to answer a write confirmation, and an autonomous turn must never write a file. The
+implementation put them in `sendTextMessageToServer` and nowhere else, which meant a *voice* turn — this application's
+main interface, and the one its acceptance runs on — offered no tools and said nothing about it. A hands-free "read my
+notes and summarise them" got a fluent invention, which is the outcome the milestone exists to prevent.
+
+**Decided: the voice route forks to the same loops.** `sendAudioToServer`'s direct-Ollama branch and its cloud branch
+both ask `fsWorkspaceFor(persona)` and, when there is a workspace, call `performOllamaChatWithTools` /
+`performCloudChatWithTools` with `fsToolMode` in the turn context — exactly the text path's fork, on the same loops.
+A voice turn writes into the single-chat transcript and its writes go through the same confirmation, so it is
+single-chat by the plan's own test (`TurnContext.isSingleChat`), and the two reasons for the narrowing do not apply to
+it at all.
+
+Rejected: **refusing on the voice route** rather than offering the tools there. A refusal is the right answer where the
+app *cannot* offer them — the Voice Gateway assembles the prompt server-side, so there is nowhere to declare a tool or
+to say what file contents are — and it is the wrong answer where the app merely had not wired them yet. The two are
+now distinguishable in the code as well as in the argument: `fsToolsReachableFor` asks the router, and the refusal
+fires only when it says the gateway.
+
+**What this does not change:** a write asked for by voice still goes through the confirmation dialog, and with no
+window it is denied and announced through the `Notifier` — the design's own answer for a user who is not looking at
+the screen. Nothing about the caps, the audit or the exclusion rules is route-dependent.
+
+→ PLAN.md §10 (M8), `AssistantServiceChat.kt` (the two forks, and the two refusal checks),
+`AssistantServiceFsTools.kt` (`fsToolsReachableFor`, `refuseFsToolsOnGatewayRoute`, `FS_GATEWAY_REFUSAL`),
+`FsToolTurnTest.kt`
+
 ## 2026-10-16 — A question that was never answered is not a "no", and one place ends a turn
 
 M8's open list, item 4, was three findings with one cause: **the write gate answered with a `Boolean`.** A refusal

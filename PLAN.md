@@ -1265,9 +1265,26 @@ result; an indented marker could close the untrusted-content frame; an absent `c
 the read header counted a phantom last line on any file ending in a newline.
 
 **The open list, closed 2026-10-16.** Six entries, taken in the order given below and each struck where it was fixed;
-the notes carry what the fix cost and how it was verified, because the *how* is what a later reader needs. Nothing here
-is outstanding — all six are fixed, tested and committed — and what remains before M8 can be called done is the **live
-run** in the entry above, which needs the installed package and the user's own hardware.
+the notes carry what the fix cost and how it was verified, because the *how* is what a later reader needs.
+
+**And a seventh, found the next morning while setting the live run up — the acceptance's own negative case did not
+exist.** *(2026-10-17.)* The design says *"The gateway refuses the turn rather than answering without tools… filesystem
+access is on for this persona, but the Voice Gateway assembles the system prompt, so it cannot offer the tools"*, and
+the acceptance names it — *"a gateway persona refusing in words rather than answering about a file it cannot read"* —
+but nothing implemented it: `git log -S` finds that wording in no commit, the multipart `/text-chat` branch contained no
+workspace check at all, and the only tool wiring in the chat service was the cloud fork and the Ollama branch. It was
+an **omission**, which is why the review — reading written code — did not see it.
+
+**Fixed, with the adjacent gap the check turned up.** The refusal is now asked through `requestRouting` (the same
+classification Rooms and the history stamps use) on both entry points: a text turn and a **spoken** turn for a persona
+with a workspace on the gateway route answer with a sentence and send nothing at all — the voice one *before* it
+transcribes, because "a long pause and then an invented summary" is the failure that route has to avoid. And a **voice
+turn now carries the tools** on the routes the app builds itself: the plan's rule is "single-chat turns", a voice turn
+is one, and wiring them into the text path only left a hands-free "read my notes and summarise them" with no tools and
+no explanation — the same silent invention, on the route this application is used through. That is a decision rather
+than a port, and it is in [docs/DECISIONS.md](docs/DECISIONS.md). Four tests, three of which fail with the code put
+back (the fourth is the control that keeps them honest), and the voice route now has an end-to-end test of its own —
+`FakeProviderServer` gained `/transcribe` for it.
 
 (The first two entries are hot-path edits that need the stream loop, the three apply blocks and the cloud builders in
 view at once, which is why they were not rushed at the end of a long session.)

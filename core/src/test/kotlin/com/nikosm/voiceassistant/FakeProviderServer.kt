@@ -56,8 +56,20 @@ internal class FakeProviderServer : AutoCloseable {
 
     val baseUrl: String get() = "http://127.0.0.1:${server.address.port}/v1"
 
-    /** The conversation requests only — the model-list probe is not a turn. */
-    val turns: List<Recorded> get() = requests.filter { it.method == "POST" }
+    /**
+     * What the gateway's `/transcribe` answers with — the user's spoken words, standing in for the
+     * speech recogniser. Settable, and served from the field rather than from the reply queue,
+     * because it is not the model's answer: the queue is what the *conversation* gets back.
+     */
+    @Volatile
+    var transcription: String = "what the user said"
+
+    /**
+     * The conversation requests only. Neither the model-list probe nor a transcription is a turn:
+     * one is fetched when a provider is saved and the other is the audio in, and counting them would
+     * make every assertion about "how many requests did this turn make" wrong by two.
+     */
+    val turns: List<Recorded> get() = requests.filter { it.method == "POST" && !it.path.endsWith("/transcribe") }
 
     init {
         server.executor = pool
@@ -113,6 +125,8 @@ internal class FakeProviderServer : AutoCloseable {
                 500 to """{"error":{"message":"FakeProviderServer: request $number was held and never released"}}"""
             exchange.requestMethod == "GET" && exchange.requestURI.path.endsWith("/models") ->
                 200 to MODEL_LIST
+            exchange.requestMethod == "POST" && exchange.requestURI.path.endsWith("/transcribe") ->
+                200 to JSONObject().put("text", transcription).toString()
             exchange.requestMethod == "POST" -> queue.removeFirstOrNull()
                 ?: (500 to """{"error":{"message":"FakeProviderServer has no scripted reply for ${exchange.requestURI.path}"}}""")
             else -> 404 to """{"error":{"message":"FakeProviderServer does not serve ${exchange.requestMethod} ${exchange.requestURI.path}"}}"""
@@ -136,6 +150,9 @@ internal class FakeProviderServer : AutoCloseable {
 // ------------------------------------------------------------------ the OpenAI dialect, as a provider writes it
 
 /** A reply with prose in it — what an ordinary turn ends with. */
+/** The Voice Gateway's own reply shape: `/text-chat` and `/voice-chat` answer `translated_text`. */
+internal fun gatewayReply(text: String): String = JSONObject().put("translated_text", text).toString()
+
 internal fun openAiReply(text: String): String = JSONObject()
     .put("choices", JSONArray().put(JSONObject().put("message", JSONObject()
         .put("role", "assistant")

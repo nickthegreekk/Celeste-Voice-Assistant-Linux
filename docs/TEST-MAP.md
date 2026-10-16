@@ -127,6 +127,12 @@ carried out, a turn past the byte cap refused, a turn past the persona's window 
 and a tool turn with no prose answered with a sentence. Each was verified by restoring the defect it covers.
 The fixtures beside it (`ServiceFakes.kt`, `FakeProviderServer.kt`) are shared rather than copied.
 
+The gateway route, and the voice route with it, came the day after: `FsToolTurnTest` now also covers a persona with a
+workspace being **refused in words** on the route the app cannot build a request for — text and spoken, the spoken one
+before it transcribes — with the control that keeps it honest (the same persona with no workspace still answers through
+the gateway), and a **spoken turn on the direct-Ollama route carrying the tools**. `FakeProviderServer` gained
+`/transcribe` for the last two, which is the first end-to-end test the voice path has had.
+
 **What still has no test, named where it lives**: the two *screens* (`FsToolScreens`, and the section in the
 persona editor) need a display — M8's live run is their verification, and M7 owns the desktop UI tests that
 would cover them. The editor's fs callbacks are the same case: `PersonaFsSection`'s wiring is a Compose

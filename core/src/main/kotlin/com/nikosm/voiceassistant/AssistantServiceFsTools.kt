@@ -89,6 +89,51 @@ internal fun AssistantService.auditFsToolCall(entry: FsToolAuditEntry) {
     appendFsToolAudit(appEnv.stateDir, entry, logger)
 }
 
+// ---------------------------------------------------------------------------- the route that cannot
+
+/**
+ * Whether a turn for this persona is one the app **builds the request for** — a direct Ollama server
+ * or a cloud provider — and therefore one that can carry the tools.
+ *
+ * The third case is the Voice Gateway, which assembles the prompt itself: the app sends it a model,
+ * a backend URL and the user's words, and never a system prompt, so there is nowhere to put a tool
+ * declaration or a tool contract. Asked through `requestRouting`, which is the same classification
+ * Rooms and the history stamps use rather than a second parse that could drift from the router.
+ */
+internal fun AssistantService.fsToolsReachableFor(persona: Persona): Boolean {
+    val routing = persona.requestRouting(ollamaServerNames(), cloudProviderNames())
+    return routing.isDirectOllama || routing.routesToCloud
+}
+
+/**
+ * What the user is told when their persona has a workspace and the turn cannot carry the tools.
+ *
+ * **Answering anyway is the failure this exists to prevent** (M8's design, in its own words): *"a
+ * model asked to summarise a file it cannot read produces a fluent hallucination."* So the turn does
+ * not reach the model at all, and the sentence says both why and what to do about it — it is spoken
+ * as well as written, because the route it most often fires on is the one where the user is
+ * listening rather than reading.
+ */
+internal const val FS_GATEWAY_REFUSAL =
+    "Filesystem access is on for this persona, but this turn goes through the Voice Gateway, which " +
+        "assembles the prompt itself — so the file tools cannot be offered here. Rather than describe " +
+        "a file I cannot read, I stopped. Use the main chat, or a persona that talks to its model directly."
+
+/**
+ * Append the refusal, speak it, and let the caller end the turn.
+ *
+ * [append] rather than a [TurnSink] because the two callers reach this at different points in their
+ * own setup: the text path has resolved its sink by then, and the voice path refuses **before it
+ * transcribes anything**, so it has only the transcript itself. Speaking goes through the ordinary
+ * playback path, so the persona's own voice mode decides how — exactly as it does for a reply.
+ */
+internal fun AssistantService.refuseFsToolsOnGatewayRoute(persona: Persona, append: (ChatMessage) -> Unit) {
+    append(ChatMessage("assistant", FS_GATEWAY_REFUSAL))
+    saveSettings()
+    playResponse(persona, deviceText = cleanTextForTts(FS_GATEWAY_REFUSAL))
+    logger.i("FsTools", "turn refused: the persona has a workspace but this route cannot carry the tools")
+}
+
 // ---------------------------------------------------------------------------- the loop
 
 /**

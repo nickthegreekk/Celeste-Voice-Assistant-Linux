@@ -228,6 +228,13 @@ internal fun AssistantService.sendAudioToServer(file: Path, currentPersona: Pers
         updateNotification("Ready to help")
         return
     }
+    // M8: the same refusal the text path gives, and it matters more here — this is the route where
+    // the user is *listening*. Said before the transcription is even attempted, so a gateway that is
+    // answering slowly does not turn "read my notes" into a long pause and then an invented summary.
+    if (fsWorkspaceFor(currentPersona) != null && !fsToolsReachableFor(currentPersona)) {
+        refuseFsToolsOnGatewayRoute(currentPersona) { _messages.value = _messages.value + it.stampedAt() }
+        return
+    }
     serviceScope.launch {
         val startTime = System.currentTimeMillis()
         // A2/B1: capture the request identity (generation + persona). The response is
@@ -309,7 +316,27 @@ internal fun AssistantService.sendAudioToServer(file: Path, currentPersona: Pers
                     // the voice path passed no turnContext at all, so a spoken turn silently
                     // ignored every skill. Resolved here rather than at the top of
                     // sendAudioToServer because the trigger text does not exist yet.
-                    performCloudChat(transcribedText, currentPersona, useDeviceVoice, startTime, currentTurnInHistory = true, generation = generation, turnContext = turnContextWithSkills(transcribedText, currentPersona))
+                    // M8: the same fork as the direct-Ollama voice branch below and as the text path —
+                    // a persona with a workspace gets the bounded tool loop on every route the app
+                    // builds a request for.
+                    val voiceTurnContext = turnContextWithSkills(transcribedText, currentPersona)
+                    val fsWorkspace = fsWorkspaceFor(currentPersona)
+                    if (fsWorkspace != null) {
+                        performCloudChatWithTools(
+                            text = transcribedText,
+                            persona = currentPersona,
+                            useDeviceVoice = useDeviceVoice,
+                            startTime = startTime,
+                            currentTurnInHistory = true,
+                            generation = generation,
+                            attachments = emptyList(),
+                            imagePath = null,
+                            turnContext = voiceTurnContext.copy(fsToolMode = fsWorkspace.mode),
+                            workspace = fsWorkspace,
+                        )
+                    } else {
+                        performCloudChat(transcribedText, currentPersona, useDeviceVoice, startTime, currentTurnInHistory = true, generation = generation, turnContext = voiceTurnContext)
+                    }
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: Exception) {
@@ -386,7 +413,25 @@ internal fun AssistantService.sendAudioToServer(file: Path, currentPersona: Pers
                          // against the transcription and forwarded as a turnContext. This call
                          // previously omitted turnContext entirely, so a spoken turn to a
                          // direct-Ollama persona ignored every skill.
-                         val directRes = performDirectOllamaChat(ollamaBase, actualModel, transcribedText, currentPersona, currentTurnInHistory = false, generation = generation, turnContext = turnContextWithSkills(transcribedText, currentPersona))
+                         // M8: **a spoken turn carries the tools too.** The plan's rule is
+                         // "single-chat turns", and a voice turn is one — its sink is the single-chat
+                         // transcript and its writes go through the same confirmation. Wiring it only
+                         // into the text path left a hands-free "read my notes and summarise them"
+                         // with no tools and no explanation, which is the one outcome this milestone
+                         // exists to prevent. Same fork as the text path, same loops.
+                         val voiceTurnContext = turnContextWithSkills(transcribedText, currentPersona)
+                         val fsWorkspace = fsWorkspaceFor(currentPersona)
+                         val directRes = if (fsWorkspace != null) {
+                             performOllamaChatWithTools(
+                                 baseUrl = ollamaBase, model = actualModel, text = transcribedText,
+                                 persona = currentPersona, currentTurnInHistory = false,
+                                 generation = generation, attachments = emptyList(), imagePath = null,
+                                 turnContext = voiceTurnContext.copy(fsToolMode = fsWorkspace.mode),
+                                 workspace = fsWorkspace,
+                             )
+                         } else {
+                             performDirectOllamaChat(ollamaBase, actualModel, transcribedText, currentPersona, currentTurnInHistory = false, generation = generation, turnContext = voiceTurnContext)
+                         }
                          // Fix #5 (voice-flow follow-up): clean markdown for TTS on IO —
                          // the cleaned variant feeds the on-device engines (5th element);
                          // the chat bubble/history keep the original markdown. This branch
@@ -749,6 +794,17 @@ internal fun AssistantService.sendTextMessageToServer(inputText: String, current
 
         if (currentPersona.model.isBlank()) {
             sink.append(ChatMessage("assistant", "Please choose a model for this persona in its settings.", isError = true))
+            return@launch
+        }
+
+        // M8: **a route that cannot offer the tools says so.** This persona has a workspace, and its
+        // turn is one the Voice Gateway builds the prompt for — so there is nowhere to declare a tool
+        // or to say what file contents are. Answering anyway is what the design refuses: a model asked
+        // to summarise a file it cannot read answers fluently and wrongly. Checked here, before the
+        // request, so nothing is sent and no THINKING state is entered; the user's own turn stays in
+        // the transcript, because they did say it.
+        if (fsWorkspaceFor(currentPersona) != null && !fsToolsReachableFor(currentPersona)) {
+            refuseFsToolsOnGatewayRoute(currentPersona) { sink.append(it) }
             return@launch
         }
 

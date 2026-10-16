@@ -52,8 +52,12 @@ import java.nio.file.Path
  */
 class FsToolTurnTest {
 
-    /** The two routes that can reach a tool. They differ in the entry point and the wire dialect. */
-    private enum class Dialect { OLLAMA, CLOUD }
+    /**
+     * The routes a turn can take. **GATEWAY is the one that cannot carry tools at all** — the app
+     * sends it a model, a backend URL and the user's words, and the system prompt is assembled on the
+     * other side — so a persona with a workspace on that route is refused rather than answered.
+     */
+    private enum class Dialect { OLLAMA, CLOUD, GATEWAY }
 
     private lateinit var env: FakeAppEnv
     private lateinit var notifier: RecordingNotifier
@@ -113,6 +117,92 @@ class FsToolTurnTest {
     @Test
     fun `a cloud tool turn that ends in silence answers with a sentence`() = runTest {
         assertSilentToolTurnSpeaks(Dialect.CLOUD)
+    }
+
+    // ------------------------------------------------------------------ the route that cannot carry them
+
+    @Test
+    fun `a gateway persona with a workspace is refused in words, and nothing is sent`() = runTest {
+        val service = serviceWith(Dialect.GATEWAY, workspace = workspace)
+        runCurrent()
+
+        service.sendTextMessageToServer("read my notes and summarise them", service.personas.value.first())
+        settle(service, "the refusal") { service._messages.value.lastOrNull()?.text == FS_GATEWAY_REFUSAL }
+
+        assertEquals("the user's own turn stays: they did say it", "user", service._messages.value.first().role)
+        assertEquals("one reply, and it is the refusal", 1, service._messages.value.count { it.role == "assistant" })
+        assertTrue(
+            "nothing reached the gateway — a model asked about a file it cannot read answers anyway: " +
+                provider.turns.map { it.path },
+            provider.turns.isEmpty(),
+        )
+        assertEquals("and the workspace was not touched", 0, readFsToolAudit(env.stateDir, 10).size)
+    }
+
+    @Test
+    fun `the same gateway persona with no workspace answers through it as it always did`() = runTest {
+        // The control that makes the refusal above mean something: without it, a persona that simply
+        // could not reach the gateway at all would pass that test.
+        val service = serviceWith(Dialect.GATEWAY, workspace = null)
+        runCurrent()
+        provider.reply(gatewayReply("I have no files here."))
+
+        service.sendTextMessageToServer("hello there", service.personas.value.first())
+        settle(service, "the reply") { service._messages.value.any { it.text.contains("I have no files here.") } }
+
+        assertEquals("the request went out, so the refusal is about the workspace", 1, provider.turns.size)
+        assertTrue("and to the gateway route", provider.turns.single().path.endsWith("/text-chat"))
+    }
+
+    @Test
+    fun `a spoken turn on a gateway persona with a workspace is refused before it transcribes`() = runTest {
+        // The route where the user is *listening*: silence, or a long pause and then an invented
+        // summary, are the two ways this goes wrong. Refused before the transcription is attempted,
+        // so the answer is immediate and costs nothing.
+        val service = serviceWith(Dialect.GATEWAY, workspace = workspace)
+        runCurrent()
+        val audio = Files.createTempFile("utterance", ".wav").also { Files.write(it, ByteArray(2048)) }
+
+        service.sendAudioToServer(audio, service.personas.value.first())
+        settle(service, "the refusal") { service._messages.value.lastOrNull()?.text == FS_GATEWAY_REFUSAL }
+
+        assertTrue(
+            "not even a transcription was attempted: ${provider.requests.map { it.path }}",
+            provider.requests.none { it.path.endsWith("/transcribe") },
+        )
+        assertTrue("and nothing was sent", provider.turns.isEmpty())
+    }
+
+    // ------------------------------------------------------------------ a spoken turn carries them
+
+    @Test
+    fun `a spoken turn on a direct-Ollama persona carries the tools too`() = runTest {
+        // The gap this closes: wiring the tools into the text path only left a hands-free "read my
+        // notes and summarise them" with no tools and no explanation — the same silent invention the
+        // gateway refusal exists to prevent, on the route this application is actually used through.
+        Files.writeString(workspace.resolve("notes.md"), "milk, and the shopping list\n")
+        val service = serviceWith(Dialect.OLLAMA, workspace = workspace)
+        runCurrent()
+        provider.transcription = "list my files"
+        scriptToolRound(Dialect.OLLAMA, TOOL_LIST, """{"path":"."}""", "Your workspace holds notes.md.")
+        val audio = Files.createTempFile("utterance", ".wav").also { Files.write(it, ByteArray(2048)) }
+
+        service.sendAudioToServer(audio, service.personas.value.first())
+        settle(service, "the turn to finish") {
+            service._messages.value.any { it.text == "Your workspace holds notes.md." }
+        }
+
+        assertEquals("two rounds, after one transcription", 2, provider.turns.size)
+        assertNotNull(
+            "the tools were declared on the wire",
+            JSONObject(provider.turns[0].body).optJSONArray("tools"),
+        )
+        assertEquals("the call was carried out", 1, readFsToolAudit(env.stateDir, 10).size)
+        assertEquals(
+            "and the transcript holds what was said, then the reply",
+            listOf("user" to "list my files", "assistant" to "Your workspace holds notes.md."),
+            service._messages.value.map { it.role to it.text },
+        )
     }
 
     @Test
@@ -388,7 +478,11 @@ class FsToolTurnTest {
         maxTokens: Int = 2048,
     ): AssistantService {
         when (dialect) {
+            // The gateway entry is what transcription and speech resolve against, so the Ollama
+            // dialects need it too: a spoken turn is transcribed by the gateway before the model
+            // ever hears it. The gateway dialect answers *through* it.
             Dialect.OLLAMA -> settings.saveOllamaBases(listOf(ServerConfig(name = OLLAMA_SERVER, url = provider.baseUrl)))
+            Dialect.GATEWAY -> Unit
             Dialect.CLOUD -> settings.saveCloudApis(
                 listOf(
                     CloudApiSetting(
@@ -401,6 +495,9 @@ class FsToolTurnTest {
                     )
                 )
             )
+        }
+        if (dialect != Dialect.CLOUD) {
+            settings.saveServerBases(listOf(ServerConfig(name = GATEWAY, url = provider.baseUrl)))
         }
         if (workspace != null) {
             settings.saveFsMode(mode)
@@ -434,7 +531,13 @@ class FsToolTurnTest {
         model = when (dialect) {
             Dialect.OLLAMA -> "[$OLLAMA_SERVER] fake-model"
             Dialect.CLOUD -> "[$PROVIDER] fake-model"
+            // No bracket prefix: neither an Ollama server nor a cloud provider, which is exactly the
+            // shape that reaches the Voice Gateway. The Backend URL is what names it there.
+            Dialect.GATEWAY -> "fake-model"
         },
+        // The Backend URL names the gateway, and it is what transcription resolves against — so a
+        // spoken turn needs it whichever route the *chat* takes. It plays no part in a text turn.
+        backendUrl = if (dialect == Dialect.CLOUD) "" else provider.baseUrl,
         systemPrompt = "You are a test fixture.",
         isCloud = dialect == Dialect.CLOUD,
         // No voice engine and no thinking: this test is about the tool round trip, and a reply that
@@ -450,6 +553,9 @@ class FsToolTurnTest {
     /** [calls] in the order the model asks for them, then a prose answer. */
     private fun scriptToolRound(dialect: Dialect, calls: List<Pair<String, String>>, answer: String) {
         when (dialect) {
+            // The gateway route never reaches a tool: a turn there is refused before the request, or
+            // answered without tools when the persona has no workspace.
+            Dialect.GATEWAY -> provider.reply(gatewayReply(answer))
             Dialect.OLLAMA -> {
                 calls.forEach { (tool, arguments) ->
                     provider.replyNdjson(
@@ -576,6 +682,7 @@ class FsToolTurnTest {
 
     private companion object {
         const val OLLAMA_SERVER = "Local"
+        const val GATEWAY = "Fake Gateway"
         const val PROVIDER = "Fake"
         const val PERSONA = "Fixture"
 
