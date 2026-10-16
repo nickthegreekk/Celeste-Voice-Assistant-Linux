@@ -608,7 +608,7 @@ cluster commit lands.
 | RAG, SearXNG web search, file attachments | M5 | HTTP, unchanged |
 | Image generation: ComfyUI + A1111, workflow tokens | M3 | Pure logic copies over |
 | Per-character workflow binding (persona to template id) | M3 | Unchanged |
-| Image viewer with pinch-zoom/pan | M3 | A `DialogWindow` sized by the app, not a dialog the toolkit sizes; the same gestures, driven by a mouse |
+| Image viewer with pinch-zoom/pan | M3 | A `DialogWindow` sized by the app, not a dialog the toolkit sizes; the same gestures, driven by a mouse. The gallery save beside it is a copy into `Pictures/VoiceAssistant/` |
 | Skills and skill triggers | M5 | Unchanged |
 | Rooms (multi-persona group chat) | M4 | Unchanged |
 | Spontaneous messages | M4 | Scheduler is pure; the driver is new |
@@ -851,7 +851,18 @@ but hands its size to the toolkit, since a Compose Desktop dialog takes its size
 became a `DialogWindow` with an explicit size. That is the whole of "ditch the Android logic" for
 this file, and it removes the one thing the first version could only have flagged as unseen: the pan
 clamp measures its *container*, so a container sized by its own content measures the picture against
-itself. A window we size is a window we can reason about.]
+itself. A window we size is a window we can reason about.
+
+**"Save to gallery" followed it the same evening, and it is the same substitution in miniature.** Upstream
+inserted into `MediaStore.Images` through a `ContentResolver`, behind three `Build.VERSION.SDK_INT` guards; here the
+button copies the file into `$XDG_PICTURES_DIR/VoiceAssistant/` under upstream's own `Gen_<millis>.png` name — the
+folder is upstream's `RELATIVE_PATH`, and the user asked for that folder by name. The path reaches `:core` through
+`AppEnv.picturesDir` (AGENTS.md §4: `:core` never resolves `$HOME` or `$XDG_*` for itself), and `XdgPaths` resolves
+`XDG_PICTURES_DIR` alone rather than as a base dir, because it is a user dir and not an XDG home. Rejected: the save
+dialog §7 offered as the alternative — the button's promise is "put it with my pictures", which configuration has
+already answered. `ImageSaveTest` pins the two promises that matter: the name shape with its collision suffix, and
+that a second save never destroys a first, because a folder full of the user's pictures is the one place a mistake
+cannot be apologised for afterwards.]
 
 The counts, settled by the anchored grep rather than by a mention count:
 

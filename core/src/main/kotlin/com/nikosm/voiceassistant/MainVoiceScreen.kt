@@ -1555,6 +1555,7 @@ fun ControlBar(
                 onDeleteMessage = onDeleteMessage,
                 onReplayAudio = onReplayAudio,
                 onRegenerateImage = { index -> service?.regenerateImageMessage(index) },
+                onSaveImage = { index -> service?.saveGeneratedImage(index) },
                 shouldShowSuggestions = shouldShowSuggestions,
                 suggestionState = suggestionState,
                 onRequestSuggestions = onRequestSuggestionsAction,

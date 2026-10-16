@@ -35,6 +35,23 @@ class XdgPathsTest {
     }
 
     @Test
+    fun `the pictures folder, set or unset, keeps upstream's VoiceAssistant name`() {
+        // XDG_PICTURES_DIR is a *user* dir rather than an XDG base dir, so it is the one path here
+        // with no home-then-app structure above it — and the app directory under it is upstream's
+        // ("VoiceAssistant", from the RELATIVE_PATH it asked MediaStore for), not this port's own
+        // storage name. An image saved on either platform must land in the same folder.
+        assertEquals(home.resolve("Pictures/VoiceAssistant"), XdgPaths.resolve(env(), home).picturesDir)
+        assertEquals(
+            home.resolve("Pictures/VoiceAssistant"),
+            XdgPaths.resolve(env("XDG_PICTURES_DIR" to ""), home).picturesDir,
+        )
+        assertEquals(
+            temp.resolve("my-pics/VoiceAssistant"),
+            XdgPaths.resolve(env("XDG_PICTURES_DIR" to temp.resolve("my-pics").toString()), home).picturesDir,
+        )
+    }
+
+    @Test
     fun `absolute values are honoured`() {
         val paths = XdgPaths.resolve(
             env(

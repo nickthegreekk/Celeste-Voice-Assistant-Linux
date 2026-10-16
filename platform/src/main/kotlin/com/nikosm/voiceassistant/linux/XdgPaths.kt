@@ -29,6 +29,12 @@ class XdgPaths(
     val dataHome: Path,
     val stateHome: Path,
     val cacheHome: Path,
+    /**
+     * `XDG_PICTURES_DIR` — a *user* dir, not an XDG base dir, so it resolves alone rather than as a
+     * home to hang an application directory off. The spec's fallback is `$HOME/Pictures`, and a
+     * value that is empty or not absolute falls back the same way `base` does for the others.
+     */
+    val picturesHome: Path,
 ) {
     /** Settings, personas, servers, skills, image-generation entries (README.md, *Where things live*). */
     val configDir: Path get() = configHome.resolve(APP_DIR)
@@ -42,8 +48,23 @@ class XdgPaths(
     /** Utterance WAVs, downloaded images, model downloads. */
     val cacheDir: Path get() = cacheHome.resolve(APP_DIR)
 
+    /**
+     * Where "Save to gallery" writes: `Pictures/VoiceAssistant/`, which is upstream's own folder —
+     * it asked `MediaStore` for `RELATIVE_PATH = Pictures/VoiceAssistant` — so an image saved on
+     * either platform lands in the same place within the user's pictures.
+     */
+    val picturesDir: Path get() = picturesHome.resolve(PICTURES_APP_DIR)
+
     companion object {
         const val APP_DIR = "celeste-linux"
+
+        /**
+         * The pictures folder, which is **not** [APP_DIR] and deliberately so: it is the user's, not
+         * this port's private storage. Upstream asked `MediaStore` for
+         * `RELATIVE_PATH = Pictures/VoiceAssistant`, so an image saved on either platform lands in
+         * the same place — and it is the name the user asked for when they chose the folder.
+         */
+        const val PICTURES_APP_DIR = "VoiceAssistant"
 
         fun resolve(
             env: (String) -> String? = { System.getenv(it) },
@@ -53,6 +74,7 @@ class XdgPaths(
             dataHome = base(env, "XDG_DATA_HOME", home.resolve(".local/share")),
             stateHome = base(env, "XDG_STATE_HOME", home.resolve(".local/state")),
             cacheHome = base(env, "XDG_CACHE_HOME", home.resolve(".cache")),
+            picturesHome = base(env, "XDG_PICTURES_DIR", home.resolve("Pictures")),
         )
 
         private fun base(env: (String) -> String?, name: String, fallback: Path): Path {

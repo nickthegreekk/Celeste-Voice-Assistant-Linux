@@ -112,6 +112,7 @@ fun ChatMessageBubble(
     onLongClick: (() -> Unit)? = null,
     onReplayAudio: (() -> Unit)? = null,
     onRegenerateImage: (() -> Unit)? = null,
+    onSaveImage: (() -> Unit)? = null,
     // Room mode only: who is speaking, and the color of that persona's theme.
     // Both default to null so every single-persona call site renders EXACTLY as before
     // (the chip below is skipped entirely). A null [speakerColor] on a labeled message
@@ -292,16 +293,17 @@ fun ChatMessageBubble(
                             Text("Regenerate")
                         }
                     }
-                    // DEFERRED TO M3: the "Save to gallery" button. Upstream inserted the image
-                    // into `MediaStore.Images` through a `ContentResolver`, with `IS_PENDING` and a
-                    // `RELATIVE_PATH` under `Environment.DIRECTORY_PICTURES` — an Android content
-                    // provider with no counterpart, and the three `Build.VERSION.SDK_INT` guards
-                    // around it exist for API levels this platform does not have. The desktop
-                    // equivalent is a save dialog (seam 13) or a write to `XDG_PICTURES_DIR`, both
-                    // of which belong with the image milestones rather than invented here for a
-                    // button whose viewer M3 also owns — both were marked M5 when M1 cut them, and the milestone
-                    // named for images is this one; corrected 2026-10-16. The button is absent from the row until
-                    // then rather than present and inert.
+                    // Upstream's button and upstream's label. It asked `MediaStore` for a
+                    // `Pictures/VoiceAssistant` entry through a `ContentResolver`; this asks the
+                    // same folder directly (see `saveImageToPictures`), because a content provider
+                    // is the part of that call this platform has no counterpart for — the folder
+                    // and the name are the parts the user sees, and both are kept. Absent when the
+                    // bubble was given nothing to call, which is how the M1 marker left it.
+                    if (onSaveImage != null) {
+                        TextButton(onClick = onSaveImage) {
+                            Text("Save to gallery")
+                        }
+                    }
                 }
             }
         }
@@ -371,6 +373,7 @@ fun ChatList(
     onDeleteMessage: (Int) -> Unit,
     onReplayAudio: (ChatMessage) -> Unit,
     onRegenerateImage: ((Int) -> Unit)? = null,
+    onSaveImage: ((Int) -> Unit)? = null,
     shouldShowSuggestions: Boolean = false,
     suggestionState: SuggestionState = SuggestionState.IDLE,
     onRequestSuggestions: () -> Unit = {},
@@ -416,6 +419,7 @@ fun ChatList(
                         onLongClick = { menuMessageIndex = index },
                         onReplayAudio = { onReplayAudio(message) },
                         onRegenerateImage = if (message.generatedImagePath != null && onRegenerateImage != null) { { onRegenerateImage(index) } } else null,
+                        onSaveImage = if (message.generatedImagePath != null && onSaveImage != null) { { onSaveImage(index) } } else null,
                         modifier = if (isUser) Modifier else Modifier.fillMaxWidth()
                     )
 

@@ -73,6 +73,7 @@ class SettingsManagerCorruptionTest {
         override val dataDir: Path get() = root.resolve("data")
         override val stateDir: Path get() = root.resolve("state")
         override val cacheDir: Path get() = root.resolve("cache")
+        override val picturesDir: Path get() = cacheDir.resolve("Pictures")
         override val debugLogging: Boolean get() = false
         override val logger: AppLogger get() = StderrLogger
         override val notifier: Notifier get() = throw UnsupportedOperationException("no settings test posts a notification")

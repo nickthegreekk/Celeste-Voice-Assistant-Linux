@@ -55,6 +55,16 @@ interface AppEnv {
 
     /** Utterance WAVs, downloaded images, model downloads. Safe to lose. */
     val cacheDir: Path
+    /**
+     * Where saved images go: `XDG_PICTURES_DIR/VoiceAssistant`.
+     *
+     * A path like the four above it, and for the same reason — `:core` never resolves `$HOME` or
+     * `$XDG_*` for itself (AGENTS.md §4). Unlike them it is a *user* dir rather than an XDG base
+     * dir, so `XdgPaths` resolves it on its own; upstream wrote into the same folder through
+     * `MediaStore`'s `RELATIVE_PATH`, which is why the name is not this port's to choose.
+     */
+    val picturesDir: Path
+
 
     /**
      * Whether conversation-content logging is on — the port of `BuildConfig.DEBUG`.
