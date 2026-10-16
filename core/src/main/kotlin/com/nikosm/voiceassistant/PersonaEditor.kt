@@ -165,13 +165,6 @@ internal data class PersonaEditorFields(
     val voiceEngine: String,
     val kokoroVoice: String,
     val backendUrl: String,
-    /**
-     * The output this persona's replies play to — an [AudioDevice.id], or null for the system
-     * default. Carried through the editor for the reason the image character below is: BOTH commit
-     * paths rebuild a WHOLE Persona from this snapshot, so a field missing here is silently
-     * reverted to whatever the persona held when the editor opened.
-     */
-    val outputDeviceId: String?,
     /** The persona's chosen Image Character id (see [Persona.imageWorkflowId]). */
     val imageWorkflowId: String? = null,
     val enabledSkillIds: List<String>,
@@ -258,7 +251,6 @@ internal fun Persona.withEditorFields(
         voiceEngine = fields.voiceEngine,
         kokoroVoice = fields.kokoroVoice,
         backendUrl = fields.backendUrl,
-        outputDeviceId = fields.outputDeviceId,
         imageWorkflowId = fields.imageWorkflowId,
         enabledSkillIds = fields.enabledSkillIds,
         // Gated (plan location #2): never commit an opt-in the persona could not honour.
@@ -414,9 +406,10 @@ fun PersonaEditor(
     var voiceEngine by remember(persona) { mutableStateOf(persona.voiceEngine) }
     var kokoroVoice by remember(persona) { mutableStateOf(persona.kokoroVoice) }
     var backendUrl by remember(persona) { mutableStateOf(persona.backendUrl) }
-    // The chosen output sink (PLAN.md §9's replacement for the phone's earpiece route), tracked
-    // locally for the same whole-Persona-rebuild reason as imageWorkflowId and enabledSkillIds.
-    var outputDeviceId by remember(persona) { mutableStateOf(persona.outputDeviceId) }
+    // The chosen sink lives in SettingsManager under the persona's name, NOT in the Persona
+    // itself: Models.kt is a COPY file (PLAN.md §7) and a new field there would demote it. Read
+    // once on open, then held locally — which is what the row shows.
+    var outputDeviceId by remember(persona) { mutableStateOf(service.settingsManager.getPersonaOutputDevice(persona.name)) }
     var outputDevices by remember { mutableStateOf<List<AudioDevice>?>(null) }
     LaunchedEffect(Unit) {
         outputDevices = withContext(Dispatchers.IO) { service.audioDevices.outputs() }.orEmpty()
@@ -582,7 +575,6 @@ fun PersonaEditor(
         voiceEngine = voiceEngine,
         kokoroVoice = kokoroVoice,
         backendUrl = backendUrl,
-        outputDeviceId = outputDeviceId,
         imageWorkflowId = imageWorkflowId,
         enabledSkillIds = enabledSkillIds,
         spontaneousEnabled = spontaneousEnabled,
@@ -631,7 +623,7 @@ fun PersonaEditor(
     }
 
     // Auto-save logic
-    LaunchedEffect(name, model, systemPrompt, themeColor, temp, topP, topK, repeatPenalty, maxTokens, numCtx, enableThinking, webSearchEnabled, ragEnabled, allowGatewayFailover, isTranslator, isImageGenerator, targetLanguage, voiceMode, voiceEngine, kokoroVoice, backendUrl, outputDeviceId, imageWorkflowId, enabledSkillIds, iconImageUri, backgroundImageUri, spontaneousEnabled, spontaneousInstruction, spontaneousGapMinutes, spontaneousWindowStartMin, spontaneousWindowEndMin, editorIsCloudModel, customProviderNames, spontaneousAllowed) {
+    LaunchedEffect(name, model, systemPrompt, themeColor, temp, topP, topK, repeatPenalty, maxTokens, numCtx, enableThinking, webSearchEnabled, ragEnabled, allowGatewayFailover, isTranslator, isImageGenerator, targetLanguage, voiceMode, voiceEngine, kokoroVoice, backendUrl, imageWorkflowId, enabledSkillIds, iconImageUri, backgroundImageUri, spontaneousEnabled, spontaneousInstruction, spontaneousGapMinutes, spontaneousWindowStartMin, spontaneousWindowEndMin, editorIsCloudModel, customProviderNames, spontaneousAllowed) {
         // Skip initial evaluation if needed? No, persona change will trigger it once, which is fine.
         delay(500)
         // The SAME single builder as the dispose flush (see `editorFields` above), so a save from
@@ -1259,7 +1251,14 @@ fun PersonaEditor(
                 subtitle = "Where this persona's replies are played. The default follows the system.",
                 devices = outputs,
                 selectedId = outputDeviceId,
-                onSelect = { outputDeviceId = it },
+                onSelect = { id ->
+                    outputDeviceId = id
+                    // Written under the editor's LIVE name, not the open-time one: the autosave's
+                    // rename migration runs off the same local state, and a write under a name the
+                    // user has just edited away would orphan the entry where the migration could
+                    // not find it.
+                    service.setPersonaOutputDevice(name, id)
+                },
             )
         }
 

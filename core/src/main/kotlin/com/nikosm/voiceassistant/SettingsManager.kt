@@ -113,6 +113,9 @@ class SettingsManager(
         const val MESSAGE_IMAGE_JPEG_QUALITY = 85
 
         const val DEFAULT_CHAT_FONT_SIZE = 14f
+
+        /** The settings key prefix for a persona's chosen output device; see the accessors above. */
+        const val PERSONA_OUTPUT_DEVICE_PREFIX = "persona_output_device_"
     }
 
     // The shared production Json, not a second copy of it — see [SettingsJson].
@@ -567,6 +570,7 @@ class SettingsManager(
         // delivery state with no saved history entry at all, and the history read's
         // early-return must not strand the state under the old key.
         migrateSpontaneousState(oldName, newName)
+        migratePersonaOutputDevice(oldName, newName)
         val data = store.getString("persona_messages_$oldName") ?: return
         store.edit()
             .putString("persona_messages_$newName", data)
@@ -762,6 +766,10 @@ class SettingsManager(
         }
         store.edit().remove("persona_messages_$personaName").commit()
         deleteSpontaneousState(personaName)
+        // The sink follows the same rule as the delivery state: it is name-keyed state about a
+        // persona, so it dies with the persona rather than orphaning under a name nothing can
+        // reach again.
+        store.edit().remove(PERSONA_OUTPUT_DEVICE_PREFIX + personaName).commit()
     }
 
     /** The one place a referenced cache/artwork file is removed. Missing is not an error. */
@@ -932,6 +940,15 @@ class SettingsManager(
                 .map { it.removePrefix("persona_messages_") }
                 .filter { it !in restoredNames }
                 .forEach { deletePersonaHistory(it) }
+            // The output-device entries are name-keyed for the same reason the histories are, and
+            // a restore can leave one behind for a persona it did not bring back. `deletePersonaHistory`
+            // above drops the entry of every orphan that HAD a history; this catches the rest — the
+            // same second pass, and the same reason, as the spontaneous-state sweep below.
+            store.allKeys()
+                .filter { it.startsWith(PERSONA_OUTPUT_DEVICE_PREFIX) }
+                .map { it.removePrefix(PERSONA_OUTPUT_DEVICE_PREFIX) }
+                .filter { it !in restoredNames }
+                .forEach { store.edit().remove(PERSONA_OUTPUT_DEVICE_PREFIX + it).commit() }
             // Same orphan sweep for room transcripts: the restore overwrites the ROOM
             // list, so a room_messages_<id> entry for a room that existed before the
             // restore but isn't in this backup would otherwise survive forever,
@@ -1114,6 +1131,47 @@ class SettingsManager(
     }
 
     fun getAudioInputDevice(): String? = store.getString("audio_input_device")?.takeIf { it.isNotBlank() }
+
+    /**
+     * The output a persona's replies play to, keyed by persona NAME — an [AudioDevice.id], or
+     * absent for the system default.
+     *
+     * Keyed by name in the settings blob rather than carried as a `Persona` field, and the reason
+     * is a hard constraint rather than taste: `Models.kt` is a **COPY** file (PLAN.md §7) and must
+     * stay byte-identical to upstream forever, so a new field on `Persona` is not available without
+     * demoting it. This blob already holds per-persona state that upstream keeps outside the model
+     * — `persona_messages_<name>` and the spontaneous delivery state — and this is the same kind of
+     * thing: device-local bookkeeping, meaningless on another machine.
+     *
+     * **It therefore does not travel in a backup.** A Linux sink name is not a phone routing
+     * choice, and a restored backup's ids may not exist on the machine being restored to; the
+     * persona editor shows the default in that case, and `sinkForPersona` logs the disappearance
+     * rather than silently speaking somewhere else.
+     *
+     * Same lifecycle as the two neighbours: [migratePersonaHistory] carries it across a rename and
+     * [deletePersonaHistory] drops it on deletion, and the import's orphan sweep drops it for a
+     * persona the restore did not bring back.
+     */
+    fun savePersonaOutputDevice(personaName: String, deviceId: String?) {
+        if (personaName.isBlank()) return
+        val edit = store.edit()
+        if (deviceId.isNullOrBlank()) edit.remove(PERSONA_OUTPUT_DEVICE_PREFIX + personaName)
+        else edit.putString(PERSONA_OUTPUT_DEVICE_PREFIX + personaName, deviceId)
+        edit.commit()
+    }
+
+    fun getPersonaOutputDevice(personaName: String): String? =
+        store.getString(PERSONA_OUTPUT_DEVICE_PREFIX + personaName)?.takeIf { it.isNotBlank() }
+
+    /** The rename half: move the entry, like the history and delivery-state twins above. */
+    fun migratePersonaOutputDevice(oldName: String, newName: String) {
+        if (oldName == newName || oldName.isBlank()) return
+        val existing = getPersonaOutputDevice(oldName) ?: return
+        store.edit()
+            .putString(PERSONA_OUTPUT_DEVICE_PREFIX + newName, existing)
+            .remove(PERSONA_OUTPUT_DEVICE_PREFIX + oldName)
+            .commit()
+    }
 
     fun saveUserLocation(location: String) {
         store.edit().putString("user_location", location).commit()

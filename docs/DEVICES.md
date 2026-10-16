@@ -54,7 +54,8 @@ its own accelerator and spare you this section. It is marked optional in the pla
   headphones" is a property of the conversation. *System default* is the first entry and means exactly that.
 
 Both lists are read from the sound server when the screen opens, so a device that is plugged in while a picker is
-already open will appear the next time it is opened. A device that is chosen and later disappears is not an error:
+already open will appear the next time it is opened. The per-persona output choice is stored on this machine only —
+it does not travel in a backup, because a sink name is not meaningful on another machine (or on the phone). A device that is chosen and later disappears is not an error:
 the application falls back to the system default and logs which device it was, because a persona whose headphones are
 unplugged should still be able to speak.
 

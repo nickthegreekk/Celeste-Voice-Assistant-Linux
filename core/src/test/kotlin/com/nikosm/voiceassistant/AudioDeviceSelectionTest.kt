@@ -1,6 +1,5 @@
 package com.nikosm.voiceassistant
 
-import androidx.compose.ui.graphics.Color
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
@@ -17,9 +16,10 @@ import java.nio.file.Path
  *  - **"No preference" and "the device is gone" both answer null**, which is what the callers fall
  *    back on — and the callers are where the two are told apart in words (`sinkForPersona`,
  *    `inputDeviceForCapture`).
- *  - **The persona field is optional in both directions**: an older backup without it decodes to
- *    null rather than failing, and one with it survives the round trip. That is the upgrade path
- *    for every persona already stored, and the reason the field is declared last with a default.
+ *  - **The per-persona choice has a lifecycle.** It is name-keyed in settings rather than a
+ *    `Persona` field, because `Models.kt` is a COPY file — so it has to follow the persona through
+ *    a rename and die with it on deletion, exactly as the message history and the spontaneous
+ *    delivery state beside it do. Both halves are asserted through the same shared surface.
  */
 class AudioDeviceSelectionTest {
 
@@ -59,22 +59,33 @@ class AudioDeviceSelectionTest {
     }
 
     @Test
-    fun `a persona's chosen output survives the round trip, and an older one decodes without it`() {
-        val persona = Persona(
-            name = "persona",
-            themeColor = Color.Gray,
-            model = "model",
-            systemPrompt = "prompt",
-            outputDeviceId = "alsa_output.analog",
-        )
+    fun `a persona's chosen output is stored under its name, and clearing it removes the entry`() {
+        val manager = manager()
 
-        val encoded = SettingsJson.encodeToString(persona)
-        assertEquals("alsa_output.analog", SettingsJson.decodeFromString<Persona>(encoded).outputDeviceId)
+        assertNull("nothing chosen yet", manager.getPersonaOutputDevice("Celeste"))
+        manager.savePersonaOutputDevice("Celeste", "alsa_output.analog")
+        assertEquals("alsa_output.analog", manager.getPersonaOutputDevice("Celeste"))
+        assertNull("and nothing else is touched", manager.getPersonaOutputDevice("Friend"))
 
-        // The upgrade path: a persona stored (or backed up) before this field existed.
-        val older = encoded.replace(Regex(",\"outputDeviceId\":\"[^\"]*\""), "")
-        assertEquals(false, older.contains("outputDeviceId"))
-        assertNull(SettingsJson.decodeFromString<Persona>(older).outputDeviceId)
+        manager.savePersonaOutputDevice("Celeste", null)
+        assertNull("choosing the default stores nothing", manager.getPersonaOutputDevice("Celeste"))
+    }
+
+    @Test
+    fun `a rename carries the choice, and a deletion drops it`() {
+        // The reason this state is name-keyed at all: it has a lifecycle to keep in step with the
+        // persona, and both halves of it are shared with the message history and the spontaneous
+        // delivery state.
+        val manager = manager()
+        manager.savePersonaOutputDevice("Old name", "alsa_output.hdmi")
+
+        manager.migratePersonaHistory("Old name", "New name")
+
+        assertNull("the old key is gone", manager.getPersonaOutputDevice("Old name"))
+        assertEquals("alsa_output.hdmi", manager.getPersonaOutputDevice("New name"))
+
+        manager.deletePersonaHistory("New name")
+        assertNull("deletion takes it with the history", manager.getPersonaOutputDevice("New name"))
     }
 
     // ---------------------------------------------------------------- harness

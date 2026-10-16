@@ -376,7 +376,10 @@ The guard turns a pointless request and an alarming log line into nothing at all
 
 ## 2026-10-16 — Source and sink selection: two different scopes, and a preference falls back
 
-M2's last code item. The sink is **per persona** (`Persona.outputDeviceId`) and the microphone is **global**
+M2's last code item. The sink is **per persona** (`persona_output_device_<name>` in the settings blob, NOT a
+`Persona` field: `Models.kt` is a COPY file and adding one would demote it, which is a stop-and-ask — the port already
+has this pattern for name-keyed per-persona state, and the entry gets the same rename/delete/import lifecycle as the
+message history beside it; it is device-local and does not travel in a backup) and the microphone is **global**
 (`audio_input_device` in settings, Settings → Audio), because the plan's substitution is per-persona for the output
 (§9 replaced the earpiece route toggle, which the phone used to say "this conversation is private") while there is
 only one room being listened to and one microphone in it. Rejected: per-persona microphones (a persona cannot be
@@ -401,6 +404,7 @@ Two things found while wiring it, both recorded rather than fixed silently:
   decision, so the toggle has done nothing since M2 began, and now the per-persona sink outranks it. Removing a visible
   affordance is a user-facing change and is not this milestone's call — flagged for the user instead.
 
-`AudioDevicePickerRow` (UIComponents.kt) is the one picker both screens use, and it takes the device list as a
+`AudioDevicePickerRow` (its own NEW file — `UIComponents.kt` is a COPY file too, so new UI cannot arrive inside it)
+is the one picker both screens use, and it takes the device list as a
 parameter: `outputs()`/`inputs()` shell out to `pactl`/`wpctl` with a 3s bound, so each screen fetches once, off the
 main thread, when it opens. → PLAN.md §9, §10 M2; docs/DEVICES.md

@@ -248,7 +248,7 @@ internal fun AssistantService.playbackTarget(): AudioDevice? =
  * `AudioCapture.open` still refuses to substitute one).
  */
 internal fun AssistantService.sinkForPersona(persona: Persona?): AudioDevice? {
-    val wanted = persona?.outputDeviceId ?: return null
+    val wanted = persona?.let { settingsManager.getPersonaOutputDevice(it.name) } ?: return null
     val device = pickDevice(audioDevices.outputs(), wanted)
     if (device == null) {
         logger.w(

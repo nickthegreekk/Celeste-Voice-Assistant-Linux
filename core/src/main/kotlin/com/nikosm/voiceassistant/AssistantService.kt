@@ -1040,6 +1040,15 @@ class AssistantService(
         settingsManager.saveAudioInputDevice(deviceId)
     }
 
+    /**
+     * Which output [personaName]'s replies play to — null for the system default. The persona
+     * editor's *Output device* row, written under the editor's live name so a rename and a device
+     * change in the same edit cannot orphan the entry.
+     */
+    fun setPersonaOutputDevice(personaName: String, deviceId: String?) {
+        settingsManager.savePersonaOutputDevice(personaName, deviceId)
+    }
+
     fun forceCheckHealth(target: ServerConfig, isGateway: Boolean, isImageGen: Boolean = false) {
         serviceScope.launch(Dispatchers.IO) {
             checkServerHealth(target, isGateway, isImageGen)

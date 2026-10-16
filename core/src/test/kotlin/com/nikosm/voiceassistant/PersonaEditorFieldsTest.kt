@@ -15,35 +15,14 @@ import org.junit.Test
  * out at three sites, and the compiler can only catch the half of it that is a missing constructor
  * argument: a `copy()` that simply does not mention a field compiles perfectly.
  *
- * The output device is the field that made this worth writing, being the newest (M2's sink
- * selection), but the assertions cover the shape rather than one field: set, cleared, and the two
- * fields the builder deliberately does not touch.
+ * The output device is deliberately NOT one of these fields: it lives in SettingsManager keyed by
+ * persona name, because `Models.kt` is a COPY file and a new `Persona` field would demote it (see
+ * `SettingsManager.savePersonaOutputDevice`). What is asserted here is the shape that hazard has
+ * in general — a field the builder must carry, and the two it deliberately must not.
  */
 class PersonaEditorFieldsTest {
 
     private val base = DEFAULT_PERSONAS.first()
-
-    @Test
-    fun `the chosen output device survives the rebuild`() {
-        val persona = base.copy(outputDeviceId = "alsa_output.hdmi")
-        val fields = fieldsOf(persona).copy(outputDeviceId = "alsa_output.analog")
-
-        val rebuilt = persona.withEditorFields(fields, isCloudModel = false, customProviderNames = emptySet(), spontaneousAllowed = true)
-
-        assertEquals("alsa_output.analog", rebuilt.outputDeviceId)
-    }
-
-    @Test
-    fun `choosing the default clears it rather than keeping the old sink`() {
-        // The direction that would otherwise strand a persona on a device the user just moved it
-        // off: "System default" in the picker is null, and null has to win over the stored id.
-        val persona = base.copy(outputDeviceId = "alsa_output.hdmi")
-        val fields = fieldsOf(persona).copy(outputDeviceId = null)
-
-        val rebuilt = persona.withEditorFields(fields, isCloudModel = false, customProviderNames = emptySet(), spontaneousAllowed = true)
-
-        assertNull(rebuilt.outputDeviceId)
-    }
 
     @Test
     fun `fields the editor has no control for are preserved, not cleared`() {
@@ -95,7 +74,6 @@ class PersonaEditorFieldsTest {
         voiceEngine = p.voiceEngine,
         kokoroVoice = p.kokoroVoice,
         backendUrl = p.backendUrl,
-        outputDeviceId = p.outputDeviceId,
         imageWorkflowId = p.imageWorkflowId,
         enabledSkillIds = p.enabledSkillIds,
         spontaneousEnabled = p.spontaneousEnabled,
