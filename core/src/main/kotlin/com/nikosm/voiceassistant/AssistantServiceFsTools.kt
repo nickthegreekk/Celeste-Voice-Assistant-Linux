@@ -1,6 +1,8 @@
 package com.nikosm.voiceassistant
 
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withTimeoutOrNull
@@ -102,23 +104,106 @@ internal suspend fun AssistantService.performOllamaChatWithTools(
             return withToolSummary(outcome, callsMade)
         }
 
-        val executor = FsToolExecutor(
+        val turn = fsRunToolRound(
+            provider = FsToolProvider.OLLAMA,
+            body = body,
+            calls = calls,
             workspace = workspace,
             excluded = excluded,
-            personaName = persona.name,
-            approveWrite = { request -> requestFsWriteApproval(request, workspace) },
-            audit = ::auditFsToolCall,
+            persona = persona,
+            onCall = { touched += it.name },
         )
-        val results = calls.map { call ->
-            touched += call.name
-            executor.execute(call)
-        }
         rounds++
         callsMade += calls.size
-        context = context.copy(
-            toolTurns = context.toolTurns + fsToolTurnFor(FsToolProvider.OLLAMA, body, calls, results),
-        )
+        context = context.copy(toolTurns = context.toolTurns + turn)
     }
+}
+
+/**
+ * The cloud twin of [performOllamaChatWithTools], and the same shape for the same reason: **the
+ * single-turn function is not restructured** — it takes a capture sink, returns a sentinel the
+ * wrapper discards, and each round is another ordinary call with this turn's earlier rounds
+ * travelling in `TurnContext.toolTurns`.
+ *
+ * `parseCloudResponse` is never reached for a tool-call body, which is the one thing this had to get
+ * right: such a body carries `content: null` and the parser reads that field with `getString`.
+ */
+internal suspend fun AssistantService.performCloudChatWithTools(
+    text: String,
+    persona: Persona,
+    useDeviceVoice: Boolean,
+    startTime: Long,
+    currentTurnInHistory: Boolean,
+    generation: Long,
+    attachments: List<Path>,
+    imagePath: String?,
+    turnContext: TurnContext,
+    workspace: FsWorkspace,
+): Job {
+    val excluded = fsExcludedPaths()
+    var context = turnContext
+    var rounds = 0
+    var callsMade = 0
+
+    return serviceScope.launch {
+        while (true) {
+            // The sink carries the dialect as well as the body: `performCloudChat` already resolved
+            // the persona's cloud entry to build the request, so the loop does not look it up a
+            // second time and the two cannot disagree about which provider a round is for.
+            var provider: FsToolProvider? = null
+            var captured: JSONObject? = null
+            performCloudChat(
+                text = text,
+                persona = persona,
+                useDeviceVoice = useDeviceVoice,
+                startTime = startTime,
+                currentTurnInHistory = currentTurnInHistory,
+                generation = generation,
+                attachments = attachments,
+                imagePath = imagePath,
+                turnContext = context,
+                toolSink = { from, body -> provider = from; captured = body },
+            ).join()
+            val toolProvider = provider ?: return@launch
+            val body = captured ?: return@launch
+            val calls = fsToolCallsFrom(toolProvider, body) ?: return@launch
+            fsToolRoundRefusal(rounds, callsMade, calls.size)?.let { refusal ->
+                notifyUser(refusal)
+                return@launch
+            }
+            val turn = fsRunToolRound(toolProvider, body, calls, workspace, excluded, persona)
+            rounds++
+            callsMade += calls.size
+            context = context.copy(toolTurns = context.toolTurns + turn)
+        }
+    }
+}
+
+/**
+ * One round: carry out the calls and build the messages that report them. Shared by both loops so
+ * the executor, the approval gate and the audit cannot be wired differently in one of them.
+ */
+private suspend fun AssistantService.fsRunToolRound(
+    provider: FsToolProvider,
+    body: JSONObject,
+    calls: List<FsToolCall>,
+    workspace: FsWorkspace,
+    excluded: List<Path>,
+    persona: Persona,
+    onCall: (FsToolCall) -> Unit = {},
+): FsToolTurn {
+    val executor = FsToolExecutor(
+        workspace = workspace,
+        excluded = excluded,
+        personaName = persona.name,
+        approveWrite = { request -> requestFsWriteApproval(request, workspace) },
+        audit = ::auditFsToolCall,
+    )
+    val results = calls.map { call ->
+        onCall(call)
+        executor.execute(call)
+    }
+    return fsToolTurnFor(provider, body, calls, results)
 }
 
 /**

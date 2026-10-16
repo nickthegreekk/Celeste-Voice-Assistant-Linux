@@ -230,6 +230,25 @@ class FsToolProtocolTest {
     }
 
     @Test
+    fun `the dialect mapping follows the same icon the request builders branch on`() {
+        // `fsToolProviderFor` is shared by the declaration, the call reader and the replay, so a
+        // wrong branch here is wrong three times over — and it is the one place where a cloud
+        // entry's single-letter icon is interpreted for tools.
+        fun api(icon: String) = CloudApiSetting(
+            name = "n",
+            baseUrl = "https://example.invalid",
+            apiKey = "k",
+            icon = icon,
+            color = androidx.compose.ui.graphics.Color.Blue,
+        )
+
+        assertEquals(FsToolProvider.ANTHROPIC, fsToolProviderFor(api("A")))
+        assertEquals(FsToolProvider.GEMINI, fsToolProviderFor(api("G")))
+        assertEquals("DeepSeek and OpenAI-compatible entries are the else branch", FsToolProvider.OPENAI, fsToolProviderFor(api("D")))
+        assertEquals(FsToolProvider.OPENAI, fsToolProviderFor(api("C")))
+    }
+
+    @Test
     fun `the declared schema is valid JSON in every dialect`() {
         // Cheap, and it catches the class of mistake that only shows up as a provider 400.
         for (provider in FsToolProvider.entries) {
