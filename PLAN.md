@@ -668,6 +668,16 @@ screens. Port the JVM tests.
 *Accept:* a real conversation with Ollama and with one cloud provider end to end; settings survive a
 restart; an Android backup file imports and shows its personas.
 
+[Verified by hand by the user on 2026-10-16, in the running app: a text conversation works, the Android
+backup restores through the UI and its personas appear, both voice routes speak — Kokoro over the gateway and the
+local espeak-ng — A1111 generates images, an image upload works, and a persona's artwork can be picked and lands
+correctly, that last one being seam 15's only real-data path and previously unexercised. M1's acceptance is therefore
+substantially met. Still open for M1: a conversation against a *cloud* provider specifically, since the HTTPS path only
+became usable with 595faaa and nobody has watched that, and settings surviving a restart. M3's ComfyUI half is open
+too — ComfyUI is stopped while the build has the RAM — and when it returns, check the app's ComfyUI entry address,
+because the imported one points at 192.0.2.12:8188 rather than the local 127.0.0.1:8188.]
+
+
 **M2 — Voice (3–6 d, revised: platform work only).** No `:core` porting here — the audio engine and its callers landed in M1. Implement seams 1/2/3/6 for real, replacing the `Stub*` classes (`grep -rn 'Stub' platform/src/main` is the list), then add capture and VAD (`VADAudioRecorder.kt`, `VADDetector.kt`), `/transcribe`, the three TTS routes, the hands-free loop, push-to-talk, source/sink selection, mute and cancel-playback.
 hands-free loop, push-to-talk hotkey, source/sink selection, mute, cancel-playback.
 *Accept:* ten consecutive hands-free exchanges with headphones, no manual input, no dropped
