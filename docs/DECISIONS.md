@@ -31,7 +31,16 @@ and the *loop* drains, because a drain is a read and reads belong to the thread 
 
 Rejected: **restarting the capture session** on resume, which is correct and pays 400 ms of liveness
 grace every reply; and **leaving the backlog**, which is free and leaves the VAD listening to the
-past. The drain itself costs nothing measurable — it is memory-speed discards out of a 64 KB pipe.
+past.
+
+**And the first implementation of it was wrong, in a way only a run could show.** It asked
+`available()` before every read — which reads like the careful version and is the wrong one, because
+draining unblocks the writer, the writer refills the pipe, and the next question finds work that
+arrived *after* the resume. Four resumes measured 33, 96, 146 and 182 ms of drain, growing each time;
+against a `yes` process the same loop takes 935 ms where one snapshot takes about one. So the drain
+now takes **one** reading and discards exactly that many bytes: the backlog by definition, never a
+byte that arrived after the call. Rejected: a size cap or a time cap, which bound the damage without
+making the operation mean the right thing. → PLAN.md §5, §10
 
 **The new span is logged with no budget, on purpose.** It reports total, drain and first read, and
 §6 gets its number once a run has produced one; a figure written before the measurement would be a

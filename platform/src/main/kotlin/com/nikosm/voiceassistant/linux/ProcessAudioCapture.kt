@@ -197,7 +197,7 @@ class ProcessAudioCapture(
  * per call: [read] is called every 32 ms for the life of a session, and allocating a `ByteBuffer` per
  * call would be a megabyte a minute of garbage for no benefit.
  */
-private class ProcessCaptureStream(
+internal class ProcessCaptureStream(
     private val process: Process,
     private val command: String,
     private val sampleRate: Int,
@@ -267,36 +267,44 @@ private class ProcessCaptureStream(
     }
 
     /**
-     * Discards everything the pipe is holding, and only that.
+     * Discards the backlog the pipe is holding, and only that.
      *
-     * `available()` is the whole mechanism: on a process pipe it reports the bytes sitting in the
-     * kernel buffer, so asking before each read is what keeps this from eating live audio — the
-     * loop stops as soon as the buffer is empty rather than reading into the future. The buffer is
-     * `scratch`, reused: what is discarded is never inspected, and [read] always starts filling
-     * from index 0, so leaving discarded bytes in it cannot corrupt a later chunk.
+     * **One `available()` reading, taken before anything is discarded.** That number *is* the
+     * backlog; re-asking between reads is how the first version of this chased a writing process
+     * instead of clearing what was already there. It was measured doing exactly that on the
+     * 2026-10-16 run — drain 33, 96, 146 and 182 ms across four resumes, growing with how long the
+     * writer had been blocked — because draining the pipe unblocks the writer, the writer refills
+     * it, and a loop that asks again finds more work that arrived *after* the resume. In the
+     * shape of it: the cost tracks how fast the writer refills, not how much was buffered — against a
+     * `yes` process it took **935 ms** where the snapshot takes about one, and a writer faster still
+     * would keep it going indefinitely.
      *
-     * A blocked writer is what makes this matter. While the VAD is paused, `pw-record` fills the
-     * 64 KB pipe (about two seconds of 16 kHz mono s16) and then blocks; draining unblocks it, and
-     * the next frame it writes is the room as it is now.
+     * The snapshot also repairs the contract in `AudioCapture.drain`: bytes that arrive while this
+     * runs are never counted, so live speech cannot be eaten — which matters, because the user is
+     * most likely to start talking in exactly the milliseconds after a reply ends.
+     *
+     * A blocked writer is what makes this matter at all. While the VAD is paused, `pw-record` fills
+     * the 64 KB pipe (about two seconds of 16 kHz mono s16) and then blocks; draining unblocks it,
+     * and the next frame it writes is the room as it is now.
      */
     override fun drain() {
         if (closed) return
         if (scratch.isEmpty()) scratch = ByteArray(DRAIN_BUFFER_BYTES)
-        while (true) {
-            val available = try {
-                source.available()
-            } catch (e: IOException) {
-                return
-            }
-            if (available <= 0) return
+        var remaining = try {
+            source.available()
+        } catch (e: IOException) {
+            return
+        }
+        while (remaining > 0) {
             val n = try {
-                source.read(scratch, 0, minOf(available, scratch.size))
+                source.read(scratch, 0, minOf(remaining, scratch.size))
             } catch (e: IOException) {
                 return
             }
-            // A negative read is the stream ending; nothing is left to discard, and the next
-            // `read` is what reports the end to the loop.
-            if (n < 0) return
+            // 0 would spin and a negative read is the stream ending; either way there is nothing
+            // left to discard, and the next `read` is what reports the end to the loop.
+            if (n <= 0) return
+            remaining -= n
         }
     }
 
