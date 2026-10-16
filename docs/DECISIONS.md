@@ -575,3 +575,42 @@ Two things found while wiring it, both recorded rather than fixed silently:
 is the one picker both screens use, and it takes the device list as a
 parameter: `outputs()`/`inputs()` shell out to `pactl`/`wpctl` with a 3s bound, so each screen fetches once, off the
 main thread, when it opens. → PLAN.md §9, §10 M2; docs/DEVICES.md
+
+## 2026-10-16 — The Arch package builds the tree it lives in, installs under `/usr/lib`, and makes the ONNX cut itself
+
+M6's first packaging artefact is `packaging/arch/PKGBUILD`, and the plan left three forks inside it open. All three were
+decided here rather than asked about, because each reverses in one commit.
+
+**The source is the tree, because there is no release to point at.** `source=()` is empty and `build()` runs Gradle in
+`$startdir/../..`. Rejected: a tarball beside the PKGBUILD with `sha256sums=('SKIP')` — the same non-hermetic build wearing a
+checksum it cannot honour — and a URL invented for the occasion. The cost is named in the file and shows up in namcap's output
+("File referenced in $startdir", five times, for the files this PKGBUILD reads from its own directory and the tree above it).
+It disappears the day there is a release: `source=("$pkgname-$pkgver.tar.gz::https://…")` and a real hash, nothing else.
+
+**`/usr/lib/celeste-linux`, not `/opt`.** The self-contained-bundle convention for a jpackage app image is `/opt`, and namcap
+reports it as an error — "ELF files outside of a valid path" — which is Arch's own guidance speaking, since `/opt` is for what
+has nowhere else to be. The prefix is the package's choice because the app image is relocatable, and that was verified rather
+than assumed: copied into a fake prefix under `/tmp` and launched **through a `/usr/bin` symlink**, it printed the resolved XDG
+paths, the audio devices and the upstream commit.
+
+**The ONNX cut belongs to the packaging, and it has to survive being run twice.** Two facts came out of doing it (the second
+run of `makepkg` is what found the second one), both recorded with the file:
+
+- The four `zip -d` patterns take the jar from 90 MB to **5.7 MB**, measured — the `linux-x64` library this package loads is
+  15.5 MB of the original, and what goes is 298.7 MB *uncompressed* of Windows debug symbols plus the macOS and
+  linux-aarch64 natives.
+- **`zip -d` exits 12 when a pattern matches nothing**, which is exactly what a second build of an already-trimmed image is.
+  So the cut is guarded by a listing test and a `found` flag: an already-trimmed image is left alone, and a renamed or missing
+  jar stops the build instead of shipping every platform's natives in silence.
+
+`check()` is what makes the cut verifiable at all: `:core`'s tests link the *untrimmed* Gradle dependency, so no test in the
+Gradle build can see it. The check compiles `OnnxSmokeTest.java` against the image's own jars and creates a session over
+`assets/silero_vad.onnx`, which is the call `VADDetector` makes. It deliberately does not use the `java` on `PATH` — Arch's
+default is JDK 17 on this machine, which cannot compile for or run the JVM-25 classes in the image — and takes the newest JDK
+under `/usr/lib/jvm` that has a compiler instead. That is `desktop/build.gradle.kts`'s `javaHome` pin seen from the other side,
+and it is the second place in the project that has to know which JDK is complete.
+
+**Two namcap errors are left standing, named in the file rather than argued with.** *Dependency java-runtime … not included*:
+adding it would put a second JDK on the machine for an application that carries its own, which is PLAN.md §2.6's point, and the
+dependency namcap is asking for is inside `lib/runtime/`, where it cannot see it. *Missing url*: there is no published home for
+this port or for the upstream app, and a URL invented to silence a linter is worse than an empty field. → PLAN.md §4, §10 M6

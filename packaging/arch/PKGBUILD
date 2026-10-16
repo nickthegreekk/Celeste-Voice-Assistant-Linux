@@ -1,0 +1,189 @@
+# Maintainer: Nikos <nikos@localhost>
+#
+# Celeste for Linux — the Arch package (PLAN.md §4's `packaging/arch`, §10's M6).
+#
+# ## What it installs, and why it needs no system JDK
+#
+# The jpackage **app image** under `/usr/lib/celeste-linux`, with its own runtime inside it (§10/M6:
+# 269 MB, 81 MB of that runtime, seven modules), plus the three files this repository owns installed
+# where a session looks for them: `packaging/celeste-linux.desktop`, `packaging/icons/…png` and the
+# user unit `packaging/systemd/celeste-linux.service`. `/usr/bin/celeste-linux` is a symlink into
+# the image, because that is the name the unit's `ExecStart`, the menu entry's `Exec` and the
+# per-persona entries the application writes for itself (`PersonaShortcuts.kt`) all already use —
+# and it is the one name that moves if this package ever installs somewhere else.
+#
+# ## Where the source comes from, until there is a release
+#
+# The tree this file lives in: `build()` runs Gradle in `$startdir/../..`. There is no release to
+# point `source=()` at yet, and a URL invented for the occasion with a checksum to match would be
+# worse than saying so plainly. A released package replaces the empty `source=()` with a tarball URL
+# and a real `sha256sums`; nothing else in this file changes. The cost of the honest form is that
+# this packages a *checkout* — built from what is committed plus whatever is in the working
+# directory, which is the thing `makepkg` cannot check for us — and it is what `namcap` reports as
+# "File referenced in $startdir", five times, for the files this file reads from its own directory
+# (`$startdir/OnnxSmokeTest.java`) and from the tree above it. A released PKGBUILD has all of them
+# in `source=()` and that error goes with them.
+#
+# ## The cut that belongs in the packaging rather than in the build
+#
+# `onnxruntime-*.jar` ships natives for five platforms; this package can load one. Measured inside
+# the app image: the jar is 90 MB, of which `native/win-x64` is 298.7 MB *uncompressed* (Windows
+# debug symbols), `osx-x64` 28.1 MB, `osx-aarch64` 25.0 MB and `linux-aarch64` 12.9 MB — against the
+# `linux-x64` library this package actually loads at 15.5 MB. `build()` drops the four and the jar
+# lands at **5.7 MB**, measured by doing it, and `check()` below keeps it honest. The cut lives here
+# rather than in `desktop/build.gradle.kts` because that file says what the application *is*, while
+# this says what one distribution leaves out — and the same cut has to be made again in the
+# `debian/` rules, which is PLAN.md §10/M6's own note.
+
+pkgname=celeste-linux
+# Kept in step by hand with `allprojects { version = "0.1.0" }` in the root build.gradle.kts;
+# `build()` refuses to package a mismatch rather than shipping a name that disagrees with its
+# contents.
+pkgver=0.1.0
+pkgrel=1
+pkgdesc="Celeste — a voice assistant that talks to your own models: speech in, speech out, images"
+# The app image carries a host-architecture jlink runtime and a host-architecture ONNX native. An
+# aarch64 package would be its own build, not a rebuild of this one.
+arch=('x86_64')
+# No published home yet. When the port has one, this is the field that takes it.
+url=""
+license=('GPL-3.0-only')
+# The first three are read out of `:platform`'s process call sites rather than guessed — every entry
+# is a program that module starts:
+#   pipewire-audio     pw-record and pw-play — seams 1 and 2's primary path, and PLAN.md §2's premise
+#   libnotify          notify-send — seam 9's implementation (D9), the port's only notifier
+#   glib2              gdbus — the same seam's fallback for a notification carrying an action, which
+#                      is how a spontaneous message's deep link is delivered
+# The rest are what `namcap` found by reading the *bundled* libraries' own `NEEDED` entries — the
+# window, the tray and Skiko between them link them, and none is carried by anything else:
+#   libxtst, libxi     `libawt_xawt.so`, the X11 half of AWT: the window, the tray, the file dialogs
+#   libglvnd           `libGL.so.1`, which Skiko renders through
+#   hicolor-icon-theme the theme hierarchy this package installs an icon *into*
+depends=('pipewire-audio' 'libnotify' 'glib2' 'libxtst' 'libxi' 'libglvnd' 'hicolor-icon-theme')
+# Every one of these is probed and its absence is a warning rather than a failure, so each is
+# genuinely optional; what it buys is named, in the order the port tries it.
+optdepends=(
+  'wireplumber: wpctl — marks which device is the default, and lists devices when pactl is absent'
+  'libpulse: pactl, paplay and parecord — the PulseAudio spellings of the device list, playback and capture'
+  'alsa-utils: aplay and arecord — playback and capture with no sound server at all'
+  'speech-dispatcher: spd-say — the system voice route'
+  'espeak-ng: the local voice route, used when the system one is absent'
+)
+# `jdk-openjdk` for two measured reasons (§10/M6): the build compiles with a JDK 25 toolchain, and
+# it packages with a JDK that has `jmods` — jlink refuses one that lacks them, and Arch's
+# `jdk-openjdk` is the JDK on this machine that has them. `zip` makes the cut described above.
+makedepends=('jdk-openjdk' 'zip')
+install=celeste-linux.install
+source=()
+sha256sums=()
+
+build() {
+  cd "$startdir/../.."
+
+  # The app image and nothing else — no dpkg-deb, no fakeroot, no package format — which is why
+  # this step needs only a JDK, on Arch and on Debian alike.
+  ./gradlew :desktop:createDistributable
+
+  local app=desktop/build/compose/binaries/main/app/celeste-linux
+  ls "$app"/lib/app/core-"$pkgver"-*.jar >/dev/null 2>&1 || {
+    printf '%s\n' "ERROR: no core-$pkgver jar in the app image: pkgver and the build's version have drifted apart" >&2
+    return 1
+  }
+
+  # The cut, and it has to survive being run twice. `zip -d` exits 12 when no pattern matches — the
+  # second build of an already-trimmed image is exactly that, measured rather than assumed — so the
+  # cut is made only when there is something to cut, and the test is one of the platform directories
+  # the patterns name.
+  local jar found=0
+  for jar in "$app"/lib/app/onnxruntime-*.jar; do
+    [ -e "$jar" ] || continue
+    found=1
+    bsdtar -tf "$jar" | grep -q '^ai/onnxruntime/native/win-x64/' || continue
+    zip -q -d "$jar" \
+      'ai/onnxruntime/native/win-x64/*' \
+      'ai/onnxruntime/native/osx-x64/*' \
+      'ai/onnxruntime/native/osx-aarch64/*' \
+      'ai/onnxruntime/native/linux-aarch64/*'
+  done
+  # A silent skip is the failure mode worth refusing: if the jar is renamed or gone, the package
+  # would ship every platform's natives and nothing above would have said so. `printf … >&2; return
+  # 1` rather than makepkg's own `error`, which namcap flags as an internal subroutine.
+  [ "$found" = 1 ] || {
+    printf '%s\n' "ERROR: no onnxruntime jar in the app image: the cut above has nothing to cut, and the package would ship every platform's natives" >&2
+    return 1
+  }
+}
+
+check() {
+  cd "$startdir/../.."
+  local app=desktop/build/compose/binaries/main/app/celeste-linux
+
+  # The cut above is invisible to the Gradle build: `:core`'s tests link the *untrimmed* Gradle
+  # dependency, so no test there can notice a native that went missing. This loads the trimmed jar
+  # out of the image over the model the application ships, with the same call `VADDetector` makes —
+  # an ONNX session created, or an exception, and nothing in between.
+  #
+  # `--selftest` is deliberately *not* run here. It is the acceptance for an installed artefact
+  # (PLAN.md §11) and it enumerates the real audio devices and writes under the real XDG paths,
+  # which is a container's business rather than a build machine's.
+  #
+  # Which JDK: not the one on `PATH`. That is Arch's default — JDK 17 on this machine — which cannot
+  # compile for, or run, the JVM-25 classes in this image. `desktop/build.gradle.kts` pins its way
+  # around the same fact for the build; here the newest JDK under `/usr/lib/jvm` that has a compiler
+  # is what the check uses, which needs nothing beyond `java.base` and the ONNX classes it loads.
+  local javac_bin
+  javac_bin=$(ls -d /usr/lib/jvm/*/bin/javac 2>/dev/null | sort -V | tail -1)
+  [ -n "$javac_bin" ] || {
+    printf '%s\n' "ERROR: no JDK with a compiler under /usr/lib/jvm — jdk-openjdk is a makedepend" >&2
+    return 1
+  }
+  local jdk=${javac_bin%/bin/javac}
+
+  mkdir -p "$srcdir/classes"
+  "$jdk/bin/javac" --release 25 -cp "$app/lib/app/*" -d "$srcdir/classes" \
+    "$startdir/OnnxSmokeTest.java"
+  "$jdk/bin/java" --enable-native-access=ALL-UNNAMED -cp "$srcdir/classes:$app/lib/app/*" \
+    OnnxSmokeTest assets/silero_vad.onnx
+}
+
+package() {
+  cd "$startdir/../.."
+  local app=desktop/build/compose/binaries/main/app/celeste-linux
+
+  # `/usr/lib` and not `/opt`, which is where a self-contained bundle like this one usually goes:
+  # this is an Arch package, Arch's own guidance is to keep `/opt` for things that have nowhere else
+  # to be, and `namcap` reports the alternative as an error rather than a warning. The app image is
+  # relocatable — jpackage's launcher resolves its own directory — so the prefix is this file's
+  # choice and nothing inside the image depends on it.
+  install -d "$pkgdir/usr/lib/celeste-linux"
+  cp -a "$app/." "$pkgdir/usr/lib/celeste-linux/"
+  # jpackage always creates this one and here it holds nothing. Removing it is tidier than shipping
+  # an empty directory namcap will ask about; `--resource-dir` is unused, so nothing reads it.
+  rmdir "$pkgdir/usr/lib/celeste-linux/lib/app/resources" 2>/dev/null || true
+
+  # See the header: this is the name every file of the port's own already uses.
+  install -d "$pkgdir/usr/bin"
+  ln -s /usr/lib/celeste-linux/bin/celeste-linux "$pkgdir/usr/bin/celeste-linux"
+
+  install -Dm644 packaging/celeste-linux.desktop \
+    "$pkgdir/usr/share/applications/celeste-linux.desktop"
+  install -Dm644 packaging/icons/celeste-linux.png \
+    "$pkgdir/usr/share/icons/hicolor/256x256/apps/celeste-linux.png"
+  # Where systemd looks for a unit a package owns. Installing it is not enabling it: PLAN.md §9/§12
+  # leave the autostart decision, and lingering, to the user — the .install message says how.
+  install -Dm644 packaging/systemd/celeste-linux.service \
+    "$pkgdir/usr/lib/systemd/user/celeste-linux.service"
+  install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+
+  # Two namcap errors are left standing on purpose, and they are the whole remainder:
+  #
+  #   "Dependency java-runtime detected and not included", from the `.jar` files above.
+  #   `java-runtime` would put a second JDK on the machine for an application that carries its own —
+  #   the one thing this package is arranged to avoid (PLAN.md §2.6) — and the dependency namcap is
+  #   asking for is satisfied by the runtime in `lib/runtime/`, where it cannot see it. Adding it
+  #   would be the error, not the fix.
+  #
+  #   "Missing url". There is no published home for this port yet — not for the upstream Android app
+  #   either — and a URL invented to silence a linter is worse than an empty field. When there is
+  #   one, `url=` above takes it and this paragraph goes.
+}

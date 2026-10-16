@@ -14,6 +14,12 @@ local.properties
 dist/
 packaging/out/
 
+# makepkg's, when the PKGBUILD next to it builds the tree it lives in (see packaging/arch/PKGBUILD)
+packaging/arch/*.pkg.tar.*
+packaging/arch/src/
+packaging/arch/pkg/
+packaging/arch/classes/
+
 # OS noise
 .DS_Store
 *.swp

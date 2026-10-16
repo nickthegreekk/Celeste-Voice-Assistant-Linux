@@ -1,0 +1,40 @@
+# The unit ships installed and *not* enabled, by policy rather than by omission: PLAN.md §9 and §12
+# leave both the autostart decision and lingering to the user, because a background assistant that
+# starts itself at login is a decision about somebody's machine. What a package can do is say where
+# the file is and what turns it on — which is this file's whole job.
+
+post_install() {
+  cat <<'EOF'
+Celeste is installed.
+
+  celeste-linux              the window
+  celeste-linux --headless   the background process, reachable through its tray icon
+  celeste-linux --selftest   resolved paths, audio devices and the upstream commit, then exit
+
+The background process has a systemd user unit. It is installed, not enabled:
+
+  systemctl --user enable --now celeste-linux.service
+
+A user unit is stopped when your last session ends unless lingering is enabled for you, which is
+`loginctl enable-linger $USER` — your decision about your machine, so it is not made here.
+EOF
+}
+
+post_upgrade() {
+  post_install
+}
+
+post_remove() {
+  cat <<'EOF'
+Celeste's files are gone. These are not, because they are yours:
+
+  ~/.config/celeste-linux/settings.json          preferences, and the API keys and server passwords
+                                                 this application stores (mode 0600 — it is the file
+                                                 to look at, and to shred, if that matters to you)
+  ~/Pictures/VoiceAssistant/                     images you saved from the chat
+  ~/.local/share/applications/celeste-linux-*    per-persona menu entries, one per persona you
+                                                 pinned; the application removes them when a persona
+                                                 is renamed or deleted, and they are ordinary
+                                                 .desktop files you can delete by hand
+EOF
+}

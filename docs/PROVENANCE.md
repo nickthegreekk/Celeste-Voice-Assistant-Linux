@@ -729,3 +729,18 @@ Android's call returned, so this preserves upstream's intent rather than relaxin
 `internal fun AssistantService.sha256Fingerprint(cert)`, an extension that never used the receiver;
 it is a pure function of the certificate. `buildPinnedClient` is top-level and has no `this` to be
 the receiver, so the receiver went. The body is upstream's, byte for byte.
+
+## M6 — the packaging files, none of which has an upstream counterpart (2026-10-16)
+
+`packaging/` holds no ported file: every one is written for this repository, and these are the first that are *scripts*
+rather than source. They are listed here for the same reason the rest of this file exists — so a later reader can tell
+what came from where, and which of their facts were measured rather than chosen.
+
+| File | What it is | Where its facts came from |
+|---|---|---|
+| `packaging/arch/PKGBUILD` | the Arch package | the dependency list is read out of `:platform`'s `ProcessBuilder` call sites and from namcap's reading of the bundled libraries' `NEEDED` entries; the cut and its 90 MB → 5.7 MB size were measured inside the built app image |
+| `packaging/arch/OnnxSmokeTest.java` | what `check()` runs against the image | `VADDetector.kt`'s own two calls — `OrtEnvironment.getEnvironment()` and `createSession(bytes)` over the shipped model |
+| `packaging/arch/celeste-linux.install` | the install and removal messages | the paths are `XdgPaths.kt`'s — `configDir` (`~/.config/celeste-linux`), `picturesDir` (`~/Pictures/VoiceAssistant`, upstream's own folder) and `applicationsDir` |
+| `packaging/celeste-linux.desktop` | the menu entry | the `Exec` and `Icon` names the user unit and `PersonaShortcuts.kt` already use, so there is one name for the binary rather than three |
+| `packaging/icons/celeste-linux.png` | a drawn placeholder, 256×256 | jpackage wants a real file; the same shape of stand-in as the tray's drawn icon, and the same caveat |
+| `packaging/systemd/celeste-linux.service` | the user unit (written in M4) | PLAN.md §9's substitution for Android's foreground service, and §12's lingering note |

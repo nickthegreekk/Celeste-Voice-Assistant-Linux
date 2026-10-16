@@ -1140,8 +1140,35 @@ here. Recorded rather than done, because it is the kind of cut that should be vi
 **Measured, not estimated: the image was 354 MB, 165 MB of it the bundled runtime** — which is what §12's risk row asked for and
 what makes the next slice obvious, since `includeAllModules = true` is the safe choice rather than the small one. And the image
 *runs*: `bin/celeste-linux --selftest` printed the resolved XDG paths, the audio devices and the upstream commit, with no Gradle
-and no system JDK in the picture. What M6 still owes: the PKGBUILD, the `debian/` files and their container builds, an application
-`.desktop` entry beside the per-persona ones, trimming the runtime, and the README's install section.
+and no system JDK in the picture.
+
+**The `.desktop` entry and the runtime trim followed, and then the Arch package — whose first two runs changed the file
+twice.** `packaging/arch/PKGBUILD` builds the tree it lives in (empty `source=()`: there is no release to point at yet, and a
+tarball with `sha256sums=('SKIP')` is the same non-hermetic build wearing a checksum it cannot honour), and it installs under
+`/usr/lib/celeste-linux` rather than the bundle-conventional `/opt`, because namcap reports `/opt` as an error and Arch's own
+guidance is to keep it for what has nowhere else to be. The image is relocatable — jpackage's launcher resolves its own
+directory — so that was checked rather than assumed: copied into a fake prefix and launched **through a `/usr/bin` symlink**,
+it printed the resolved XDG paths, the audio devices and the upstream commit.
+
+**The ONNX cut is the packaging's, as this section said it should be, and it lands at 5.7 MB from 90 MB** — measured by doing
+it. Two facts came out of doing it. **`zip -d` exits 12 when a pattern matches nothing**, which is exactly what a second build
+of an already-trimmed image is; the cut is therefore guarded by a listing test and a `found` flag, so a renamed or missing jar
+stops the build rather than shipping every platform's natives in silence. And **`check()` is what makes the cut verifiable at
+all**: `:core`'s tests link the *untrimmed* Gradle dependency, so nothing in the Gradle build can see it, and the check
+compiles `packaging/arch/OnnxSmokeTest.java` against the image's own jars and creates a session over `assets/silero_vad.onnx` —
+the call `VADDetector` makes. It does not use the `java` on `PATH` either, which is Arch's default **JDK 17** on this machine
+and cannot compile for or run the JVM-25 classes in the image: the same fact `desktop/build.gradle.kts` pins its way around,
+seen from the packaging side.
+
+**namcap's first run found five real things, all fixed, and its remainder is named in the file.** The fixed ones: `/opt`'s path
+error, and four dependencies read out of the bundled libraries' own `NEEDED` entries — `libxtst` and `libxi` for
+`libawt_xawt.so` (the window, the tray, the file dialogs), `libglvnd` for Skiko's `libGL.so.1`, and `hicolor-icon-theme` for
+the hierarchy the icon is installed into. The two left standing: *Dependency java-runtime … not included*, because adding it
+would put a second JDK on the machine for an application that carries its own — §2.6's whole point — and *Missing url*,
+because there is no published home for this port or for the upstream app and a URL invented to silence a linter is worse than
+an empty field. **The package is 111,408,490 bytes** with the trimmed jar inside it. What M6 still owes: the `debian/` files
+with this same cut in their rules, the Arch and Debian 13 container builds, the install/run/uninstall acceptance in both, and
+the README's install section.
 
 That leaves **M7 (hardening)**, which is an estimate rather than a measurement, and therefore where the remaining percentage is
 softest.
