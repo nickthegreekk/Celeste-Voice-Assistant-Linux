@@ -175,7 +175,7 @@ implementation in `platform/`; `core` never imports from `platform`.
 
 | # | Seam | Android today | Linux implementation |
 |---|---|---|---|
-| 1 | `AudioCapture` | `AudioRecord` + `AcousticEchoCanceler` | `pw-record` → `parec` → `arecord`, raw s16le mono 16 kHz on stdout |
+| 1 | `AudioCapture` | `AudioRecord` + `AcousticEchoCanceler` | `pw-record` → `parec` → `arecord`, raw s16le mono 16 kHz on **stdout, not a WAV on disk** — the VAD loop needs 32 ms every 32 ms and needs the newest one now, so a file it read back would be a file it was also writing. When the caller names no device and the session manager has no default, `open` retries with the first enumerated input and logs which one; a **named** device that will not open returns null instead, because silently substituting a different microphone is how a persona ends up listening to the wrong room. `read` returning 0 ends the stream and stops the loop — a subprocess can exit where `AudioRecord.read` would have blocked, and an ended stream that kept looping is a dead microphone as a hot loop |
 | 2 | `AudioPlayback` | `AudioTrack` + marker listener + `AudioFocusRequest` | `pw-play` → `paplay` → `aplay`; "finished" = process exit |
 | 3 | `AudioDevices` | `AudioManager`, earpiece/Bluetooth routing | `pactl` first with `wpctl` as the fallback (2026-10-15 — the id has to be accepted by whichever player runs, and only the PulseAudio node name is taken by both `pw-play --target` and `paplay --device`); `--target` on capture and playback; **monitor sources are excluded from `inputs()`**, because a monitor feeds the system's own playback into the recogniser and fails as an incomprehensible transcript rather than as an error |
 | 4 | `Vad` | ONNX Runtime Android (`ai.onnxruntime.*`) | **Not a seam** (2026-10-15) — an artifact substitution, not an interface: the same `ai.onnxruntime.*` classes exist on both sides, and only the model origin changes, from the Android asset table to a classpath resource, so `VADDetector.kt` needs no abstraction and drops its `Context` parameter |
@@ -634,7 +634,10 @@ can be written and exercised without one. **Two packages are also missing there:
 are both in the EndeavourOS repos and neither is installed, so seam 6's missing-engine path is what has run and its
 happy path stays unverified until the user installs them; the gateway voice keeps working meanwhile. The README
 already lists both as runtime dependencies of the finished app, so this is a gap on the development box rather than
-a new requirement.]
+a new requirement. **The machine also has no default capture device:** WirePlumber answers "no target node
+available" to a bare `pw-record`, which is why the fallback above exists and why it logs the device it chose.
+Setting one is the machine's business rather than the app's — `wpctl set-default alsa_input.pci-0000_2f_00.4.analog-stereo`
+— and it makes the app's behaviour predictable instead of dependent on enumeration order. a new requirement.]
 
 **M3 — Images and files (3–4 d).** ComfyUI + A1111, workflow library and per-character binding,
 image viewer, attachments, backup export/import round trip.
