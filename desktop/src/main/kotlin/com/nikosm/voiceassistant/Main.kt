@@ -1,7 +1,20 @@
 package com.nikosm.voiceassistant
 
+import androidx.compose.runtime.remember
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Window
+import androidx.compose.ui.window.application
+import androidx.compose.ui.window.rememberWindowState
 import com.nikosm.voiceassistant.linux.AudioDeviceProbe
+import com.nikosm.voiceassistant.linux.AwtFileDialogs
+import com.nikosm.voiceassistant.linux.ImageIoCodec
+import com.nikosm.voiceassistant.linux.JsonSettingsStore
 import com.nikosm.voiceassistant.linux.LinuxAppEnv
+import com.nikosm.voiceassistant.linux.StubAudioCapture
+import com.nikosm.voiceassistant.linux.StubAudioDevices
+import com.nikosm.voiceassistant.linux.StubAudioPlayback
+import com.nikosm.voiceassistant.linux.StubTextToSpeech
+import com.nikosm.voiceassistant.ui.theme.VoiceAssistantTheme
 import java.io.IOException
 import java.nio.file.Files
 import java.nio.file.Path
@@ -29,8 +42,49 @@ import kotlin.system.exitProcess
 fun main(args: Array<String>) {
     if (args.contains("--selftest")) exitProcess(selfTest())
 
-    System.err.println("celeste-linux: no window yet — the Compose UI arrives in M1.")
-    System.err.println("For now: ./gradlew :desktop:run --args=\"--selftest\"")
+    // Everything the service needs, built here and nowhere else. This is the one place in the
+    // project that knows what a Linux machine is: the seams' implementations are chosen here, and
+    // `:core` sees only their interfaces. D1 says one process, so there is no binder, no intent and
+    // no `onCreate` — the service exists before the first frame and the UI reads it directly.
+    val appEnv = LinuxAppEnv.resolve().installLogging()
+
+    val settingsManager = SettingsManager(
+        appEnv = appEnv,
+        store = JsonSettingsStore(appEnv.configDir.resolve("settings.json"), appEnv.logger),
+        imageCodec = ImageIoCodec(),
+    )
+
+    val service = AssistantService(
+        appEnv = appEnv,
+        // The four audio seams are M2's, and these are the stubs that say so once, at INFO, naming
+        // the milestone that replaces them. A build in this state starts, converses and persists;
+        // it does not hear or speak. `grep -rn 'Stub' platform/src/main` is the whole list.
+        audioPlayback = StubAudioPlayback(appEnv.logger),
+        audioDevices = StubAudioDevices(appEnv.logger),
+        tts = StubTextToSpeech(appEnv.logger),
+        audioCapture = StubAudioCapture(appEnv.logger),
+        fileDialogs = AwtFileDialogs(appEnv.logger),
+        settingsManager = settingsManager,
+    )
+    service.start()
+
+    application {
+        Window(
+            onCloseRequest = {
+                // Persist and tear down before the process goes: the settings write is debounced,
+                // so an unflushed window close would lose the last edit. The same call has to be
+                // the one Stop uses, so there is one teardown path rather than two that can drift.
+                service.shutdown()
+                exitApplication()
+            },
+            title = "Celeste",
+            state = rememberWindowState(width = 460.dp, height = 880.dp),
+        ) {
+            VoiceAssistantTheme {
+                MainScreen(service = service)
+            }
+        }
+    }
 }
 
 /** The pin the sync script writes on every successful copy (PLAN.md §7a). */
