@@ -20,12 +20,18 @@ import java.nio.file.Path
  *
  * ## What it is not
  *
+ * **Public, not `internal`, and the reason is a seam.** `PwPlayback` — seam 2's Linux implementation
+ * — writes the temporary WAV that `playPcm` promises to materialise, and `:platform` is a different
+ * module, so Kotlin's `internal` keeps it out. This is the one shape the module boundary forces:
+ * `:core` declares the seam *and* the shared helpers a seam implementation needs; `:platform` may
+ * import `:core` (AGENTS.md §2), which means what it needs has to be reachable.
+ *
  * Upstream's push-to-talk recorded AAC in an MP4 container through `MediaRecorder`, which a
  * `CaptureStream` cannot produce: seam 1 hands over raw 16-bit frames and nothing else. Hands-free
  * already sends a 16 kHz mono WAV to `/transcribe`, so push-to-talk sends the same container at the
  * same rate rather than introducing a second format for the same gateway endpoint to accept.
  */
-internal object WavFile {
+object WavFile {
 
     /** The canonical 44-byte RIFF header for [dataSize] bytes of mono 16-bit PCM at [sampleRate]. */
     fun header(dataSize: Int, sampleRate: Int): ByteArray {

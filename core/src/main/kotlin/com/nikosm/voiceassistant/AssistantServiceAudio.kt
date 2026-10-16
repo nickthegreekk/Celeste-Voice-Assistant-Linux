@@ -113,7 +113,7 @@ fun cleanTextForTts(text: String): String {
  * Ported unchanged: it reads bytes and does arithmetic, and it has no platform
  * dependency to substitute.
  */
-internal fun wavDurationSeconds(wavBytes: ByteArray): Double {
+fun wavDurationSeconds(wavBytes: ByteArray): Double {
     if (wavBytes.size < 44) return 0.0
     // "RIFF" magic
     if (wavBytes[0] != 0x52.toByte() || wavBytes[1] != 0x49.toByte()) return 0.0

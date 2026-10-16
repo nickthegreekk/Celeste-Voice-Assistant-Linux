@@ -12,7 +12,7 @@ import com.nikosm.voiceassistant.linux.JsonSettingsStore
 import com.nikosm.voiceassistant.linux.LinuxAppEnv
 import com.nikosm.voiceassistant.linux.StubAudioCapture
 import com.nikosm.voiceassistant.linux.StubAudioDevices
-import com.nikosm.voiceassistant.linux.StubAudioPlayback
+import com.nikosm.voiceassistant.linux.PwPlayback
 import com.nikosm.voiceassistant.linux.StubTextToSpeech
 import com.nikosm.voiceassistant.ui.theme.VoiceAssistantTheme
 import java.io.IOException
@@ -59,7 +59,7 @@ fun main(args: Array<String>) {
         // The four audio seams are M2's, and these are the stubs that say so once, at INFO, naming
         // the milestone that replaces them. A build in this state starts, converses and persists;
         // it does not hear or speak. `grep -rn 'Stub' platform/src/main` is the whole list.
-        audioPlayback = StubAudioPlayback(appEnv.logger),
+        audioPlayback = PwPlayback(appEnv.logger),
         audioDevices = StubAudioDevices(appEnv.logger),
         tts = StubTextToSpeech(appEnv.logger),
         audioCapture = StubAudioCapture(appEnv.logger),
