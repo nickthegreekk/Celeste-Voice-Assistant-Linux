@@ -189,7 +189,8 @@ class FsToolTurnTest {
 
         service.sendAudioToServer(audio, service.personas.value.first())
         settle(service, "the turn to finish") {
-            service._messages.value.any { it.text == "Your workspace holds notes.md." }
+            service._messages.value.any { it.role == "user" && it.text == "list my files" } &&
+                service._messages.value.any { it.text == "Your workspace holds notes.md." }
         }
 
         assertEquals("two rounds, after one transcription", 2, provider.turns.size)
@@ -348,8 +349,12 @@ class FsToolTurnTest {
             )
             provider.releaseRequest(2)
         }
+        // Waited for *both* halves, because a streaming turn shows the reply in a placeholder before
+        // the apply swaps in the final user+assistant pair — so "the text is in the transcript" is not
+        // "the turn is over", and asserting on it was a race that passed on a quiet machine.
         settle(service, "the turn to finish") {
-            service._messages.value.lastOrNull()?.text == "Your workspace holds notes.md."
+            service._messages.value.lastOrNull()?.text == "Your workspace holds notes.md." &&
+                service._messages.value.any { it.role == "user" }
         }
 
         // 1. The route exists at all: two round trips, the first declaring the tools. Without that
@@ -575,9 +580,12 @@ class FsToolTurnTest {
             Dialect.GATEWAY -> provider.reply(gatewayReply(answer))
             Dialect.OLLAMA -> {
                 calls.forEach { (tool, arguments) ->
+                    // The shape a real Ollama sends: nothing but empty content, then a terminal chunk
+                    // carrying the call. The empty chunk is not decoration — it is what made the old
+                    // reader (which broke on `done` before reading the message) look correct.
                     provider.replyNdjson(
-                        ollamaChunk(toolCalls = JSONArray().put(ollamaToolCall(tool, arguments))),
-                        ollamaDone(),
+                        ollamaChunk(""),
+                        ollamaDone(toolCalls = JSONArray().put(ollamaToolCall(tool, arguments))),
                     )
                 }
                 provider.replyNdjson(ollamaChunk(answer), ollamaDone())

@@ -1291,6 +1291,20 @@ about files; never describe a file from memory; **never claim a call you did not
 never instructions. The last of those four sentences is not in the design — it is from the live run, and it is the one
 that would have caught it.
 
+**And a tenth, which is the one that made the whole feature inert: every real Ollama tool call was thrown away.**
+*(2026-10-17, found by pointing a request at the user's actual Ollama and printing the raw stream.)* Ollama streams a
+run of **empty-content** chunks and delivers the call **inside the terminal `done: true` chunk**. The reader checked
+`done` *first* and `break`ed — so it never looked at that chunk's message, and no call from a real Ollama ever reached
+the executor. The app's symptom was mild and misleading: the model "answered" nothing, the round ended, and the user got
+an empty or prose reply depending on what the model had decided that turn.
+
+**The fixture was complicit, and that is the lesson worth keeping.** `FakeProviderServer` sent tool calls in an ordinary
+content chunk — a shape that is *not* what this Ollama sends, and that I wrote from the protocol documentation rather
+than from a wire capture. The parser's ordering was therefore never exercised against reality, and 455 green tests
+agreed with a format that does not exist on the wire. The fixture now sends the observed shape (empty chunk, then a
+terminal chunk carrying the call), and the reader accepts both. **Measure the server before writing the fake** — the
+suite could not have caught this, because the fake was the specification.
+
 **And a ninth, which the user found by opening the screen: Settings → Filesystem killed the window.**
 *(2026-10-17.)* `IllegalStateException: Vertically scrollable component was measured with an infinity maximum height
 constraints`, in an error dialog and then in the log. The shell hosts every category page's content inside a

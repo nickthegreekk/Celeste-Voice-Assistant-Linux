@@ -190,12 +190,21 @@ internal fun ollamaChunk(content: String = "", toolCalls: JSONArray? = null): St
     return JSONObject().put("model", "fake-model").put("message", message).put("done", false).toString()
 }
 
-/** The last line of a stream. The reader breaks on it, so every scripted stream needs one. */
-internal fun ollamaDone(): String =
-    JSONObject().put("model", "fake-model")
-        .put("message", JSONObject().put("role", "assistant").put("content", ""))
-        .put("done", true)
-        .toString()
+/**
+ * The last line of a stream — **and where a tool call actually travels.**
+ *
+ * Measured against a real Ollama on 2026-10-17: the stream is a run of empty-content chunks and the
+ * call arrives in the `done: true` chunk itself. This fixture used to put the call in an ordinary
+ * content chunk, a shape invented rather than observed, which let the reader break on `done` before
+ * looking at the message and still pass its tests — while dropping every real call. Scripting the
+ * observed shape is the point; [ollamaChunk] with tool calls is kept for the other spelling, which
+ * some servers use and the reader also accepts.
+ */
+internal fun ollamaDone(toolCalls: JSONArray? = null): String {
+    val message = JSONObject().put("role", "assistant").put("content", "")
+    if (toolCalls != null) message.put("tool_calls", toolCalls)
+    return JSONObject().put("model", "fake-model").put("message", message).put("done", true).toString()
+}
 
 internal fun ollamaToolCall(name: String, arguments: String): JSONObject =
     JSONObject().put("function", JSONObject().put("name", name).put("arguments", JSONObject(arguments)))

@@ -1879,6 +1879,23 @@ internal suspend fun AssistantService.performDirectOllamaChat(baseUrl: String, m
                     val line = source.readUtf8Line() ?: break
                     if (line.isBlank()) continue
                     val obj = JSONObject(line)
+                    val msgObj = obj.optJSONObject("message")
+                    // M8, the first-token rule. A tool call arrives with no content, and capturing it
+                    // here — before `appendPlaceholderIfNeeded` could run — is what keeps a call's
+                    // JSON out of the chat bubble. A stream that opens with prose falls straight
+                    // through and is streamed exactly as before.
+                    //
+                    // **Read from every chunk, including the last one, and that is the whole point.**
+                    // Ollama streams an empty-content chunk per token and delivers the call *inside*
+                    // the `done: true` chunk; a check placed after the `done` break — which is where
+                    // this started — therefore never saw a call from a real Ollama at all, and every
+                    // tool round fell through to "the model answered nothing". Measured against the
+                    // real server on 2026-10-17, after a live run in which every call went missing;
+                    // `FakeProviderServer` now sends the terminal shape, which it did not before
+                    // (it sent the call in a content chunk, a shape invented rather than observed).
+                    if (toolSink != null && msgObj?.optJSONArray("tool_calls") != null) {
+                        toolSink(msgObj)
+                    }
                     if (obj.optBoolean("done", false)) {
                         if (appEnv.debugLogging) android.util.Log.d(
                             "AssistantService",
@@ -1888,16 +1905,7 @@ internal suspend fun AssistantService.performDirectOllamaChat(baseUrl: String, m
                         )
                         break
                     }
-                    val msgObj = obj.optJSONObject("message") ?: continue
-                    // M8, the first-token rule. A tool call arrives as its own chunk with no
-                    // content, and this is the only place the first chunk is visible: capturing it
-                    // here, before `appendPlaceholderIfNeeded` could run, is what keeps a call's
-                    // JSON out of the chat bubble. A stream that opens with prose falls straight
-                    // through and is streamed exactly as before.
-                    if (toolSink != null && msgObj.optJSONArray("tool_calls") != null) {
-                        toolSink(msgObj)
-                        continue
-                    }
+                    if (msgObj == null) continue
                     val chunk = msgObj.optString("content", "")
                     val thinkChunk = if (persona.enableThinking) msgObj.optString("thinking", "") else ""
                     if (chunk.isEmpty() && thinkChunk.isEmpty()) continue
