@@ -5,13 +5,12 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
-import com.nikosm.voiceassistant.linux.AudioDeviceProbe
 import com.nikosm.voiceassistant.linux.AwtFileDialogs
 import com.nikosm.voiceassistant.linux.ImageIoCodec
 import com.nikosm.voiceassistant.linux.JsonSettingsStore
 import com.nikosm.voiceassistant.linux.LinuxAppEnv
 import com.nikosm.voiceassistant.linux.StubAudioCapture
-import com.nikosm.voiceassistant.linux.StubAudioDevices
+import com.nikosm.voiceassistant.linux.LinuxAudioDevices
 import com.nikosm.voiceassistant.linux.PwPlayback
 import com.nikosm.voiceassistant.linux.StubTextToSpeech
 import com.nikosm.voiceassistant.ui.theme.VoiceAssistantTheme
@@ -47,6 +46,7 @@ fun main(args: Array<String>) {
     // `:core` sees only their interfaces. D1 says one process, so there is no binder, no intent and
     // no `onCreate` — the service exists before the first frame and the UI reads it directly.
     val appEnv = LinuxAppEnv.resolve().installLogging()
+    val audioDevices = LinuxAudioDevices(appEnv.logger)
 
     val settingsManager = SettingsManager(
         appEnv = appEnv,
@@ -60,7 +60,7 @@ fun main(args: Array<String>) {
         // the milestone that replaces them. A build in this state starts, converses and persists;
         // it does not hear or speak. `grep -rn 'Stub' platform/src/main` is the whole list.
         audioPlayback = PwPlayback(appEnv.logger),
-        audioDevices = StubAudioDevices(appEnv.logger),
+        audioDevices = audioDevices,
         tts = StubTextToSpeech(appEnv.logger),
         audioCapture = StubAudioCapture(appEnv.logger),
         fileDialogs = AwtFileDialogs(appEnv.logger),
@@ -87,6 +87,35 @@ fun main(args: Array<String>) {
     }
 }
 
+/**
+ * What this machine's audio layer actually offers, through seam 3 rather than around it.
+ *
+ * `AudioDeviceProbe` used to print a line saying the seam was a stub, and its own KDoc said the two
+ * would collapse "in M2, when there is a real device list for the selftest to describe". This is
+ * that collapse. The ids are printed beside the labels because the id is the string the pickers
+ * store and the players are pointed at — a label alone would tell a reader what was found and not
+ * whether it could be used.
+ *
+ * An empty list is reported as empty rather than as silence, which is the distinction the stub
+ * existed to preserve: "no devices were found" and "nothing was asked" must not look the same.
+ */
+private fun reportAudio(devices: AudioDevices) {
+    fun line(prefix: String, list: List<AudioDevice>) {
+        if (list.isEmpty()) {
+            println("  ${prefix}: none found")
+            return
+        }
+        list.forEachIndexed { i, d ->
+            println("  ${if (i == 0) prefix else " ".repeat(prefix.length)}: ${d.label}")
+            println("           ${d.id}")
+        }
+    }
+    line("output", devices.outputs())
+    line("input ", devices.inputs())
+    val earpiece = devices.earpiece()
+    println("  earpiece: ${earpiece?.label ?: "none - the ordinary desktop answer, and not a failure (seam 3)"}")
+}
+
 /** The pin the sync script writes on every successful copy (PLAN.md §7a). */
 private const val PIN_RESOURCE = "upstream-commit.txt"
 
@@ -95,6 +124,7 @@ private fun selfTest(): Int {
     // so anything logged from here on lands where it will land in a real session, rather than in
     // a default that only `--selftest` ever sees.
     val appEnv = LinuxAppEnv.resolve().installLogging()
+    val audioDevices = LinuxAudioDevices(appEnv.logger)
 
     println("celeste-linux self-test")
     println()
@@ -113,7 +143,7 @@ private fun selfTest(): Int {
     println("debug logging: ${if (appEnv.debugLogging) "ON — conversation content will be logged" else "off"}")
     println()
     println("audio devices")
-    println("  ${AudioDeviceProbe.describe()}")
+    reportAudio(audioDevices)
     println()
 
     return reportSettingsDir(appEnv.configDir)
@@ -125,7 +155,7 @@ private fun selfTest(): Int {
  * and cannot be shipped without them.
  */
 private fun upstreamPin(): String {
-    val pin = AudioDeviceProbe::class.java.classLoader
+    val pin = AssistantService::class.java.classLoader
         .getResourceAsStream(PIN_RESOURCE)
         ?.use { it.readBytes().decodeToString() }
         ?.trim()
