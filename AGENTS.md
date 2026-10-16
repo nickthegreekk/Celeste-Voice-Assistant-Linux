@@ -90,7 +90,9 @@ The fourteen platform seams are listed in [PLAN.md](PLAN.md) §5. Rules:
 - Credentials go through the `SecretStore` seam (libsecret) or the settings file, never in code.
 - The upstream project is used with private, adult content; its prompts and images are the user's.
   Do not commit a real prompt, a real output image, or a transcript of either, as a test fixture.
-  Fabricate fixtures.
+  Fabricate fixtures. A **real backup file** is never committed either — `voice_assistant_backup*.json` is in
+  `.gitignore` because one carries API keys, server passwords and the user's own persona artwork. A
+  fabricated backup, with invented values, is what the backup-interop fixture needs.
 - No telemetry. No analytics. No update check (PLAN.md §8 marks it dropped). No network call that
   the user did not configure, except the build's own dependency resolution.
 - **An automatic model fetch requires a provider the user has configured (2026-10-16).** Configured

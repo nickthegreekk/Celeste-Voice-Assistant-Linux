@@ -21,3 +21,8 @@ packaging/out/
 # Local harness config. Safe to commit while it holds no secret; the DeepSeek key lives in
 # ~/.local/share/opencode/auth.json and must never appear here.
 # opencode.json
+
+# A real backup carries API keys, server passwords, the user's own prompts and persona artwork.
+# It is never committed. A FABRICATED backup is exactly what the interop fixture needs, with invented
+# values - the difference is the values, not the filename.
+voice_assistant_backup*.json
