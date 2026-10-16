@@ -84,7 +84,15 @@ internal fun serverFailure(prefix: String, response: Response): String {
     return if (reason == null) "$prefix: ${response.code}" else "$prefix: ${response.code} — $reason"
 }
 
-private fun oneLine(s: String): String? {
+/**
+ * A server's words as one line, capped at [SERVER_REASON_MAX_CHARS].
+ *
+ * `internal` rather than private because it is the same promise wherever a server gets to speak in
+ * a message the user reads or journald keeps — `gatewayRefusal` in `AssistantServiceGateway.kt`
+ * carries the gateway's own `note` through it, and a second copy of "flatten and cap" is how the
+ * two would drift apart.
+ */
+internal fun oneLine(s: String): String? {
     val flat = s.replace(Regex("\\s+"), " ").trim().trimEndToSentenceEnd()
     if (flat.isEmpty()) return null
     return if (flat.length <= SERVER_REASON_MAX_CHARS) flat

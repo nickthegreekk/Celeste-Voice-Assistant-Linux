@@ -291,10 +291,63 @@ internal fun AssistantService.testGatewayVoice(text: String, url: String, langua
     }
 }
 
-internal suspend fun AssistantService.synthesizeWithGateway(text: String, persona: Persona): Pair<ByteArray?, String?> {
-    if (text.isBlank()) return Pair(null, null)
+/**
+ * What one `/synthesize` call produced: the audio, its word timestamps, and — when there is no
+ * audio — why not.
+ *
+ * `Pair<ByteArray?, String?>` used to stand in for this, and the reason went with the null. A
+ * gateway refusal is a *decision*, not a failure: the endpoint answers `200 application/json` with
+ * a `note` saying that language has no voice ("Russian has no TTS voice available — text only"),
+ * and this application turned that into silence — logged at DEBUG, which is FINE and therefore
+ * never printed. The 2026-10-16 run has three turns where a reply was never spoken and the only
+ * line about any of them was "chunk 0 could not be synthesised".
+ *
+ * [noAudioReason] is that answer in words, framed with the route, the engine, the voice and the
+ * language, because "the gateway refused" and "the local engine failed" are different repairs —
+ * and it is threaded into `PlaybackEnd.Failed` by the chunked pipeline so the failure the user
+ * reads carries it too.
+ */
+internal data class GatewaySpeech(
+    val audio: ByteArray?,
+    /** The `X-Word-Timestamps-B64` payload, when the gateway sent one. */
+    val timestamps: String? = null,
+    /** Why there is no audio. Null exactly when [audio] is not. */
+    val noAudioReason: String? = null,
+)
+
+/**
+ * The sentence a gateway synthesis that produced no audio carries.
+ *
+ * Names the route first: a reply can go unspoken through the gateway or through the local engine,
+ * and the two are fixed in different places. The engine, the voice and the language are what was
+ * actually asked for — the gateways in this project's world answer a request for a language they
+ * have no voice for rather than failing, so which language the reply was *classified* as is
+ * usually the whole answer (a reply that quoted one Russian phrase was sent as `language=Russian`
+ * and refused by a gateway whose only voices are English).
+ */
+internal fun gatewayRefusal(detail: String, language: String, engine: String, voice: String?): String {
+    val asked = buildString {
+        append("engine ").append(engine)
+        if (!voice.isNullOrBlank()) append(", voice ").append(voice)
+        append(", language ").append(language)
+    }
+    return "gateway TTS produced no audio ($asked) — ${oneLine(detail) ?: detail}"
+}
+
+internal suspend fun AssistantService.synthesizeWithGateway(text: String, persona: Persona): GatewaySpeech {
+    // Every path below says why it produced nothing, and the ones a user cannot see coming also
+    // log: a null that nothing explains is what made the 2026-10-16 failures unreadable.
+    if (text.isBlank()) {
+        return GatewaySpeech(null, noAudioReason = "gateway TTS was not asked — the text was empty")
+    }
     val url = persona.backendUrl
-    if (url.isBlank()) return Pair(null, null)
+    if (url.isBlank()) {
+        logger.w("AssistantService", "Gateway synthesis was not attempted — persona '${persona.name}' has no Backend URL")
+        return GatewaySpeech(
+            null,
+            noAudioReason = "gateway TTS was not attempted — persona '${persona.name}' has no Backend URL",
+        )
+    }
 
     // M1: resolve the persona's gateway entry through the shared resolver. The old
     // credential-less `?: ServerConfig("Gateway", url)` fallback sent an
@@ -309,7 +362,11 @@ internal suspend fun AssistantService.synthesizeWithGateway(text: String, person
                 "match any configured gateway, so its credentials cannot be resolved. No request was " +
                 "sent; the reply cannot be spoken until the Backend URL matches a Servers entry."
         )
-        return Pair(null, null)
+        return GatewaySpeech(
+            null,
+            noAudioReason = "gateway TTS was not attempted — Backend URL '$url' matches no configured " +
+                "gateway, so there are no credentials to send",
+        )
     }
     val baseUrl = gw.url.trimEnd('/')
     // Non-Translator personas keep targetLanguage at its "English" default no matter
@@ -322,6 +379,10 @@ internal suspend fun AssistantService.synthesizeWithGateway(text: String, person
     } else {
         detectGatewayResponseLanguage(text)
     }
+    // The voice the persona is configured with, for the refusal sentence. The request itself omits
+    // the `voice` field when it is Kokoro's default (which is also the server's), but what belongs
+    // in a refusal is what the *user* picked, not what the multipart body happened to spell out.
+    val voiceAsked = persona.kokoroVoice.takeIf { persona.voiceEngine == "kokoro" && it.isNotBlank() }
 
     return try {
         withContext(Dispatchers.IO) {
@@ -359,13 +420,21 @@ internal suspend fun AssistantService.synthesizeWithGateway(text: String, person
             currentCall = call
             try {
                 call.execute().use { response ->
-                    if (!response.isSuccessful) throw Exception("Server error: ${response.code}")
+                    // The gateway's own words, like every other server this application talks to
+                    // (HttpErrors.kt): a bare status was the reported gap twice over.
+                    if (!response.isSuccessful) throw Exception(serverFailure("Gateway error", response))
                     val contentType = response.header("Content-Type") ?: ""
                     if (contentType.contains("application/json")) {
                         val json = JSONObject(response.body.string())
                         val note = json.optString("note", "Voice unavailable for this language.")
-                        logger.d("AssistantService", "Synthesis skipped: $note")
-                        Pair(null, null)
+                        // A DECISION, not a failure — and it used to be logged at DEBUG, which
+                        // java.util.logging never prints, so the only trace of an unspoken reply
+                        // was the caller's generic "could not be synthesised". WARN, because the
+                        // user-visible outcome is a reply that is in the transcript and not in the
+                        // air, and this is the one line that says why.
+                        val refusal = gatewayRefusal(note, language, persona.voiceEngine, voiceAsked)
+                        logger.w("AssistantService", refusal)
+                        GatewaySpeech(null, noAudioReason = refusal)
                     } else {
                         // Stage-2: parse word-level timestamps from the new header.
                         //
@@ -381,7 +450,7 @@ internal suspend fun AssistantService.synthesizeWithGateway(text: String, person
                         val timestampsJson = tsB64?.let {
                             try { String(Base64.getDecoder().decode(it), Charsets.UTF_8) } catch (_: Exception) { null }
                         }
-                        Pair(response.body.bytes(), timestampsJson)
+                        GatewaySpeech(response.body.bytes(), timestampsJson)
                     }
                 }
             } finally {
@@ -392,7 +461,10 @@ internal suspend fun AssistantService.synthesizeWithGateway(text: String, person
         throw e
     } catch (e: Exception) {
         logger.e("AssistantService", "Gateway synthesis failed", e)
-        Pair(null, null)
+        // The route and the throwable, without the request frame: a transport failure or a 500
+        // says nothing about the language or the voice, and dressing it as if it did would send
+        // the reader looking in the wrong place.
+        GatewaySpeech(null, noAudioReason = "gateway TTS failed — ${e.message ?: e::class.simpleName}")
     }
 }
 

@@ -29,7 +29,7 @@ class TtsChunkSequencerTest {
 
     private fun chunk(name: String): Path = Path.of("/nonexistent", name)
 
-    private fun files(): suspend (Int, String) -> Path? = { index, _ -> chunk("chunk$index.wav") }
+    private fun files(): suspend (Int, String) -> Synthesis = { index, _ -> Synthesis.Ready(chunk("chunk$index.wav")) }
 
     private val noProgress: (Float, Int) -> Unit = { _, _ -> }
 
@@ -121,7 +121,7 @@ class TtsChunkSequencerTest {
         sequencer.start(
             chunks = listOf("one.", "two."),
             scope = this,
-            synthesize = { i, _ -> chunk("a$i.wav") },
+            synthesize = { i, _ -> Synthesis.Ready(chunk("a$i.wav")) },
             onStarted = countStarts,
             onProgress = noProgress,
             onEnd = { firstEnds += it },
@@ -133,7 +133,7 @@ class TtsChunkSequencerTest {
         val second = sequencer.start(
             chunks = listOf("uno.", "dos."),
             scope = this,
-            synthesize = { i, _ -> chunk("b$i.wav") },
+            synthesize = { i, _ -> Synthesis.Ready(chunk("b$i.wav")) },
             onStarted = countStarts,
             onProgress = noProgress,
             onEnd = { },
@@ -202,7 +202,10 @@ class TtsChunkSequencerTest {
         TtsChunkSequencer(playback).start(
             chunks = listOf("one.", "two."),
             scope = this,
-            synthesize = { index, _ -> if (index == 0) null else chunk("chunk$index.wav") },
+            synthesize = { index, _ ->
+                if (index == 0) Synthesis.Unavailable("the gateway has no voice for that language")
+                else Synthesis.Ready(chunk("chunk$index.wav"))
+            },
             onStarted = countStarts,
             onProgress = noProgress,
             onEnd = { ends += it },
@@ -212,6 +215,61 @@ class TtsChunkSequencerTest {
         assertTrue("nothing should have played", playback.played.isEmpty())
         assertEquals(1, ends.size)
         assertTrue("the sequence must end, not hang", ends.single() is PlaybackEnd.Failed)
+    }
+
+    @Test
+    fun `the reason a chunk produced no audio is carried into the failure, not discarded`() = runTest {
+        // "chunk 0 could not be synthesised" was the whole message on the 2026-10-16 run — three
+        // times, for a cause that was known at the moment it happened (the gateway answered that
+        // the reply's language has no voice) and thrown away here. The reason is the caller's, and
+        // the caller is the only component that knows the route, the engine and what came back.
+        val playback = FakeAudioPlayback()
+        val ends = mutableListOf<PlaybackEnd>()
+
+        TtsChunkSequencer(playback).start(
+            chunks = listOf("one.", "two."),
+            scope = this,
+            synthesize = { _, _ ->
+                Synthesis.Unavailable("gateway TTS produced no audio (engine kokoro, voice af_heart, language Russian)")
+            },
+            onStarted = countStarts,
+            onProgress = noProgress,
+            onEnd = { ends += it },
+        )
+        runCurrent()
+
+        assertEquals(
+            listOf(
+                PlaybackEnd.Failed(
+                    "chunk 0 could not be synthesised: gateway TTS produced no audio " +
+                        "(engine kokoro, voice af_heart, language Russian)"
+                )
+            ),
+            ends,
+        )
+    }
+
+    @Test
+    fun `a synthesis that throws still says what it said`() = runTest {
+        // A caller that throws rather than returning Unavailable is still reporting a cause, and
+        // the message it threw is the only place that cause exists.
+        val playback = FakeAudioPlayback()
+        val ends = mutableListOf<PlaybackEnd>()
+
+        TtsChunkSequencer(playback).start(
+            chunks = listOf("one."),
+            scope = this,
+            synthesize = { _, _ -> throw IllegalStateException("the gateway took too long") },
+            onStarted = countStarts,
+            onProgress = noProgress,
+            onEnd = { ends += it },
+        )
+        runCurrent()
+
+        assertEquals(
+            listOf(PlaybackEnd.Failed("chunk 0 could not be synthesised: synthesis failed: the gateway took too long")),
+            ends,
+        )
     }
 
     // -------------------------------------------------------- the progress arithmetic
@@ -390,7 +448,10 @@ class TtsChunkSequencerTest {
         TtsChunkSequencer(playback).start(
             chunks = listOf("one.", "two."),
             scope = this,
-            synthesize = { index, _ -> if (index == 0) null else chunk("chunk$index.wav") },
+            synthesize = { index, _ ->
+                if (index == 0) Synthesis.Unavailable("the gateway has no voice for that language")
+                else Synthesis.Ready(chunk("chunk$index.wav"))
+            },
             onStarted = countStarts,
             onProgress = noProgress,
             onEnd = { },

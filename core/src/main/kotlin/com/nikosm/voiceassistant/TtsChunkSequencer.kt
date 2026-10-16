@@ -45,6 +45,31 @@ interface ChunkSequence {
 }
 
 /**
+ * What one chunk's synthesis produced: the file to play, or the reason there is none.
+ *
+ * This was a nullable `Path`, and the reason went with the null. The sequence could then report
+ * only "chunk 0 could not be synthesised" — which names neither the cause nor the route that
+ * produced it. The user's run on 2026-10-16 has three of those lines and nothing that tells them
+ * apart or acts on them, while the actual answer ("Russian has no TTS voice available — text only",
+ * because the reply quoted a Russian phrase and the gateway was asked for a Russian voice) was
+ * being logged at DEBUG and never printed.
+ *
+ * So the failure travels with the chunk, in the caller's words: only the caller knows which engine
+ * it asked, what it asked for, and what came back.
+ */
+sealed interface Synthesis {
+
+    /** This chunk is ready to play. */
+    data class Ready(val file: Path) : Synthesis
+
+    /**
+     * There is nothing to play for this chunk, and [reason] says why — a refusal, an empty chunk,
+     * a superseded turn, a file that could not be written. It reaches [PlaybackEnd.Failed] verbatim.
+     */
+    data class Unavailable(val reason: String) : Synthesis
+}
+
+/**
  * Plays a synthesised reply one chunk at a time, in order.
  *
  * ## Why this is a class and not code in the service
@@ -91,7 +116,9 @@ class TtsChunkSequencer(private val playback: AudioPlayback) {
      * Begins playing [chunks] in order.
      *
      * [synthesize] is called once per chunk, in order, on [scope], and may run concurrently with
-     * playback of an earlier chunk. Returning null means that chunk could not be produced.
+     * playback of an earlier chunk. [Synthesis.Unavailable] means that chunk could not be produced,
+     * and its reason is carried into [PlaybackEnd.Failed] — the message a caller reports and a user
+     * reads, so the caller's words are what belongs there.
      *
      * [onStarted] fires **once, when the first chunk's playback begins** — and the "once, first
      * chunk" is the whole contract, not an implementation detail. Upstream enters its SPEAKING
@@ -112,7 +139,7 @@ class TtsChunkSequencer(private val playback: AudioPlayback) {
     fun start(
         chunks: List<String>,
         scope: CoroutineScope,
-        synthesize: suspend (index: Int, text: String) -> Path?,
+        synthesize: suspend (index: Int, text: String) -> Synthesis,
         onStarted: () -> Unit,
         onProgress: (fraction: Float, estimatedTotalMs: Int) -> Unit,
         onEnd: (PlaybackEnd) -> Unit,
@@ -131,7 +158,7 @@ class TtsChunkSequencer(private val playback: AudioPlayback) {
     private inner class Sequence(
         private val chunks: List<String>,
         private val scope: CoroutineScope,
-        private val synthesize: suspend (Int, String) -> Path?,
+        private val synthesize: suspend (Int, String) -> Synthesis,
         private val onStarted: () -> Unit,
         private val onProgress: (Float, Int) -> Unit,
         private val onEnd: (PlaybackEnd) -> Unit,
@@ -145,7 +172,7 @@ class TtsChunkSequencer(private val playback: AudioPlayback) {
     ) : ChunkSequence {
 
         /** One slot per chunk; the synthesis loop fills it, the playback loop awaits it. */
-        private val ready: List<CompletableDeferred<Path?>> = List(chunks.size) { CompletableDeferred() }
+        private val ready: List<CompletableDeferred<Synthesis>> = List(chunks.size) { CompletableDeferred() }
 
         private val chunkTextLen: List<Int> = chunks.map { cleanTextForTts(it).length.coerceAtLeast(1) }
         private val fullTextLen: Int = chunkTextLen.sum().coerceAtLeast(1)
@@ -190,7 +217,9 @@ class TtsChunkSequencer(private val playback: AudioPlayback) {
             // Release anything still waiting on a chunk that will never arrive, so no coroutine
             // is left parked on a deferred nobody will complete. The flag is what does the real
             // work; this is what stops a cancelled sequence leaving a suspended coroutine behind.
-            ready.forEach { it.complete(null) }
+            // (The playback loop checks the flag before it reads a slot, so what it is released
+            // *with* is never reported — the reason is here to be honest, not to be read.)
+            ready.forEach { it.complete(Synthesis.Unavailable("the sequence was stopped")) }
             currentHandle?.stop()
             job?.cancel()
             // A cancelled sequence has still ended: a caller suspended in awaitEnd() must be
@@ -212,19 +241,21 @@ class TtsChunkSequencer(private val playback: AudioPlayback) {
                 val synthesis = launch {
                     for (i in chunks.indices) {
                         if (cancelled) {
-                            ready[i].complete(null)
+                            ready[i].complete(Synthesis.Unavailable("the sequence was stopped"))
                             continue
                         }
-                        val path = try {
+                        val produced = try {
                             synthesize(i, chunks[i])
                         } catch (e: CancellationException) {
                             throw e
                         } catch (e: Exception) {
                             // A failed synthesis is not fatal to the loop the way a failed
-                            // playback is; this chunk reports null and playback decides.
-                            null
+                            // playback is; this chunk reports nothing and playback decides. The
+                            // throwable's own words go with it — a caller that threw rather than
+                            // returned still said why.
+                            Synthesis.Unavailable("synthesis failed: ${e.message ?: e::class.simpleName}")
                         }
-                        ready[i].complete(path)
+                        ready[i].complete(produced)
                     }
                 }
 
@@ -240,19 +271,25 @@ class TtsChunkSequencer(private val playback: AudioPlayback) {
             for (index in chunks.indices) {
                 if (cancelled) return
 
-                val path = ready[index].await()
-                // Covers both a cancelled sequence resuming on a completed-with-null slot and a
-                // chunk that genuinely could not be produced.
-                if (cancelled) return
-                if (path == null) {
-                    // Upstream's synthesis-failure path is a quirk rather than a decision: it
-                    // `continue`s past a chunk, but its "start playback" branch is keyed on
-                    // `index == 0`, so a failed FIRST chunk leaves the sequence with a non-empty
-                    // file list and no playback, no cleanup and nothing to end it. Aborting the
-                    // whole utterance is the behaviour a failure should have anyway, and the test
-                    // name records that this is a choice rather than a copy.
-                    finish(PlaybackEnd.Failed("chunk $index could not be synthesised"))
-                    return
+                val path = when (val produced = ready[index].await()) {
+                    is Synthesis.Ready -> produced.file
+                    is Synthesis.Unavailable -> {
+                        // Covers both a cancelled sequence resuming on a released slot and a chunk
+                        // that genuinely could not be produced — the `cancelled` check above has
+                        // already returned for the first of those.
+                        //
+                        // Upstream's synthesis-failure path is a quirk rather than a decision: it
+                        // `continue`s past a chunk, but its "start playback" branch is keyed on
+                        // `index == 0`, so a failed FIRST chunk leaves the sequence with a
+                        // non-empty file list and no playback, no cleanup and nothing to end it.
+                        // Aborting the whole utterance is the behaviour a failure should have
+                        // anyway, and the test name records that this is a choice rather than a
+                        // copy. The reason is the caller's, and it is carried rather than dropped:
+                        // "chunk 0 could not be synthesised" alone is a message that cannot be
+                        // acted on, which is what the 2026-10-16 run showed three times.
+                        finish(PlaybackEnd.Failed("chunk $index could not be synthesised: ${produced.reason}"))
+                        return
+                    }
                 }
 
                 // Once, for the first chunk only, and immediately before its playback starts.

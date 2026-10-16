@@ -652,20 +652,36 @@ internal suspend fun AssistantService.playChunkedTtsGateway(
         chunks = chunks,
         scope = serviceScope,
         // The label is explicit: `return@start` would be ambiguous, and every one of these early
-        // returns means the same thing to the sequencer — this chunk could not be produced.
+        // returns means the same thing to the sequencer — this chunk could not be produced. What
+        // it no longer means is *nothing*: each one carries the reason into `PlaybackEnd.Failed`,
+        // which is the line the user and the log actually see. "chunk 0 could not be synthesised"
+        // on its own was the 2026-10-16 report, three times, and it could not be acted on.
         synthesize = synth@{ index, chunkText ->
             // Generation check BEFORE each synthesis: if stopAudio() bumped the
             // counter, the entire sequence is stale - produce nothing further.
-            if (ttsGeneration != myTtsGeneration) return@synth null
+            if (ttsGeneration != myTtsGeneration) {
+                return@synth Synthesis.Unavailable("chunk $index was never asked for — the turn was stopped first")
+            }
 
             // Clean the chunk text (strip markdown that Kokoro reads literally).
             val cleaned = cleanTextForTts(chunkText)
-            if (cleaned.isBlank()) return@synth null
+            if (cleaned.isBlank()) {
+                return@synth Synthesis.Unavailable("chunk $index is empty once markdown is stripped")
+            }
 
             // Sequential synthesis: one chunk at a time, via the existing
             // single-text synthesizeWithGateway (tracks currentCall for Stop).
-            val (audioBytes, tsJson) = synthesizeWithGateway(cleaned, persona)
-            if (audioBytes == null || audioBytes.isEmpty()) return@synth null
+            val speech = synthesizeWithGateway(cleaned, persona)
+            val audioBytes = speech.audio
+            val tsJson = speech.timestamps
+            if (audioBytes == null || audioBytes.isEmpty()) {
+                // The gateway's own reason, already framed with the route, engine, voice and
+                // language where it refused (synthesizeWithGateway). The fallback covers a
+                // 200 with an empty body, which no gateway in this project has produced.
+                return@synth Synthesis.Unavailable(
+                    speech.noAudioReason ?: "gateway TTS returned no audio for chunk $index"
+                )
+            }
 
             // Parse and adjust word timestamps: Kokoro returns them relative to
             // the chunk start; add the cumulative AUDIO duration offset for
@@ -704,17 +720,21 @@ internal suspend fun AssistantService.playChunkedTtsGateway(
 
             // Generation check AFTER synthesis (it may have taken seconds -
             // Stop could have fired while we were waiting for Kokoro).
-            if (ttsGeneration != myTtsGeneration) return@synth null
+            if (ttsGeneration != myTtsGeneration) {
+                return@synth Synthesis.Unavailable("chunk $index was discarded — the turn was stopped mid-synthesis")
+            }
 
             val chunkFile = cacheDir.toPath().resolve("tts_chunk_${myTtsGeneration}_${index}.wav")
             runCatching {
                 Files.createDirectories(cacheDir.toPath())
                 Files.write(chunkFile, audioBytes)
             }.getOrElse { e ->
-                logger.e("AssistantService", "Could not write chunk $index: ${e.message}")
-                return@synth null
+                // No log line here any more: the reason now travels to the one place that reports
+                // this sequence's failure, and two lines saying the same thing is how a log gets
+                // skimmed rather than read.
+                return@synth Synthesis.Unavailable("chunk $index could not be written to $chunkFile: ${e.message}")
             }
-            chunkFile
+            Synthesis.Ready(chunkFile)
         },
         onStarted = {
             // Once, before chunk 0 plays — one SPEAKING window for the whole sequence.

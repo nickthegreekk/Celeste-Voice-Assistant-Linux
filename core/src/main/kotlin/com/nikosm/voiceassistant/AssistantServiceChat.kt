@@ -396,8 +396,8 @@ internal fun AssistantService.sendAudioToServer(file: Path, currentPersona: Pers
 
                          // If it's a gateway voice mode, we need to fetch audio separately
                          if (currentPersona.voiceMode == VoiceMode.GATEWAY) {
-                             val (audioBytes, wordTsJson) = synthesizeWithGateway(directRes.first, currentPersona)
-                             return@withContext listOf(transcribedText, directRes.first, directRes.second, audioBytes, cleanedForTts)
+                             val speech = synthesizeWithGateway(directRes.first, currentPersona)
+                             return@withContext listOf(transcribedText, directRes.first, directRes.second, speech.audio, cleanedForTts)
                          }
 
                          return@withContext listOf(transcribedText, directRes.first, directRes.second, directRes.third, cleanedForTts)
@@ -1324,7 +1324,7 @@ internal fun AssistantService.performCloudChat(text: String, persona: Persona, u
                 // (nothing is thrown here), followed by an error bubble naming the
                 // misconfiguration.
                 val ttsGatewayResolved = findGatewayConfig(persona.backendUrl) != null
-                val (audioBytes, _) = synthesizeWithGateway(responseData.first, persona)
+                val audioBytes = synthesizeWithGateway(responseData.first, persona).audio
                 val audioPath = if (audioBytes != null) {
                     val outFile = cacheDir.toPath().resolve("response_${System.currentTimeMillis()}.wav")
                     Files.write(outFile, audioBytes)
