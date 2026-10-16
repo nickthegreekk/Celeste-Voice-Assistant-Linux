@@ -272,6 +272,27 @@ screen's existing connection test is the user-initiated trigger. Rejected: carvi
 rule with an exception stops being checkable by a grep, and a seeded `0.0.0.0` means the host is whatever happens to
 answer there on the machine where the app is installed.
 
+**Automatic network calls need a configured provider (2026-10-16).** The complement of AGENTS.md §5's
+"no network call that the user did not configure", made concrete for the one place it kept being
+violated: the model fetches. `AssistantService.fetchCloudModels` may run automatically only for a
+provider the user has configured — a non-blank key, or a base URL differing from the template
+`DEFAULT_CLOUD_APIS` seeds. An unconfigured template is displayed, is editable and is saved like any
+other; it simply does not fetch until the user acts. The two user-initiated triggers are the Settings
+connection test and the act of saving a provider, and **both must reach `fetchCloudModels`** —
+`updateCloudApi` was the save path that did not, which is why adding a key to a built-in provider
+needed a manual refresh.
+
+This replaced a guard on the provider's *kind*: `if (api.apiKey.isBlank() && api.icon != "C" &&
+api.icon != "CL") return`. The seeded `"OpenAI-Compatible"` template has an empty key and
+`icon == "C"`, so the guard let it through, and from **the second launch** — the first run has to seed
+the templates before there is anything to walk — the application called
+`http://0.0.0.0:11434/v1/models`. Rejected: treating a loopback address as harmless. The address is a
+template's placeholder rather than a promise about the network, a rule with a carve-out stops being
+greppable, and the whole point of auditing before a milestone closes is that the audit is a grep.
+
+`FreshStartNetworkTest` covers both ends: a first run, and a launch-save-launch sequence, because a
+seeded template only exists on the second.
+
 ### 5a. Seam 8 is not in v1 (2026-10-15)
 
 Credentials — provider API keys, server passwords and gateway credentials — live in the settings

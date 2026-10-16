@@ -93,6 +93,14 @@ The fourteen platform seams are listed in [PLAN.md](PLAN.md) §5. Rules:
   Fabricate fixtures.
 - No telemetry. No analytics. No update check (PLAN.md §8 marks it dropped). No network call that
   the user did not configure, except the build's own dependency resolution.
+- **An automatic model fetch requires a provider the user has configured (2026-10-16).** Configured
+  means a key, or a base URL that differs from the template the application seeds. An unconfigured
+  template waits for the button. The rule exists because the old guard tested the provider's *kind*
+  rather than the user's intent — `icon == "C"` — and the seeded `"OpenAI-Compatible"` template has
+  that icon, so from the second launch onward the application called `http://0.0.0.0:11434/v1/models`.
+  **Loopback is not a carve-out:** a rule with one stops being greppable, and a seeded `0.0.0.0` means
+  the host is whatever answers there on the installed machine. The two user-initiated triggers are the
+  connection test and saving a provider; both reach `fetchCloudModels`.
 - **That last rule is enforced by auditing, not by memory (2026-10-15).** It was being read as a list of dropped
   features, until a run made a real request to `openrouter.ai` on a fresh install, and a second call of the same
   shape was found behind a default-seeded provider entry. So: grep every hardcoded URL and every HTTP call site in

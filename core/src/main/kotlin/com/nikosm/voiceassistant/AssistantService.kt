@@ -1569,6 +1569,16 @@ class AssistantService(
         }
         _cloudApis.value = current
         saveSettings()
+        // Saving a provider is one of the two user-initiated triggers PLAN.md §5 names (the other
+        // is the connection test, which SettingsScreens calls directly). Adding a key or pointing
+        // an OpenAI-compatible entry at a real server is exactly the moment its model list becomes
+        // both fetchable and wanted, and it is what makes the unconfigured templates harmless:
+        // they sit there silently until this line runs for them.
+        //
+        // `addCustomCloudApi` and `updateCustomCloudApi` already reached `fetchCloudModels`; this
+        // was the one save path that did not, which is why a key added to a *built-in* provider
+        // needed a manual refresh to show its models.
+        fetchCloudModels(api)
     }
 
     fun moveCloudApiUp(api: CloudApiSetting) {
@@ -2778,10 +2788,35 @@ class AssistantService(
     }
 
 
+    /**
+     * Has the user made this provider their own? — the gate on every *automatic* model fetch.
+     *
+     * **The rule (PLAN.md §5, AGENTS.md §5):** an automatic fetch requires a provider the user has
+     * configured, and an unconfigured template waits for the button. "Configured" is a key, or a
+     * base URL that differs from the template the application seeds.
+     *
+     * This replaced `if (api.apiKey.isBlank() && api.icon != "C" && api.icon != "CL") return`,
+     * which was a check on the provider's *kind* rather than on the user's intent — and the
+     * difference is a network call. `DEFAULT_CLOUD_APIS` seeds an `"OpenAI-Compatible"` entry with
+     * an empty key and `icon == "C"`, so that guard let it through, and from the **second** launch
+     * onward the application called `http://0.0.0.0:11434/v1/models`: Ollama's port on whatever
+     * host answers there on the installed machine. It is loopback only in the sense that the
+     * template says so; `0.0.0.0` is a template's placeholder, not a promise about the network.
+     *
+     * A provider that is not in [DEFAULT_CLOUD_APIS] at all counts as configured: the only way one
+     * gets there is the user adding it.
+     */
+    internal fun CloudApiSetting.isUserConfigured(): Boolean {
+        if (apiKey.isNotBlank()) return true
+        val seeded = DEFAULT_CLOUD_APIS.firstOrNull { it.name == name } ?: return true
+        return seeded.baseUrl.trim().trimEnd('/') != baseUrl.trim().trimEnd('/')
+    }
+
     fun fetchCloudModels(api: CloudApiSetting) {
-        if (api.apiKey.isBlank() && api.icon != "C" && api.icon != "CL") {
-            return
-        }
+        // Automatic + unconfigured = no call. Note this also covers the *seeding* call:
+        // `updateCloudApi` runs `DEFAULT_CLOUD_APIS` into the list on first run, and every one of
+        // those is unconfigured by construction, so seeding cannot start a fetch.
+        if (!api.isUserConfigured()) return
         incrementModelFetchCount()
         val baseUrl = api.baseUrl.trim().removeSuffix("/")
         serviceScope.launch(Dispatchers.IO) {

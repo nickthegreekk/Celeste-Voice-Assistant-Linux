@@ -48,6 +48,17 @@ import java.nio.file.Path
  */
 class FreshStartNetworkTest {
 
+    private companion object {
+        /**
+         * How long to wait before concluding that nothing happened. There is no event to await
+         * when the expected outcome is silence, so proving it takes a window; the call being
+         * guarded against reaches the proxy in microseconds, so this is generous by orders of
+         * magnitude and costs under a second per assertion.
+         */
+        const val SETTLE_MS = 600L
+    }
+
+
     private lateinit var env: FakeAppEnv
     private lateinit var store: InMemoryStore
     private lateinit var service: AssistantService
@@ -65,20 +76,38 @@ class FreshStartNetworkTest {
         witnesses = WitnessingProxySelector()
         ProxySelector.setDefault(witnesses)
 
-        val manager = SettingsManager(env, store, NoImageCodec)
-        service = AssistantService(
-            appEnv = env,
-            audioPlayback = SilentAudioPlayback,
-            audioDevices = NoAudioDevices,
-            tts = NoTextToSpeech,
-            audioCapture = NoAudioCapture,
-            fileDialogs = NoFileDialogs,
-            settingsManager = manager,
-        )
+        service = newService().also { started += it }
     }
+
+    private val started = mutableListOf<AssistantService>()
+
+    /**
+     * A service over the *same* store — which is what "reopen the app" means for this test.
+     *
+     * Every service built here is registered so [tearDown] can shut it down. `start()` launches two
+     * loops that are meant to live for the life of the process — the state collector and the
+     * periodic health check — and a test that walks away from them leaves a coroutine that resumes
+     * on a dispatcher `runTest` has already torn down. Kotlin reports that as an uncaught exception
+     * *in whichever test runs next*, which is how it presented: four tests passing and a fifth
+     * failing with `UncaughtExceptionsBeforeTest` and no clue which coroutine it came from.
+     */
+    private fun newService(): AssistantService = AssistantService(
+        appEnv = env,
+        audioPlayback = SilentAudioPlayback,
+        audioDevices = NoAudioDevices,
+        tts = NoTextToSpeech,
+        audioCapture = NoAudioCapture,
+        fileDialogs = NoFileDialogs,
+        settingsManager = SettingsManager(env, store, NoImageCodec),
+    )
 
     @After
     fun tearDown() {
+        // Shut every service down before the dispatcher goes away. `runCatching` because a service
+        // whose teardown throws would otherwise turn into a failure blamed on the next test — the
+        // same misattribution this teardown exists to remove.
+        started.forEach { runCatching { it.shutdown() } }
+        started.clear()
         ProxySelector.setDefault(null)
         Dispatchers.resetMain()
     }
@@ -98,7 +127,7 @@ class FreshStartNetworkTest {
         // warns about. A sleep is the right tool here and the only one: there is no event to await
         // when the expected outcome is that nothing happens. The call it is guarding against
         // reaches the proxy in microseconds, so 750 ms is two orders of magnitude of headroom.
-        Thread.sleep(750)
+        Thread.sleep(SETTLE_MS)
 
         val priceKeys = store.allKeys().filter { it.contains("price", ignoreCase = true) }
         assertTrue(
@@ -110,6 +139,77 @@ class FreshStartNetworkTest {
             "a fresh start reached the network: ${witnesses.hosts}. AGENTS.md §5 allows no call " +
                 "the user did not configure, and a first run has configured nothing.",
             witnesses.hosts.isEmpty(),
+        )
+    }
+
+    @Test
+    fun `the second run is silent too, which is where the seeded provider template lives`() = runTest {
+        // The gap the first test leaves, and it is the one the bug actually lived in.
+        //
+        // A first run is silent because it has *nothing* to fetch — no provider is configured and
+        // none is stored. The seeded `DEFAULT_CLOUD_APIS` are written to the store during that
+        // first run, so it is the SECOND launch that reads them back and walks them, and the
+        // `"OpenAI-Compatible"` template with its empty key and `icon == "C"` is what got through
+        // the old guard. Testing only the first run tests the half of this that was never wrong.
+        //
+        // The sequence is the one a person performs: launch, let it seed itself, close, open again.
+        service.start()
+        runCurrent()
+        Thread.sleep(SETTLE_MS)
+        assertTrue("the first run reached the network: ${witnesses.hosts}", witnesses.hosts.isEmpty())
+
+        // What the UI does on a first run — `MainScreen` fills an empty provider list with the
+        // templates. Through `updateCloudApi`, because that is the call it makes.
+        DEFAULT_CLOUD_APIS.forEach { service.updateCloudApi(-1, it) }
+        runCurrent()
+        Thread.sleep(SETTLE_MS)
+        assertTrue(
+            "seeding the provider templates reached the network: ${witnesses.hosts}. A template is " +
+                "not a configuration; the seeding path must not be able to start a fetch.",
+            witnesses.hosts.isEmpty(),
+        )
+
+        // Close and reopen, over the same store.
+        val second = newService().also { started += it }
+        second.start()
+        runCurrent()
+        Thread.sleep(SETTLE_MS)
+
+        assertTrue(
+            "the second run reached the network: ${witnesses.hosts}. This is the bug — the seeded " +
+                "templates are in the store by now, and an automatic fetch for an unconfigured one " +
+                "is a call the user did not make (AGENTS.md §5).",
+            witnesses.hosts.isEmpty(),
+        )
+    }
+
+    @Test
+    fun `configuring a provider does fetch, which is what makes the silence above a choice`() = runTest {
+        // The other side of the rule, and the reason the two tests above are not just asserting
+        // that the feature is dead. Saving a provider is one of PLAN.md §5's two user-initiated
+        // triggers: pointing an OpenAI-compatible entry at a real server is exactly when its model
+        // list becomes both fetchable and wanted.
+        service.start()
+        runCurrent()
+
+        val configured = CloudApiSetting(
+            name = "OpenAI-Compatible",
+            baseUrl = "http://192.0.2.50:8080/v1",
+            apiKey = "",
+            icon = "C",
+            color = androidx.compose.ui.graphics.Color(0xFF808080),
+            isEditableUrl = true,
+        )
+        service.updateCloudApi(-1, configured)
+
+        val deadline = System.currentTimeMillis() + 5_000
+        while (witnesses.hosts.isEmpty() && System.currentTimeMillis() < deadline) Thread.sleep(10)
+
+        assertEquals(
+            "saving a provider with a URL of the user's own must fetch its models — this is the " +
+                "trigger that replaces the startup fetch",
+            listOf("192.0.2.50"),
+            witnesses.hosts,
         )
     }
 

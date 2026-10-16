@@ -27,15 +27,21 @@ anywhere. The lesson generalises past this call: §5's rule is not enforced by t
 dropped features, so any future audit should be a grep for hardcoded URLs rather than a reading of
 that list.
 
-**There is a second startup call of the same class, and it is left in place pending a ruling.**
+**There is a second startup call of the same class, and it was fixed the same day.**
 `fetchCloudModels` is invoked from the `loadSettings()` tail for every cloud provider with a key or
 with `icon == "C"`/"CL", and `DEFAULT_CLOUD_APIS` seeds an `"OpenAI-Compatible"` entry that has an
 empty key and `icon == "C"`. So `fetchCloudModels`'s guard lets it through, and from the **second**
 launch onward the app calls `http://0.0.0.0:11434/v1/models` — Ollama's port on loopback. Not an
 external host, and the entry is in the user's own settings after the first run, so it is closer to
 §5's line than `openrouter.ai` was; but it is still a call the user did not make, to an address the
-*app* chose. Left for the user because there is no existing user-initiated trigger to move it to,
-which is what made the pricing fix a one-liner. → AGENTS.md §5
+*app* chose. Fixed by replacing the guard on the provider's *kind* with a guard on the user's intent — a key, or a
+base URL differing from the seeded template — and by making `updateCloudApi`, the save path that did
+not, reach `fetchCloudModels` like its two siblings. The triggers needed no invention: the connection
+test already called it, and saving a provider already called it on the custom-list paths. Rejected:
+treating loopback as harmless, because a rule with a carve-out stops being greppable and a seeded
+`0.0.0.0` means the host is whatever answers there on the installed machine.
+`FreshStartNetworkTest` now runs launch → save → launch, since the bug only exists on the second.
+→ AGENTS.md §5, PLAN.md §5
 
 **The feature stays; its trigger moved.** `SettingsScreens` already had a manual "sync prices"
 button calling `syncOpenRouterPricing(force = true)`, which is where a fetch the user asked for
