@@ -37,6 +37,7 @@ class LinuxAppEnv(
     override val scheduler: Scheduler = SpontaneousTimer(logger),
 ) : AppEnv {
 
+    override val homeDir: Path get() = paths.homeDir
     override val configDir: Path get() = paths.configDir
     override val dataDir: Path get() = paths.dataDir
     override val stateDir: Path get() = paths.stateDir

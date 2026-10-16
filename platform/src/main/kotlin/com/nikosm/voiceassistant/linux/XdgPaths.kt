@@ -25,6 +25,14 @@ import java.nio.file.Path
  * writes the string "celeste-linux" next to a path.
  */
 class XdgPaths(
+    /**
+     * The user's home directory — the one path here that is not a XDG variable at all, and the only
+     * reason this class keeps it is `:core`'s need to *name* `~/.ssh` as always-excluded (PLAN.md
+     * §10/M8) without resolving `$HOME` for itself: the rule is that `:core` receives paths from
+     * `AppEnv`, and a rule with an exception stops being greppable. Nothing here hangs a directory
+     * off it; the XDG variables above already carry their own defaults from it.
+     */
+    val homeDir: Path,
     val configHome: Path,
     val dataHome: Path,
     val stateHome: Path,
@@ -104,6 +112,7 @@ class XdgPaths(
             cacheHome = base(env, "XDG_CACHE_HOME", home.resolve(".cache")),
             picturesHome = base(env, "XDG_PICTURES_DIR", home.resolve("Pictures")),
             desktopHome = base(env, "XDG_DESKTOP_DIR", home.resolve("Desktop")),
+            homeDir = home,
         )
 
         private fun base(env: (String) -> String?, name: String, fallback: Path): Path {

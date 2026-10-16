@@ -35,6 +35,20 @@ class XdgPathsTest {
     }
 
     @Test
+    fun `home is the home it was given, and no environment variable can move it`() {
+        // The one path here with no XDG variable behind it — `$HOME` is not `$XDG_*`. It exists so
+        // `:core` can name `~/.ssh` as always-excluded for filesystem tools without resolving
+        // `$HOME` for itself (AGENTS.md §4), which is why the second assertion is the one that
+        // matters: a `HOME` in the environment is not consulted, because consulting it would be
+        // `:core`'s rule broken one layer down where nobody would look for it.
+        assertEquals(home, XdgPaths.resolve(env(), home).homeDir)
+        assertEquals(
+            home,
+            XdgPaths.resolve(env("HOME" to temp.resolve("elsewhere").toString()), home).homeDir,
+        )
+    }
+
+    @Test
     fun `the pictures folder, set or unset, keeps upstream's VoiceAssistant name`() {
         // XDG_PICTURES_DIR is a *user* dir rather than an XDG base dir, so it is the one path here
         // with no home-then-app structure above it — and the app directory under it is upstream's

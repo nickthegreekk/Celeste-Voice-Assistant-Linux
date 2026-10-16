@@ -44,6 +44,14 @@ import java.nio.file.Path
  */
 interface AppEnv {
 
+    /**
+     * The user's home directory. Nothing writes to it directly; it is here so `:core` can *name* the
+     * paths that are always excluded from filesystem tools — `~/.ssh` above all (PLAN.md §10/M8) —
+     * without resolving `$HOME` for itself (AGENTS.md §4). The rule that `:core` receives every path
+     * from `AppEnv` is worth more than the one field it costs.
+     */
+    val homeDir: Path
+
     /** Settings, personas, servers, skills, image-generation entries. */
     val configDir: Path
 

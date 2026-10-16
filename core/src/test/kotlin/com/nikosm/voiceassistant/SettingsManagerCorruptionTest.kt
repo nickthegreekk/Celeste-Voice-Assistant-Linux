@@ -78,6 +78,9 @@ class SettingsManagerCorruptionTest {
     // No Desktop in a test: `null` is not possible on the interface, so this points at a directory
     // that does not exist — which is exactly the case the writer has to skip (it never creates it).
     override val desktopDir: Path get() = cacheDir.resolve("no-such-desktop")
+    // A home that does not exist, like the Desktop above: nothing in these tests reaches into it,
+    // and the workspace rules that will are tested against real temp directories of their own.
+    override val homeDir: Path get() = cacheDir.resolve("home")
         override val debugLogging: Boolean get() = false
         override val logger: AppLogger get() = StderrLogger
         override val notifier: Notifier get() = throw UnsupportedOperationException("no settings test posts a notification")
