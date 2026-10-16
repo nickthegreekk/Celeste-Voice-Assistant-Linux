@@ -125,6 +125,14 @@ Once M0 has created the build:
 
 - Keep exactly one Gradle daemon; do not run builds in parallel or in the background. This machine
   also hosts a GPU service, and memory is shared with it.
+- **A running application and a build do not share the machine (2026-10-16).** `:desktop:run` loads
+  `:core` from its jar, and a build that rewrites that jar under a running application breaks the
+  application at the *next* class it has not loaded yet — measured: a launch at 18:51:59, `:core:jar`
+  rewritten at 18:55:26 by a verification build, and a click at 18:56 that opened an image and died
+  with `NoClassDefFoundError: FullScreenImageViewerKt` inside a composition. It reads like a defect
+  in the code that never ran, which is what makes it expensive: the first diagnosis blamed the image
+  viewer. So check before building — `pgrep -f voiceassistant` — and if the application is up, ask
+  before rebuilding. After any build, a running application must be restarted rather than trusted.
 - A build that leaves a Gradle daemon, a JDK, a database or an audio subprocess running after the
   session is a bug. Stop what you start.
 - Tests must not depend on a real microphone, a real PipeWire server, a real Voice Gateway or
