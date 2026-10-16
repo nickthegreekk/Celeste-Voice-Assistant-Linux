@@ -126,6 +126,11 @@ Once M0 has created the build:
   session is a bug. Stop what you start.
 - Tests must not depend on a real microphone, a real PipeWire server, a real Voice Gateway or
   network access. Use the fakes described in PLAN.md §11.
+- **Every test that builds a service shuts it down in teardown (2026-10-15).** They did not, so the state
+  collector and the periodic health check outlived each `runTest` and resumed on a torn-down dispatcher. Kotlin
+  reports that as an uncaught exception in *whichever test runs next*: four passed, the fifth failed with
+  `UncaughtExceptionsBeforeTest` and no clue where it came from. Register what you build and tear it down — a
+  leaked coroutine is never its own problem.
 
 ## 7. Commits
 

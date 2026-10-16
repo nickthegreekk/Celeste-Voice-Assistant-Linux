@@ -582,6 +582,14 @@ hands-free loop, push-to-talk hotkey, source/sink selection, mute, cancel-playba
 *Accept:* ten consecutive hands-free exchanges with headphones, no manual input, no dropped
 utterance, and the latency budget in §6 met.
 
+[Pre-flight, 2026-10-15: buildhost runs PipeWire 1.6.9 with pipewire-pulse and WirePlumber, and `pw-record`, `pw-play`,
+`pw-cat`, `wpctl`, `parec`, `paplay`, `pactl`, `arecord` and `aplay` are all present — so both the primary path and the
+fallbacks can be built and hand-tested on the acceptance machine. What is missing is a capture device: the only input is
+the motherboard's analog ALCS1200A (line and mic jacks) and no USB audio device is attached, while playback is HDMI or
+analog. D8 makes headphones a hardware requirement for this milestone, so a headset — wired or Bluetooth, and Blueman is
+running — has to be attached before the ten hands-free exchanges can be judged. The implementations are unaffected: they
+can be written and exercised without one.]
+
 **M3 — Images and files (3–4 d).** ComfyUI + A1111, workflow library and per-character binding,
 image viewer, attachments, backup export/import round trip.
 
