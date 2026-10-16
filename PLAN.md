@@ -1281,8 +1281,17 @@ apply blocks and the cloud builders in view at once, which is why they were not 
    fails on `requests=1` (and the transcript carries `Error: JSONObject["content"] is not a string` — the tool-call body
    reaching `parseCloudResponse` once the loop is out of the way); with the sentinel restored it fails on
    `expected:<THINKING> but was:<IDLE>`; with that assertion parked, it fails on the empty bubble itself.
-2. **A tool round still executes after Stop**, a persona switch or a newer message: the currency and persona guards sit
-   on the content path, after the tool-call capture and its `continue`.
+2. ~~**A tool round still executes after Stop**, a persona switch or a newer message: the currency and persona guards
+   sit on the content path, after the tool-call capture and its `continue`.~~ **Fixed 2026-10-16**, in both loops, by
+   one shared `fsRoundMayRun` asked immediately before the round is carried out. **The window is real and it is not
+   exotic**: Stop cancels the in-flight call, so a turn is safe while its request is out — but between the last byte of
+   a response and the executor's first instruction there is nothing left to cancel, and a tool round is the only thing
+   in this application that *acts* on what arrived in that window. A `write_file` that arrived just after Stop was
+   written. The check went in the wrappers rather than in `performDirectOllamaChat`'s stream loop, deliberately: the
+   per-chunk guard there exists to abort a stream, and aborting one whose answer is already discarded saves bytes
+   rather than preventing anything — one place deciding "may this round run" is worth more than two deciding when to
+   stop reading. `FsToolTurnTest` covers both dialects; **verified by making the guard return `true`**, which fails
+   both with `a superseded turn must not ask again: [2 requests]`.
 3. **Read safety**: `Files.readAllBytes` before the cap (a 20 GB file is an OOM) and no `isRegularFile` check, so a FIFO
    in the workspace blocks the turn forever. Then the caps themselves: `spent` resets per round (the executor is built
    per round), the counts are UTF-16 units rather than bytes, and accumulated tool output is never counted against
@@ -1360,6 +1369,18 @@ earlier with it. It also belongs after the voice loop is trusted rather than bef
 
 **Total: 33–50 focused days** (about 4–8 weeks full time, 3–5 months at evenings and weekends).
 A first usable milestone is **M2**: roughly **15–23 days**.
+
+---
+
+6. The Files settings screen crashes the application on composition. (2026-10-16, found by running the installed package — not by a test, and not by review.) celeste-linux at 23:16, dead on the AWT event thread: IllegalStateException: Vertically scrollable component was measured with an infinity maximum height constraints. The frames name the shape rather than the file — ScrollNode → FillNode → LazyListMeasuredItemProvider → LazyListMeasureKt → Column → AnimatedEnterExitMeasurePolicy → AnimatedContent: a verticalScroll container composed inside an item of the settings LazyColumn, under the category routing's AnimatedContent. A lazy list measures its items with infinite max height in the scroll direction and verticalScroll refuses that; it throws at measure time, so the window dies instead of reporting anything. Look in FsToolScreens.kt first, then the Files branch of SettingsScreens.kt — grep verticalScroll/rememberScrollState and ask whether its holder sits inside item { }. Fix by letting the outer LazyColumn scroll (content into its own items, which is the exception's own advice), or bounding the inner block's height, or hoisting the block out of the list.
+
+Open, and not yet a finding — the same run created no file. Keep it separate until the crash is gone. If the write confirmation is hosted inside this hierarchy, the gate is never answered, times out to deny after its 120 s, and says nothing — item 4's notifier branch is dead code and a timeout is audited as denied. Otherwise: ~/.local/state/celeste-linux/files.log (no record = the tool never ran; denied = refused at the gate), which route the persona uses (a cloud persona cannot reach a tool at all until item 1 lands, and voice/room turns offer none by design), and whether the workspace resolved to null — a non-absolute or renamed-persona key fails silently.
+
+This is the third measure-time crash in this milestone (the window icon, then this), and it is the bill for the two screens having no test between them. A Compose test that composes the Files screen is the fix for that gap, not just for this exception.
+
+---
+
+Memory line to add under the M8 entry: PLAN.md §10 item 6 — the Files settings screen throws at measure time (verticalScroll inside the settings LazyColumn); item 4's dead notifier is why a denied write looks like nothing happened.
 
 ## 11. Test strategy
 

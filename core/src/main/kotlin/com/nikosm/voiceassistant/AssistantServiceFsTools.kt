@@ -137,6 +137,11 @@ internal suspend fun AssistantService.performOllamaChatWithTools(
         val body = JSONObject().put("message", message)
         val calls = fsToolCallsFrom(FsToolProvider.OLLAMA, body) ?: return withToolSummary(outcome, callsMade)
 
+        // The turn may already be over by the time its answer arrived — Stop, a persona switch, a
+        // newer message — and a call that arrived after that must not be carried out. Checked before
+        // the refusal, so a stale turn is not told off for something no one is waiting for.
+        if (!fsRoundMayRun(turnContext, persona.name, generation)) return outcome
+
         fsToolRoundRefusal(rounds, callsMade, calls.size)?.let { refusal ->
             notifyUser(refusal)
             return withToolSummary(outcome, callsMade)
@@ -216,6 +221,12 @@ internal suspend fun AssistantService.performCloudChatWithTools(
                 val toolProvider = provider ?: return@launch
                 val body = captured ?: return@launch
                 val calls = fsToolCallsFrom(toolProvider, body) ?: return@launch
+                // The same guard as the Ollama loop's, at the same point and for the same window:
+                // a call that arrived after the user moved on is not carried out. It matters more
+                // here than there, because the round that captured it returned *before* the currency
+                // checks that follow the parse — this is the only thing standing between a superseded
+                // turn and a write.
+                if (!fsRoundMayRun(turnContext, persona.name, generation)) return@launch
                 fsToolRoundRefusal(rounds, callsMade, calls.size)?.let { refusal ->
                     notifyUser(refusal)
                     return@launch
@@ -277,6 +288,24 @@ private fun withToolSummary(
     } else {
         outcome
     }
+
+/**
+ * Whether a round's calls may still be carried out: the turn that asked for them is still the newest,
+ * and — in single chat — still the active persona's. **The content path's own guards, asked where the
+ * work happens.**
+ *
+ * They were missing here, and the window they close is not exotic: it is the one the content path's
+ * guards were written for. Stop cancels the *call*, so a turn is safe while its request is in flight
+ * — but between the last byte of a response and the executor's first instruction there is no call
+ * left to cancel, and a tool round is the only thing in this application that acts on what arrived
+ * in that window. Without the check, a model's `write_file` that arrived a moment after the user
+ * pressed Stop was carried out anyway, and a fresh request went out to answer it.
+ *
+ * The two dialects ask it differently for the same reason the apply blocks do: a room turn's speaker
+ * is never the active persona, so its round generation is the whole question.
+ */
+internal fun AssistantService.fsRoundMayRun(turnContext: TurnContext, personaName: String, generation: Long): Boolean =
+    isChatRequestCurrent(generation) && (!turnContext.isSingleChat || isChatContextCurrent(generation, personaName))
 
 /**
  * Why this round may not run, or null when it may. **Pure, and tested**, because it is the only

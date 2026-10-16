@@ -13,6 +13,34 @@ not stop for it. Stop only for the four cases listed in AGENTS.md §10.
 
 ---
 
+## 2026-10-16 — The currency guard belongs where the work happens, not where the text arrives
+
+M8's open list, item 2: a tool round was carried out after Stop, a persona switch or a newer message, because the
+currency and persona guards sat on the *content* path — after the tool-call capture and its `continue` — and a
+tool-call round never reaches them.
+
+**Decided: one shared `fsRoundMayRun(turnContext, personaName, generation)` asked immediately before a round's calls
+are carried out, in both loop wrappers.** It is the content path's own rule, spelled once
+(`isChatRequestCurrent && (!isSingleChat || isChatContextCurrent)`) so the two cannot drift.
+
+**The window is worth naming, because "after Stop" sounds like a race and is not one.** Stop cancels the in-flight
+`Call`, so a turn is safe while its request is out. But the response can arrive *before* the tap and be read *after*
+it — between the last byte and the executor's first instruction there is no call left to cancel, and a tool round is
+the only thing in this application that acts on what arrived in that window. For `read_file` that is privacy; for
+`write_file` it is a file the user stopped.
+
+Rejected: **putting the check in `performDirectOllamaChat`'s stream loop, beside the per-chunk guard it already
+has.** That guard exists to abort a stream mid-flight, and its exception carries the partial that the caller persists
+as real history — aborting a stream whose answer is already discarded buys nothing and adds a second place where
+"stop reading" is decided. One place deciding *may this round run* is worth more than two deciding when to stop
+reading. (The per-chunk guards are unchanged, and still do their own job on the content path.)
+
+Rejected too: **re-checking only in the loop's own exit conditions.** The execution is the thing to prevent, not the
+next request — a superseded round that writes a file has already done the damage by the time anyone notices no
+third request went out.
+
+→ PLAN.md §10 (M8), `AssistantServiceFsTools.kt` (`fsRoundMayRun`), `FsToolTurnTest.kt`
+
 ## 2026-10-16 — A tool turn is the loop, not the round; and an IDLE between rounds is a microphone
 
 M8's review left one defect with two faces at the top of its open list: the cloud tool loop was unreachable (its gate

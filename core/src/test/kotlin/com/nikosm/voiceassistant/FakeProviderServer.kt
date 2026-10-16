@@ -52,6 +52,7 @@ internal class FakeProviderServer : AutoCloseable {
      */
     private val holds = Collections.synchronizedMap(mutableMapOf<Int, java.util.concurrent.CountDownLatch>())
     private val posts = java.util.concurrent.atomic.AtomicInteger(0)
+    private val hooks = Collections.synchronizedMap(mutableMapOf<Int, () -> Unit>())
 
     val baseUrl: String get() = "http://127.0.0.1:${server.address.port}/v1"
 
@@ -71,6 +72,9 @@ internal class FakeProviderServer : AutoCloseable {
 
     fun reply(body: String) = reply(200, body)
 
+    /** A streamed reply: newline-separated JSON objects, which is what the direct-Ollama path reads. */
+    fun replyNdjson(vararg lines: String) = reply(200, lines.joinToString("\n", postfix = "\n"))
+
     /** Holds conversation request [number] (the first POST is 1) until [releaseRequest] is called. */
     fun holdRequest(number: Int) {
         holds[number] = java.util.concurrent.CountDownLatch(1)
@@ -80,10 +84,26 @@ internal class FakeProviderServer : AutoCloseable {
         holds.remove(number)?.countDown()
     }
 
+    /**
+     * Runs [action] on the server thread as conversation request [number] arrives, **before it is
+     * answered**.
+     *
+     * It exists for the one thing a test cannot otherwise arrange: something happening in the app
+     * *while a request is in flight*. A tap on Stop, a newer message, a persona switch — all of them
+     * land between the request leaving and its answer arriving, and the code that has to survive
+     * that is the code no assertion can reach from outside.
+     */
+    fun onRequest(number: Int, action: () -> Unit) {
+        hooks[number] = action
+    }
+
     private fun handle(exchange: HttpExchange) {
         val body = exchange.requestBody.use { it.readBytes().toString(Charsets.UTF_8) }
         requests.add(Recorded(exchange.requestMethod, exchange.requestURI.path, body))
         val number = if (exchange.requestMethod == "POST") posts.incrementAndGet() else 0
+        // Before the answer is written, and after the request is recorded: the window a test cannot
+        // otherwise reach into.
+        hooks.remove(number)?.invoke()
         // Held after recording, so the test sees the request while its answer is still outstanding.
         // The wait is bounded: a test that forgets to release gets a 500 it can read rather than a
         // fixture that hangs the build.
@@ -139,3 +159,22 @@ internal fun openAiToolCall(name: String, arguments: String, id: String = "call_
 /** The messages array of a recorded request, for asserting on what the model was actually sent. */
 internal fun FakeProviderServer.Recorded.messages(): JSONArray =
     JSONObject(body).getJSONArray("messages")
+
+// ------------------------------------------------------------------ the Ollama dialect, as `/api/chat` streams it
+
+/** One line of the NDJSON stream. [toolCalls] takes objects, as Ollama sends them — not strings. */
+internal fun ollamaChunk(content: String = "", toolCalls: JSONArray? = null): String {
+    val message = JSONObject().put("role", "assistant").put("content", content)
+    if (toolCalls != null) message.put("tool_calls", toolCalls)
+    return JSONObject().put("model", "fake-model").put("message", message).put("done", false).toString()
+}
+
+/** The last line of a stream. The reader breaks on it, so every scripted stream needs one. */
+internal fun ollamaDone(): String =
+    JSONObject().put("model", "fake-model")
+        .put("message", JSONObject().put("role", "assistant").put("content", ""))
+        .put("done", true)
+        .toString()
+
+internal fun ollamaToolCall(name: String, arguments: String): JSONObject =
+    JSONObject().put("function", JSONObject().put("name", name).put("arguments", JSONObject(arguments)))
