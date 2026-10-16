@@ -93,6 +93,12 @@ The fourteen platform seams are listed in [PLAN.md](PLAN.md) §5. Rules:
   Fabricate fixtures.
 - No telemetry. No analytics. No update check (PLAN.md §8 marks it dropped). No network call that
   the user did not configure, except the build's own dependency resolution.
+- **That last rule is enforced by auditing, not by memory (2026-10-15).** It was being read as a list of dropped
+  features, until a run made a real request to `openrouter.ai` on a fresh install, and a second call of the same
+  shape was found behind a default-seeded provider entry. So: grep every hardcoded URL and every HTTP call site in
+  `:core` and `:platform` before a milestone closes, and ask of each whether it can fire *without* a user action.
+  `FreshStartNetworkTest` witnesses JVM-wide requests for a first run — extend it to a **second** run, because a
+  seeded default entry only exists then.
 
 ## 6. Build and test
 

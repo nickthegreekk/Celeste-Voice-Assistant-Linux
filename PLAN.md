@@ -261,6 +261,17 @@ in part (`ModelScreens.kt` 467, `RoomScreens.kt` 996), say so in §7's row and i
 is a state worth stating rather than implying. Each marker names the milestone that restores it, and §10's M3-M5 lines
 gain those feature names in the same commit, so the receiving milestone reads its own to-do list.
 
+**Nothing is contacted at startup (2026-10-15).** Two instances of one shape, both found by running the app rather
+than reading it. `syncOpenRouterPricing()` fired from `start()` because a fresh install's stored timestamp is zero, so
+the daily throttle never held, and it made a real request to `openrouter.ai`. And `loadSettings()` fetches models for
+every provider with a key *or* `icon == "C"`, which a default-seeded "OpenAI-Compatible" entry satisfies with an empty
+key — so from the second launch the app calls `http://0.0.0.0:11434/v1/models`. The first moved to the manual trigger
+the Settings screen already had. The second takes the same fix and states the rule: **an automatic model fetch requires
+a provider the user has configured** — a key, or a base URL that differs from the seeded default — and the settings
+screen's existing connection test is the user-initiated trigger. Rejected: carving out loopback as harmless, because a
+rule with an exception stops being checkable by a grep, and a seeded `0.0.0.0` means the host is whatever happens to
+answer there on the machine where the app is installed.
+
 ### 5a. Seam 8 is not in v1 (2026-10-15)
 
 Credentials — provider API keys, server passwords and gateway credentials — live in the settings
@@ -603,7 +614,8 @@ full-screen image viewer. **Share:** the message menu's Share entry, which §7 s
 *Accept:* a spoken translation round trip; RAG and web search answers.
 
 **M6 — Packaging (3–5 d).** `PKGBUILD`, `debian/`, jpackage app image with a bundled runtime,
-desktop entries, icons, user unit, README install section.
+desktop entries, icons, user unit, README install section, and `--enable-native-access=ALL-UNNAMED` in jpackage's `javaOptions` — JDK 25 warns that
+Skiko loads its native library without declaring native access.
 *Accept:* install, run and uninstall in a clean Arch container and in a Debian 13 container.
 
 **M7 — Hardening (5–8 d).** Remaining test porting, desktop UI tests, a fake gateway for the voice
