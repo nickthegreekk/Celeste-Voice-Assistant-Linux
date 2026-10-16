@@ -701,6 +701,20 @@ Also still unlooked-at: **the device pickers' rendering** (Settings → Audio, a
 row). The voice run above used whatever the machine's default devices are, which is a different question from the
 pickers drawing and writing correctly — those were compiled and their logic is tested, but no one has seen them.]
 
+[Instrument landed, 2026-10-16 — the second gap above is now measurable, which is the whole of what changed: the
+numbers still come from a run, so this is progress and not a result. `AudioLatency.kt` marks §6's two spans in
+`VADAudioRecorder` — from before `capture.open` to the first full 512-frame chunk, and from the VAD's verdict to
+`WavFile.write` returning — and logs one line per span, at INFO because `StderrLogger` is `java.util.logging` at its
+default level where DEBUG is FINE and never printed. Each line carries the budget it is judged against, so the run
+reads as "N ms over/under the M ms budget" rather than as a number to compare by hand, and `grep AudioLatency` is the
+whole of reading it. The capture line is split into `open` and first `read`, and there is a reason to expect the first
+to dominate: `ProcessAudioCapture.open` waits out a 400 ms process-liveness grace before it returns, deliberately, so
+that a `pw-record` which cannot open the device is caught where the answer is "this microphone does not work" and the
+fallback to the first enumerated input can still run. Whether that grace has to give way for the 50 ms now rests on a
+measurement rather than on an argument. `AudioLatencyTest` pins the arithmetic and the wording against a fake clock;
+the loop's own five call sites are exercised by the acceptance run — `VADAudioRecorder` cannot be constructed in a
+test until §11's fake detector arrives with M7.]
+
 
 **M2 — Voice (3–6 d, revised: platform work only).** No `:core` porting here — the audio engine and its callers landed in M1. Implement seams 1/2/3/6 for real, replacing the `Stub*` classes (`grep -rn 'Stub' platform/src/main` is the list), then add capture and VAD (`VADAudioRecorder.kt`, `VADDetector.kt`), `/transcribe`, the three TTS routes, the hands-free loop, push-to-talk, source/sink selection, mute and cancel-playback.
 hands-free loop, push-to-talk hotkey, source/sink selection, mute, cancel-playback.

@@ -13,6 +13,43 @@ not stop for it. Stop only for the four cases listed in AGENTS.md §10.
 
 ---
 
+## 2026-10-16 — §6's latency budget gets an instrument, and the marks are the definition
+
+§6 states two spans as M2's to verify and nothing measured either: "capture start to first chunk < 50 ms; utterance
+end to WAV on disk < 100 ms". The plan's own last note asks for a measurement or an honest "unmeasured", so the
+instrument lands first and the numbers follow from a run.
+
+**Where the marks are is the decision, because a budget's span is only as meaningful as its endpoints.** "Capture
+start" is the instant before `capture.open` — the subprocess spawn is inside that call — and not the moment `start()`
+was called: the dispatch hop onto `Dispatchers.IO` is real latency, but it is not the capture path, and a budget that
+absorbed it would blame `pw-record` for the scheduler. "First chunk" is the first *full* 512-frame chunk in hand,
+marked before the amplitude scan and the VAD inference that follow it in the loop, because those are downstream work.
+"Utterance end" is the VAD's verdict that speech has stopped, and "on disk" is `WavFile.write` returning — it closes
+its stream on every path, so returning is whole. The rest of the round trip is §6's own exclusion ("dominated by the
+gateway and the model") and stays unmeasured.
+
+**The comparison lives in the code rather than in the reader's head.** Each line logs "N ms over/under the M ms
+budget", so the acceptance run is self-judging and whoever reads the log later needs no copy of §6. §6's bounds are
+strict ("< 50 ms"), so a span exactly at its budget is reported as over — by zero. Rejected: treating equality as a
+pass, which is a rule the plan does not state and would read as a millisecond of headroom that is not there.
+
+**One line per span, at INFO, always on.** `StderrLogger` is `java.util.logging` at its default level, where DEBUG is
+FINE and never printed — "VAD monitoring started" is DEBUG and invisible today — so a measurement logged at DEBUG
+would be missing in exactly the run that needs it. Rejected: a settings toggle, which would make the acceptance
+evidence depend on a checkbox. A handful of lines per session is not a stream.
+
+**The capture span is reported split — `open` and first `read` — because the two misses have different repairs**, and
+there is a specific reason to expect the first: `ProcessAudioCapture.open` waits out a 400 ms liveness grace before it
+returns, deliberately, so a recorder that cannot open the device is caught before the VAD loop ever sees a dead
+stream, and the fallback to the first enumerated input depends on that. Whether the grace gives way for the 50 ms is
+a decision for after the run, not before it; the instrument exists so that decision gets made on a number.
+
+**Extracted as `AudioLatency` rather than two `nanoTime()` pairs in the loop**, for the same reason
+`TtsChunkSequencer` was extracted out of the service: `VADAudioRecorder` cannot be constructed in a test, because its
+detector is a concrete ONNX wrapper. The arithmetic and the wording are pinned by `AudioLatencyTest` against a fake
+clock, and the loop's five call sites are wiring the acceptance run exercises. PLAN.md §11's fake detector, in M7, is
+what will make the loop itself testable. → PLAN.md §6, §10
+
 ## 2026-10-16 — The startup pricing sync is deleted; a network call the user did not configure
 
 `syncOpenRouterPricing()` fired from `AssistantService.start()` on every launch, throttled to once a

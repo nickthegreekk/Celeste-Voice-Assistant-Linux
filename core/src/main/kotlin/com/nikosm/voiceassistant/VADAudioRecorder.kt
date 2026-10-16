@@ -7,6 +7,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.nio.file.Files
 import java.nio.file.Path
 import kotlin.concurrent.Volatile
 
@@ -36,6 +37,10 @@ import kotlin.concurrent.Volatile
  *    function here. Push-to-talk writes the same container from the same seam, and one layout with
  *    two writers is one layout too many.
  *
+ * The loop also marks PLAN.md §6's two budget spans through [AudioLatency]. That is not a fourth
+ * change: no branch, threshold or constant below is affected by the marks, and the class exists so
+ * the numbers an acceptance run is judged on are measured rather than remembered.
+ *
  * The two locks are upstream's, with their reasoning: [dataLock] guards the sample buffers and is
  * never held across file I/O or a suspension point — the comment below explains the
  * ConcurrentModificationException that made that rule — and the detector keeps its own lock so that
@@ -63,6 +68,16 @@ class VADAudioRecorder(
     private val onAmplitudeUpdate: (Float) -> Unit = {}
 ) {
     private var job: Job? = null
+
+    /**
+     * PLAN.md §6's two budget spans, measured where the loop can mark them.
+     *
+     * Built rather than injected: the loop that drives it cannot be constructed in a test either
+     * way (see [AudioLatency]'s own note), so an injection point here would be a seam with one
+     * implementation and no second caller — while the arithmetic the numbers come from is already
+     * pinned by `AudioLatencyTest` against a fake clock.
+     */
+    private val latency = AudioLatency()
 
     private val sampleRate = 16000
     private val chunkSize = 512
@@ -118,10 +133,14 @@ class VADAudioRecorder(
         isMonitoring = true
         isPaused = false
         job = scope.launch(Dispatchers.IO) {
+            // §6's first span starts here: this call is where the capture process is spawned, and
+            // the next chunk to come out of it is what the 50 ms budget is about.
+            latency.captureStarted()
             // Null means no microphone could be opened — no sound server, no input device, or a
             // helper binary that is not installed. Upstream has the same shape for the same
             // reason: it logs once and stops monitoring rather than retrying into a hot loop.
             val stream = capture.open(sampleRate, chunkSize, inputDevice)
+            latency.captureOpened()
             if (stream == null) {
                 isMonitoring = false
                 LogSink.logger.e(
@@ -171,6 +190,11 @@ class VADAudioRecorder(
                         LogSink.logger.w("VADAudioRecorder", "Unexpected read size: $read (expected $chunkSize)")
                     }
                     if (read == chunkSize) {
+                        // §6's first span ends the moment the samples are in hand — before the
+                        // amplitude scan and the inference below, which are downstream work rather
+                        // than capture latency.
+                        latency.firstChunkArrived()
+
                         // Max absolute amplitude for the visualizer
                         var maxAmp = 0
                         for (i in 0 until chunkSize) {
@@ -208,7 +232,14 @@ class VADAudioRecorder(
                             synchronized(dataLock) { recordedData.add(buffer.copyOf()) }
                             if (silenceFrames >= silenceThreshold) {
                                 isRecording = false
+                                // §6's second span: this line is the verdict that the utterance
+                                // has ended, and `saveToWav` returning is it being on disk.
+                                latency.utteranceEnded()
                                 val file = saveToWav()
+                                // The size is what tells a whole utterance from a clipped one in
+                                // the log. Unreadable is not worth failing an utterance over, so
+                                // it degrades to null rather than throwing out of the loop.
+                                latency.wavWritten(runCatching { Files.size(file) }.getOrNull())
                                 isPaused = true // Pause until resumed by service (e.g. after response)
                                 withContext(Dispatchers.Main) { onSpeechEnd(file) }
                                 synchronized(dataLock) {
