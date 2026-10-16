@@ -1100,8 +1100,19 @@ drop** rather than a build, and the reasoning is worth its line: this platform h
 the *inbound* direction with the flags M3 built, Copy already *is* the clipboard, and handing a file to another application is
 `xdg-open` — which §2 and `BEYOND-THE-PORT` keep outside M0–M7.
 
-So the census reads **M3: 0, M4: 0, M5: 2** — the last two being the skills screens, which is M5's own work rather than a
-leftover.
+**M5 closed the same night, and it closed the census.** `SkillScreens.kt` — `SkillSettings`, the skill editor and
+`PersonaSkillSection` — came across whole and compiled **unchanged**, the fourth file whose §7 "Compose only" verdict turned out to be
+literally true: no `android.*` import, no `Context`, `Toast`, `Uri` or `BackHandler`. Its two tests (`SkillEditorUiTest`,
+`SkillMatchingTest`) arrived byte-identical on a new `m5` group, 69 cases between them, and its two call sites went in from upstream's
+own text. So `grep -rn 'DEFERRED TO M[0-9]' core/ returns nothing`: **every deferred feature in the port is now built**, and the three
+milestones that were carrying markers — M3, M4, M5 — read 0, 0, 0.
+
+What M5 still owes is not code but a run: its acceptance is "a spoken translation round trip; RAG and web search answers", and the
+translator, RAG and web search logic all arrived in M1's COPY files. It is the same shape M4's acceptance had — the substance is
+here, and one session with the app settles it.
+
+That leaves **M6 (packaging) and M7 (hardening)**, which are the two milestones that are estimates rather than measurements, and
+therefore where the remaining percentage is softest.
 entries, the rooms screens, and the spontaneous controls in the persona editor.
 
 *Accept:* a spontaneous message arrives as a desktop notification while only the tray process runs;

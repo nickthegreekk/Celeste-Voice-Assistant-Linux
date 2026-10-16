@@ -772,12 +772,15 @@ fun SettingsDialog(
                                     personas = personas,
                                     currentThemeColor = personaColor
                                 )
-                                // DEFERRED TO M5: `"Skills" -> SkillSettings(service, skills,
-                                // personas, currentThemeColor)`. The category is still listed and
-                                // still routes here; this is the screen body, which is
-                                // SkillScreens.kt — the skill library and its editor — and M5 owns
-                                // it. Personas were passed so each row could say who would lose a
-                                // shared skill on delete; that reasoning travels with the screen.
+                                // One `when` branch, as the M1 marker said, and the reasoning it
+                                // recorded travels with the arguments: personas are passed so each
+                                // row can say who would lose a shared skill on delete.
+                                "Skills" -> SkillSettings(
+                                    service = svc,
+                                    skills = skills,
+                                    personas = personas,
+                                    currentThemeColor = personaColor
+                                )
                             }
                         }
                     }

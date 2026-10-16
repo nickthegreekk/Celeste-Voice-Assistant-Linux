@@ -118,6 +118,9 @@ TEST_SOURCES=(
   # fields — so they arrive byte-identical like the rest of the m4 group.
   "m4|RoomModelTest.kt"
   "m4|RoomUiTest.kt"
+  # M5's group: the skills screens' two tests, both importing only Color for the Persona fields.
+  "m5|SkillEditorUiTest.kt"
+  "m5|SkillMatchingTest.kt"
 )
 
 
@@ -154,6 +157,8 @@ PORT_SOURCES=(
   # and 183 lines is past the size where retyping is cheaper than reviewing a diff. Seeded, then
   # adapted, exactly like the M1 screens above.
   "FullScreenImageViewer.kt"
+  # M5: the skills screens, whole. ADAPT by verdict and unchanged in fact — it named no Android type.
+  "SkillScreens.kt"
 )
 
 # GROUP|label|source|destination
@@ -172,7 +177,7 @@ case "${1:-}" in
   --check)    MODE="check" ;;
   --list)     MODE="list" ;;
   -h|--help)  sed -n '2,45p' "$0"; exit 0 ;;
-  *)          echo "usage: $0 --group m0|m1|m3|m4 | --seed <name> | --check | --list" >&2; exit 2 ;;
+  *)          echo "usage: $0 --group m0|m1|m3|m4|m5 | --seed <name> | --check | --list" >&2; exit 2 ;;
 esac
 
 if [ -z "$MODE" ]; then
@@ -183,6 +188,7 @@ refusing to copy: a group is required.
   tools/sync-from-android.sh --group m1     the files that need AssistantService.kt first
   tools/sync-from-android.sh --group m3     the files that need M3's screens first
   tools/sync-from-android.sh --group m4     the files that need M4's scheduler first
+  tools/sync-from-android.sh --group m5     the files that need M5's skills screens first
 
 Copying a file whose dependency has not been ported yet leaves :core unable to compile, which is
 exactly what the group split exists to prevent. --check and --list need no group.
@@ -191,7 +197,7 @@ USAGE
 fi
 
 case "$GROUP" in
-  ""|m0|m1|m3|m4) ;;
+  ""|m0|m1|m3|m4|m5) ;;
   *) echo "--group takes m0, m1, m3 or m4, not '$GROUP'" >&2; exit 2 ;;
 esac
 

@@ -1121,14 +1121,20 @@ fun PersonaEditor(
             )
         }
 
-        // DEFERRED TO M5: the Skills section. Upstream draws `SettingsSectionHeader("Skills")`
-        // and a `SettingsSection` wrapping `PersonaSkillSection(enabledSkillIds, onToggle,
-        // service)`, which is SkillScreens.kt — the skill library editor and its own section are
-        // one feature, and M5 owns them — PLAN.md §10's "M5 — ... skills ..."; M1's amendment had
-        // them in M3, corrected 2026-10-16. The toggles it drove are still collected in
-        // `enabledSkillIds` above and still committed below, so a persona's existing skill
-        // attachments survive this editor untouched; only the controls that change them are
-        // absent.
+        // Skills sit directly under the prompt: a skill is extra instruction text bolted to THIS
+        // persona's system prompt for the turns it fires on, so it is prompt configuration and
+        // belongs with the prompt rather than down with the voice or sampling settings. The
+        // toggles collect into `enabledSkillIds`, which was live and committed all through M1 —
+        // so a persona's existing skill attachments survived the editor untouched, and only the
+        // controls that change them were absent.
+        SettingsSectionHeader(title = "Skills", icon = Icons.Default.AutoAwesome)
+        SettingsSection {
+            PersonaSkillSection(
+                enabledSkillIds = enabledSkillIds,
+                onToggle = { skillId, enabled -> setSkillEnabled(skillId, enabled) },
+                service = service
+            )
+        }
 
         SettingsSectionHeader("Spontaneous Messages")
         SettingsSection {
