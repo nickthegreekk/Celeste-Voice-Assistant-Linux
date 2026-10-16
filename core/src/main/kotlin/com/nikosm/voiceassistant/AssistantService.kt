@@ -492,7 +492,23 @@ class AssistantService(
     // follows the sequence only, so a persona switch mid-request still cleans up
     // state without polluting the new persona's history.
     private var chatRequestSeq: Long = 0
-    internal fun nextChatRequestSeq(): Long = ++chatRequestSeq
+
+    /**
+     * Advances the sequence — and **withdraws any write confirmation the superseded turn left open**
+     * (M8).
+     *
+     * A bump *is* the definition of "that turn is over": Stop, a newer message, a room round taking
+     * the floor, a voice turn starting. A question asked by a turn nobody is waiting for any more can
+     * only be answered wrongly — the user would be approving a write for a conversation that has
+     * moved on — so it is denied, and the model is told the write did not happen.
+     *
+     * One place rather than one per caller, deliberately: every path that ends a turn comes through
+     * here, and the alternative was three call sites that a fourth would have forgotten.
+     */
+    internal fun nextChatRequestSeq(): Long {
+        fsWriteGate.denyPending()
+        return ++chatRequestSeq
+    }
     internal fun isChatRequestCurrent(seq: Long): Boolean = seq == chatRequestSeq
     // B4: read-only accessor for staleness guards outside the chat flows (e.g.
     // testGatewayVoice): capture the current generation WITHOUT bumping it, so a

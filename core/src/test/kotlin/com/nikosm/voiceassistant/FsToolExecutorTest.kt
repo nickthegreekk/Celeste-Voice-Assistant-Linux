@@ -36,7 +36,7 @@ class FsToolExecutorTest {
         }
     }
 
-    private fun executor(mode: FsToolMode = FsToolMode.READ_WRITE, approve: suspend (FsWriteRequest) -> Boolean = { true }) =
+    private fun executor(mode: FsToolMode = FsToolMode.READ_WRITE, approve: suspend (FsWriteRequest) -> FsWriteDecision = { FsWriteDecision.USER }) =
         FsToolExecutor(FsWorkspace(root, mode), excluded, "Tester", approve, { audit += it }, now = { 1_760_000_000_000L })
 
     private fun call(name: String, vararg args: Pair<String, Any>) =
@@ -246,7 +246,7 @@ class FsToolExecutorTest {
     @Test
     fun `a write is approved, performed, and recorded with how it was approved`() = runBlocking {
         var asked: FsWriteRequest? = null
-        val result = executor(approve = { asked = it; true }).execute(call(TOOL_WRITE, "path" to "new.txt", "content" to "hello"))
+        val result = executor(approve = { asked = it; FsWriteDecision.USER }).execute(call(TOOL_WRITE, "path" to "new.txt", "content" to "hello"))
 
         assertTrue(result.ok)
         assertEquals("hello", Files.readString(root.resolve("new.txt")))
@@ -260,12 +260,37 @@ class FsToolExecutorTest {
     fun `a denied write changes nothing and tells the model so`() = runBlocking {
         Files.writeString(root.resolve("keep.txt"), "original")
 
-        val result = executor(approve = { false }).execute(call(TOOL_WRITE, "path" to "keep.txt", "content" to "replaced"))
+        val result = executor(approve = { FsWriteDecision.DENIED }).execute(call(TOOL_WRITE, "path" to "keep.txt", "content" to "replaced"))
 
         assertFalse(result.ok)
         assertTrue(result.text.contains("did not approve"))
         assertEquals("original", Files.readString(root.resolve("keep.txt")))
         assertEquals("denied", audit.single().confirmed)
+    }
+
+    @Test
+    fun `a write a trusted root never asks about is recorded as session trust`() = runBlocking {
+        // The other half of "recorded with how it was approved": a write that got through without a
+        // dialog is not a write the user pressed a button for, and the audit used to say it was.
+        val result = executor(approve = { FsWriteDecision.SESSION_TRUST })
+            .execute(call(TOOL_WRITE, "path" to "trusted.txt", "content" to "hello"))
+
+        assertTrue(result.ok)
+        assertEquals("session-trust", audit.single().confirmed)
+        assertEquals("ok", audit.single().result)
+    }
+
+    @Test
+    fun `a timed-out confirmation is recorded as a timeout, in its own words`() = runBlocking {
+        val result = executor(approve = { FsWriteDecision.TIMEOUT })
+            .execute(call(TOOL_WRITE, "path" to "never.txt", "content" to "hello"))
+
+        assertFalse(result.ok)
+        assertTrue("the model is told which of the two it was: ${result.text}", result.text.contains("not answered in time"))
+        assertEquals("timeout", audit.single().confirmed)
+        assertEquals("nobody answered in time", audit.single().detail)
+        assertEquals("denied", audit.single().result)
+        assertFalse(Files.exists(root.resolve("never.txt")))
     }
 
     @Test
@@ -367,9 +392,9 @@ class FsToolExecutorTest {
         val gate = FsWriteApprovalGate()
         val request = FsWriteRequest("Tester", "x.txt", root.resolve("x.txt"), root, existed = false, oldBytes = 0, newBytes = 3, preview = "abc")
 
-        val approved = gate.request(FsWorkspace(root, FsToolMode.READ_WRITE), request, timeoutMs = 0)
+        val decision = gate.request(FsWorkspace(root, FsToolMode.READ_WRITE), request, timeoutMs = 0)
 
-        assertFalse(approved)
+        assertEquals("nobody answering is not somebody refusing", FsWriteDecision.TIMEOUT, decision)
         assertNull("and the question is cleared, not left pending", gate.pending.value)
     }
 

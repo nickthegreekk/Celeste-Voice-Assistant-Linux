@@ -1312,10 +1312,21 @@ apply blocks and the cloud builders in view at once, which is why they were not 
    accented text, a second read refused by the turn's cap, and the oversized turn refused instead of sent).
    **The two bounds interact, which the tests had to be written around**: on a default 8k window the *budget* refuses
    a turn that reads 80 KB before the executor's byte cap can speak, so the cap's test uses a 32k window and says why.
-4. **The timeout is invisible**: `requestFsWriteApproval` tests `pending.value != null` *after* the gate cleared it, so
-   the notifier branch is dead code, and the audit records a timeout as `confirmed = "denied"` — the documented
+4. ~~**The timeout is invisible**: `requestFsWriteApproval` tests `pending.value != null` *after* the gate cleared it,
+   so the notifier branch is dead code, and the audit records a timeout as `confirmed = "denied"` — the documented
    `timeout` and `session-trust` values are never written. `denyPending()` has no caller at all, despite the design
-   saying a superseded turn denies the pending write.
+   saying a superseded turn denies the pending write.~~ **Fixed 2026-10-16, and the three were one cause**: a `Boolean`
+   cannot say *why* it said no. The gate now returns an `FsWriteDecision` — `user`, `session-trust`, `denied`,
+   `timeout`, the strings the audit already documented — with `allows` as the only thing a caller tests. That is what
+   revived the announcement (nobody-answered is now a value rather than an inference from state the gate had already
+   cleared), what put `timeout` and `session-trust` in the audit at last, and what lets the model be told which of the
+   two happened. The announcement itself moved to the **`Notifier` seam**, which is what the design named and what the
+   case is: a snackbar is a row in a window, and this exists for a window that is not there.
+   `denyPending()` is called from **`nextChatRequestSeq`** — one choke point rather than three call sites, because a
+   generation bump *is* the definition of "that turn is over" (Stop, a newer message, a room round, a voice turn).
+   Four tests, all failing with the old behaviour restored: `expected:<[timeout]> but was:<[denied]>`,
+   `expected:<[session-trust]> but was:<[user]>`, an announcement list that stayed empty, and a question still on screen
+   after Stop.
 5. **Settings/UI**: un-pinning a persona's mode (`Global`) removes only the mode key, leaving its folder to be used with
    the *global* mode — more access than was chosen; and the editor writes under the name the persona had when it opened,
    so an in-editor rename strands the pair under the dead name (a later persona of that name inherits it).

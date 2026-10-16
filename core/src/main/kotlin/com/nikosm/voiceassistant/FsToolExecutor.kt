@@ -24,8 +24,8 @@ internal class FsToolExecutor(
     private val workspace: FsWorkspace,
     private val excluded: List<Path>,
     private val personaName: String,
-    /** Asks the user, and answers whether the write may happen. The service owns the dialog. */
-    private val approveWrite: suspend (FsWriteRequest) -> Boolean,
+    /** Asks the user, and answers *how* the write was decided. The service owns the dialog. */
+    private val approveWrite: suspend (FsWriteRequest) -> FsWriteDecision,
     private val audit: (FsToolAuditEntry) -> Unit,
     private val now: () -> Long = System::currentTimeMillis,
 ) {
@@ -250,7 +250,7 @@ internal class FsToolExecutor(
             return FsToolResult(call.id, call.name, "write_file: $requested already has exactly that content; nothing was written.", ok = true)
         }
 
-        val approved = approveWrite(
+        val decision = approveWrite(
             FsWriteRequest(
                 personaName = personaName,
                 relativePath = requested,
@@ -262,18 +262,25 @@ internal class FsToolExecutor(
                 preview = content.lineSequence().take(PREVIEW_LINES).joinToString("\n"),
             ),
         )
-        if (!approved) {
-            val text = "write_file was not performed: the user did not approve it."
-            record(call, args, 0, "denied", "denied", "not approved", target)
+        if (!decision.allows) {
+            // Two sentences and two audit values, because they are two different events: a user who
+            // said no has answered, and a question that timed out has not been answered by anyone.
+            val (text, detail) = when (decision) {
+                FsWriteDecision.TIMEOUT ->
+                    "write_file was not performed: the confirmation was not answered in time." to "nobody answered in time"
+                else ->
+                    "write_file was not performed: the user did not approve it." to "not approved"
+            }
+            record(call, args, 0, "denied", decision.label, detail, target)
             return FsToolResult(call.id, call.name, text, ok = false)
         }
 
         runCatching { writeAtomically(target, bytes, existed) }.getOrElse { e ->
             val text = "write_file failed: ${e.message ?: "the file could not be written"}."
-            record(call, args, 0, "error", "user", e.message, target)
+            record(call, args, 0, "error", decision.label, e.message, target)
             return FsToolResult(call.id, call.name, text, ok = false)
         }
-        record(call, args, bytes.size.toLong(), "ok", "user", null, target)
+        record(call, args, bytes.size.toLong(), "ok", decision.label, null, target)
         return FsToolResult(
             call.id,
             call.name,

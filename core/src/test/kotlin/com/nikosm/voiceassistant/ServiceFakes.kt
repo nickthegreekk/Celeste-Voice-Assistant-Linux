@@ -60,6 +60,29 @@ internal object ThrowingNotifier : Notifier {
 }
 
 /**
+ * Records what would have gone to the desktop, so a test can assert that it did — or that it did
+ * not, which for a notification is the assertion that usually matters.
+ *
+ * `enabled` is true rather than throwing: unlike [ThrowingNotifier], the point here is to be a
+ * working notifier, and a test that wants the seam to be unreachable should use the one that throws.
+ */
+internal class RecordingNotifier : Notifier {
+    internal data class Posted(val id: Int, val title: String, val body: String)
+
+    private val messages = java.util.Collections.synchronizedList(mutableListOf<Posted>())
+
+    val posted: List<Posted> get() = messages.toList()
+
+    override val enabled: Boolean = true
+
+    override fun post(id: Int, title: String, body: String) {
+        messages += Posted(id, title, body)
+    }
+
+    override fun cancel(id: Int) = Unit
+}
+
+/**
  * The guard is on `arm`, not on touching the seam at all: `AssistantService.start()` attaches its
  * scope to an in-process scheduler (seam 10) so a persona enabled later can be armed — attaching
  * arms nothing, sends nothing and schedules nothing. What must stay impossible in a test that did

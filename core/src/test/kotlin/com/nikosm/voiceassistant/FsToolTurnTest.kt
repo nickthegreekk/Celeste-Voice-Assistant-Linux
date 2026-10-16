@@ -2,8 +2,10 @@ package com.nikosm.voiceassistant
 
 import androidx.compose.ui.graphics.Color
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
@@ -14,6 +16,7 @@ import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -53,6 +56,7 @@ class FsToolTurnTest {
     private enum class Dialect { OLLAMA, CLOUD }
 
     private lateinit var env: FakeAppEnv
+    private lateinit var notifier: RecordingNotifier
     private lateinit var store: InMemoryStore
     private lateinit var settings: SettingsManager
     private lateinit var provider: FakeProviderServer
@@ -68,7 +72,11 @@ class FsToolTurnTest {
         Dispatchers.setMain(StandardTestDispatcher())
         proxyBefore = ProxySelector.getDefault()
         ProxySelector.setDefault(DirectOnly)
-        env = FakeAppEnv()
+        // A recording notifier rather than the throwing one: this suite has a case where the app is
+        // *supposed* to announce something (a write confirmation nobody answers), and asserting what
+        // was announced is stronger than asserting that nothing was.
+        notifier = RecordingNotifier()
+        env = FakeAppEnv(notifier = notifier)
         store = InMemoryStore()
         settings = SettingsManager(env, store, NoImageCodec)
         provider = FakeProviderServer()
@@ -125,6 +133,62 @@ class FsToolTurnTest {
     @Test
     fun `a cloud turn that would overflow the window is refused, not truncated`() = runTest {
         assertOversizedTurnIsRefused(Dialect.CLOUD)
+    }
+
+    @Test
+    fun `a confirmation nobody answers becomes a timeout, and it is announced`() = runTest {
+        val service = serviceWith(Dialect.CLOUD, workspace = workspace, mode = FsToolMode.READ_WRITE)
+        runCurrent()
+        val request = FsWriteRequest(
+            personaName = PERSONA,
+            relativePath = "notes.md",
+            resolved = workspace.resolve("notes.md"),
+            root = workspace,
+            existed = false,
+            oldBytes = 0,
+            newBytes = 3,
+            preview = "abc",
+        )
+
+        val decision = async { service.requestFsWriteApproval(request, FsWorkspace(workspace, FsToolMode.READ_WRITE)) }
+        runCurrent()
+        assertNotNull("the question is up before anybody answers it", service.fsWriteGate.pending.value)
+
+        // Virtual time, so this is the *real* five-minute wait expiring rather than a shortened one
+        // passing for it.
+        advanceTimeBy(FS_WRITE_APPROVAL_TIMEOUT_MS + 1)
+
+        assertEquals("nobody answering is not somebody refusing", FsWriteDecision.TIMEOUT, decision.await())
+        assertNull("and the question is withdrawn, not left on screen", service.fsWriteGate.pending.value)
+        assertEquals(
+            "the window-closed case is exactly what the desktop channel is for: " +
+                notifier.posted,
+            listOf("Celeste wanted to write notes.md — open the window to decide."),
+            notifier.posted.map { it.body },
+        )
+    }
+
+    @Test
+    fun `Stop withdraws a pending write question rather than leaving it to be answered late`() = runTest {
+        Files.writeString(workspace.resolve("notes.md"), "before")
+        val service = serviceWith(Dialect.CLOUD, workspace = workspace, mode = FsToolMode.READ_WRITE)
+        runCurrent()
+
+        scriptToolRound(Dialect.CLOUD, TOOL_WRITE, """{"path":"notes.md","content":"after"}""", "never asked for")
+        service.sendTextMessageToServer("rewrite my notes", service.personas.value.first())
+        settle(service, "the confirmation to be asked") { service.fsWriteGate.pending.value != null }
+
+        service.stopEverything()
+        runCurrent()
+
+        assertNull("the question goes with the turn that asked it", service.fsWriteGate.pending.value)
+        settle(service, "the refusal to be recorded") { readFsToolAudit(env.stateDir, 10).isNotEmpty() }
+        assertEquals(
+            "an answer that arrives after the turn is over must not approve anything",
+            "denied",
+            readFsToolAudit(env.stateDir, 10).first().result,
+        )
+        assertEquals("and the file is untouched", "before", Files.readString(workspace.resolve("notes.md")))
     }
 
     @Test

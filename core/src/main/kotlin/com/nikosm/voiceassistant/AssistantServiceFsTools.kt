@@ -354,7 +354,7 @@ internal class FsWriteApprovalGate {
     /** The question the UI is showing, or null when there is nothing to answer. */
     val pending = _pending.asStateFlow()
 
-    private var deferred: CompletableDeferred<Boolean>? = null
+    private var deferred: CompletableDeferred<FsWriteDecision>? = null
 
     fun trusts(root: Path): Boolean = trustedRoots.contains(root)
 
@@ -375,12 +375,21 @@ internal class FsWriteApprovalGate {
         if (approve && trustForSession) {
             _pending.value?.root?.let { trustedRoots.add(it) }
         }
-        waiting.complete(approve)
+        waiting.complete(
+            when {
+                !approve -> FsWriteDecision.DENIED
+                // "Allow and trust this workspace for the session" is one button, and the audit has a
+                // word for it — the same one an already-trusted root gets, because from the user's
+                // side those are the same decision: stop asking about this folder.
+                trustForSession -> FsWriteDecision.SESSION_TRUST
+                else -> FsWriteDecision.USER
+            },
+        )
     }
 
     /** A newer turn started, or the app is closing: deny, so a stale dialog can never approve. */
     fun denyPending() {
-        deferred?.complete(false)
+        deferred?.complete(FsWriteDecision.DENIED)
     }
 
     /**
@@ -391,13 +400,16 @@ internal class FsWriteApprovalGate {
      * Returns true when the write may proceed, and a root trusted for this session skips the
      * question entirely.
      */
-    suspend fun request(workspace: FsWorkspace, requestBody: FsWriteRequest, timeoutMs: Long = FS_WRITE_APPROVAL_TIMEOUT_MS): Boolean {
-        if (trusts(workspace.root)) return true
-        val waiting = CompletableDeferred<Boolean>()
+    suspend fun request(workspace: FsWorkspace, requestBody: FsWriteRequest, timeoutMs: Long = FS_WRITE_APPROVAL_TIMEOUT_MS): FsWriteDecision {
+        // No question at all when the root is already trusted for this session, and the answer says
+        // so — which is how a write the user never saw a dialog for still explains itself in the
+        // audit.
+        if (trusts(workspace.root)) return FsWriteDecision.SESSION_TRUST
+        val waiting = CompletableDeferred<FsWriteDecision>()
         deferred = waiting
         _pending.value = requestBody
         return try {
-            withTimeoutOrNull(timeoutMs) { waiting.await() } ?: false
+            withTimeoutOrNull(timeoutMs) { waiting.await() } ?: FsWriteDecision.TIMEOUT
         } finally {
             if (deferred === waiting) {
                 _pending.value = null
@@ -413,12 +425,62 @@ internal const val FS_WRITE_APPROVAL_TIMEOUT_MS = 120_000L
  * Ask before a write. When nothing can render the question — no window, `--headless`, a spontaneous
  * turn — the gate's timeout denies it and the user is told through the notifier, which is the one
  * channel that still works with the window closed.
+ *
+ * **A timeout is not a refusal, and the answer says which it was.** This used to ask
+ * `fsWriteGate.pending.value != null` after the call, which the gate clears in its own `finally`
+ * before returning — so the announcement was dead code and a question nobody ever saw left no trace
+ * beyond an audit line reading `denied`. Carrying the decision back is what makes the difference
+ * knowable at all.
  */
-internal suspend fun AssistantService.requestFsWriteApproval(request: FsWriteRequest, workspace: FsWorkspace): Boolean {
-    val approved = fsWriteGate.request(workspace, request)
-    if (!approved && fsWriteGate.pending.value != null) {
-        // Still pending means nobody answered in time rather than somebody saying no.
-        notifyUser("Celeste wanted to write ${request.relativePath} — open the window to decide.")
+internal suspend fun AssistantService.requestFsWriteApproval(request: FsWriteRequest, workspace: FsWorkspace): FsWriteDecision {
+    val decision = fsWriteGate.request(workspace, request)
+    if (decision == FsWriteDecision.TIMEOUT) {
+        announceWriteNeedsAttention(request)
     }
-    return approved
+    return decision
+}
+
+/** One card, reused: there is at most one question pending, and it is answered or withdrawn. */
+internal const val FS_WRITE_NOTIFICATION_ID = 2
+
+/**
+ * Tell the user a write is waiting, on the channel that works when nothing can render the dialog.
+ *
+ * **The seam and not `notifyUser`, which is what the design's own sentence asks for**: a snackbar is
+ * a row in a window, and the case this exists for is a window that is not there — `--headless`, the
+ * tray, a spontaneous turn. The message names the path, because "Celeste wanted to write something"
+ * is not something a person can decide about from a notification.
+ */
+internal fun AssistantService.announceWriteNeedsAttention(request: FsWriteRequest) {
+    appEnv.notifier.post(
+        id = FS_WRITE_NOTIFICATION_ID,
+        title = "A file write is waiting",
+        body = "Celeste wanted to write ${request.relativePath} — open the window to decide.",
+    )
+}
+
+/**
+ * How a write was decided — the audit's `confirmed` column, and the one thing a caller cannot
+ * recover from a Boolean.
+ *
+ * The values are the strings `FsToolAuditEntry` documents. Two of them were never written: a
+ * **timeout** was recorded as `denied`, because a refusal and a question nobody answered were
+ * indistinguishable to every caller; and **`session-trust`** was recorded as `user`, because a
+ * written approval that asked nothing looked exactly like one that did.
+ */
+internal enum class FsWriteDecision(val label: String) {
+    /** Allowed once, by the dialog's first button. */
+    USER("user"),
+
+    /** Allowed because this root is trusted for the session — by the second button, or earlier. */
+    SESSION_TRUST("session-trust"),
+
+    /** Refused: the user said no, or the question was withdrawn when its turn ended. */
+    DENIED("denied"),
+
+    /** Nobody answered in time. **Not a refusal** — nobody decided, and the user is told so. */
+    TIMEOUT("timeout"),
+    ;
+
+    val allows: Boolean get() = this == USER || this == SESSION_TRUST
 }

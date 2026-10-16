@@ -13,6 +13,33 @@ not stop for it. Stop only for the four cases listed in AGENTS.md §10.
 
 ---
 
+## 2026-10-16 — A question that was never answered is not a "no", and one place ends a turn
+
+M8's open list, item 4, was three findings with one cause: **the write gate answered with a `Boolean`.** A refusal
+and a question nobody answered are the same `false`, so `requestFsWriteApproval` tried to tell them apart by asking
+whether the question was still pending — after the gate had cleared it in its own `finally`, which made the
+announcement dead code; the audit wrote `denied` for a timeout, because it had nothing else to write; and
+`session-trust` was never written at all, because a write that asked nothing looked exactly like one the user pressed
+a button for.
+
+**Decided: `FsWriteDecision` — `USER`, `SESSION_TRUST`, `DENIED`, `TIMEOUT` — with `label` giving the audit's own
+strings and `allows` the only thing a caller tests.** The two buttons map to the first two, the timeout to the third
+value that is *not* a refusal, and `denyPending()` to `DENIED`.
+
+**The announcement goes to the `Notifier` seam, not `notifyUser`.** The design's sentence names the seam, and the case
+it exists for is the one where a snackbar cannot be seen — `--headless`, the tray, a spontaneous turn. `notifyUser` was
+what the code did; it is a row in a window, and the window is precisely what is missing.
+
+**`denyPending()` is called from `nextChatRequestSeq()`, not from its three callers.** The review's own phrasing —
+*"a superseded turn denies the pending write"* — describes a rule about supersede, and a generation bump **is** the
+definition of "that turn is over": Stop, a newer message, a room round taking the floor, a voice turn starting. Three
+call sites would have been three chances for a fourth path to forget; the cost is that a counter now has a side effect,
+which the function's KDoc says out loud. Rejected: denying in the UI when the dialog is dismissed — the dialog is a
+*view* of the gate, and a headless turn never renders one.
+
+→ PLAN.md §10 (M8), `AssistantServiceFsTools.kt`, `FsToolExecutor.kt`, `AssistantService.kt`
+(`nextChatRequestSeq`)
+
 ## 2026-10-16 — A cap is a number the request is checked against, not a number in a comment
 
 M8's open list, item 3, was four findings that turned out to be one: the caps were arithmetic that
