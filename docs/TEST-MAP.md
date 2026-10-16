@@ -94,12 +94,16 @@ port's copy: what counts as a share, what does not, and which one wins when two 
 byte-identical ported code; the file is an adaptation, not a copy, and the ledger counts it as
 neither.
 
-## Not taken (one file so far)
+## Adapted, not copied (two files)
 
-`SpontaneousSchedulerTest.kt` — 35 cases, and the majority are pure decision cases (`evaluateSpontaneousCycle`'s
-windows, gaps and caps) that the port would benefit from. It cannot be copied, because the same file also asserts
-the *WorkManager* side: `spontaneousWorkName`'s two-slot scheme, the channel id, the summary id, `ExistingWorkPolicy`.
-Those symbols are upstream's worker file, which M4 does not take — a coroutine timer needs one line of it
-(`alternateSpontaneousSlot`) and has no names to check. Retargeting it means splitting the file and rewriting its
-WorkManager assertions against the timer, which is worth doing and is not done yet; `SpontaneousTurnTest.kt` came
-across byte-identical on the m4 group and covers the turn's own pure half.
+`SharedContentTest.kt` — upstream's sixteen cases drove `parseSharedIntent` with an `ACTION_SEND` action, a MIME type
+and an `EXTRA_SUBJECT`, which PLAN.md §7 substitutes with `--send-text` / `--send-file`. Eleven became CLI cases; the
+five `appendSharedTextToDraft` cases came across in substance.
+
+`SpontaneousSchedulerTest.kt` — 35 cases, 30 kept unchanged and 5 dropped, and the dropped five all assert the
+*WorkManager* side of spontaneous delivery: the two-slot work-name scheme and its enumerability, the channel and
+summary notification ids, `ExistingWorkPolicy`. PLAN.md §10 puts the scheduler in the core as a coroutine timer,
+which needs one line of that scheme (`alternateSpontaneousSlot`, pinned by `SpontaneousTimerTest`) and has no work
+names to check. What the port gained is the policy itself — windows, gap, caps, counters, the next-attempt arithmetic
+and the preview's flattening — which is the decision the delivery glue hands to `evaluateSpontaneousCycle`. Upstream's
+own header comment and helper (`fail(decision, expected)`) came across with it.
