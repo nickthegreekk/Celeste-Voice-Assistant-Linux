@@ -201,6 +201,12 @@ private fun resolveForWrite(rootReal: Path, candidate: Path, excluded: List<Path
         if (Files.isDirectory(targetReal)) {
             throw FsToolRefusal("that is a folder, not a file.")
         }
+        // Nor a named pipe or a device node, and this is asked *before* the user is shown anything:
+        // an overwrite of a FIFO is a write nothing can read, and the identical-content check in the
+        // executor would block on it before the question was ever asked.
+        if (!Files.isRegularFile(targetReal)) {
+            throw FsToolRefusal("that path is not a regular file (a named pipe, socket or device), so it cannot be written.")
+        }
         return targetReal
     }
     return target

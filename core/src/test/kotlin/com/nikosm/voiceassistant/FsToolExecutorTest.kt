@@ -42,6 +42,36 @@ class FsToolExecutorTest {
     private fun call(name: String, vararg args: Pair<String, Any>) =
         FsToolCall("call_1", name, args.toMap().let { org.json.JSONObject(it as Map<*, *>).toString() })
 
+    /**
+     * A named pipe, through the one tool that makes one — `Files.createFile` cannot, and there is no
+     * JDK call for `mkfifo`. Same shape as `PinnedClientTlsTest`'s `keytool`: a real helper process,
+     * waited for with a bound, whose output is in the failure message.
+     */
+    private fun mkfifo(path: Path) {
+        val process = ProcessBuilder("mkfifo", path.toString()).redirectErrorStream(true).start()
+        val output = process.inputStream.bufferedReader().readText()
+        check(process.waitFor(30, java.util.concurrent.TimeUnit.SECONDS) && process.exitValue() == 0) {
+            "mkfifo failed: $output"
+        }
+    }
+
+    /**
+     * Runs [body] on a daemon thread and returns what it produced, or null when it did not come back
+     * within [ms]. The thread is abandoned rather than interrupted, because the thing being reported
+     * is a block that an interrupt would not necessarily end.
+     */
+    private fun <T> within(ms: Long, body: () -> T): T? {
+        var produced: T? = null
+        var returned = false
+        val worker = Thread {
+            produced = body()
+            returned = true
+        }.apply { isDaemon = true; name = "bounded-tool-call" }
+        worker.start()
+        worker.join(ms)
+        return if (returned) produced else null
+    }
+
     // ------------------------------------------------------------------ list and read
 
     @Test
@@ -102,6 +132,99 @@ class FsToolExecutorTest {
 
         assertFalse(result.ok)
         assertTrue(result.text.contains("binary"))
+    }
+
+    // ------------------------------------------------------------------ what the read may not do
+
+    /**
+     * **A named pipe is not a file this tool can read, and asking is what stops the turn.** Nothing
+     * above the executor has a timeout, so `Files.readAllBytes` on a FIFO — which blocks until a
+     * writer opens the other end — was a turn that never ended; one `mkfifo` inside a workspace the
+     * model was given is all it took.
+     *
+     * Deliberately run on a **daemon thread with a bounded join** rather than under a JUnit timeout:
+     * a blocked `open(2)` is not interruptible, so a test that leaves a stuck thread in the worker is
+     * a worse failure than the one it reports. Without the fix this fails on the assertion below and
+     * abandons the thread; with it, it returns immediately.
+     */
+    @Test
+    fun `a named pipe is refused instead of blocking the turn forever`() {
+        mkfifo(root.resolve("pipe"))
+
+        val result = within(5_000) { runBlocking { executor().execute(call(TOOL_READ, "path" to "pipe")) } }
+
+        assertNotNull("reading a named pipe must return: there is no timeout above this", result)
+        val read = result!!
+        assertFalse(read.ok)
+        assertTrue("and it says what it is: ${read.text}", read.text.contains("not a regular file"))
+        assertEquals("denied", audit.single().result)
+    }
+
+    @Test
+    fun `a write to a named pipe is refused rather than blocking on the comparison`() {
+        mkfifo(root.resolve("pipe"))
+
+        // Empty content on purpose: the identical-content check reads the existing file when the
+        // sizes agree, and a pipe's size is 0 — so this is the exact shape that hung before a write
+        // target was required to be a regular file.
+        val result = within(5_000) {
+            runBlocking { executor().execute(call(TOOL_WRITE, "path" to "pipe", "content" to "")) }
+        }
+
+        assertNotNull("writing to a named pipe must return, not block", result)
+        val write = result!!
+        assertFalse(write.ok)
+        assertTrue("and it says what it is: ${write.text}", write.text.contains("not a regular file"))
+    }
+
+    @Test
+    fun `a file larger than one read is read up to the bound and says what it left`() = runBlocking {
+        // Past the 8 MB a single read scans, and nowhere near the 20 GB the old `readAllBytes` would
+        // have tried to hold — which is why this asserts the *shape* of the answer rather than
+        // measuring memory. Without the bound the old code read all of it and reported an exact
+        // total, so every assertion here fails before the fix.
+        val big = root.resolve("big.log")
+        Files.newBufferedWriter(big).use { out ->
+            (1..400_000).forEach { out.write("line $it of a large log file\n") }
+        }
+        val size = Files.size(big)
+        assertTrue("the fixture is bigger than the scan bound", size > 8L * 1024 * 1024)
+
+        val result = executor().execute(call(TOOL_READ, "path" to "big.log"))
+
+        assertTrue(result.ok)
+        assertTrue("the file's real size is still stated: ${result.text.lineSequence().first()}", result.text.contains("$size bytes"))
+        assertTrue(
+            "and that this read did not cover all of it: ${result.text.lineSequence().first()}",
+            result.text.contains("this read covers the file's first"),
+        )
+        assertTrue("while still offering a way onward", result.text.contains("use start_line to continue"))
+        assertTrue("with the answer inside the text cap", result.text.length < 200_000)
+
+        // The branch that must not lie: a start_line past what was read is *not* "past the end of the
+        // file", and a model told the file is short acts on it.
+        val far = executor().execute(call(TOOL_READ, "path" to "big.log", "start_line" to 999_999))
+        assertTrue(
+            "being past the read is not being past the end of the file: ${far.text}",
+            far.text.contains("The file is larger than one read"),
+        )
+    }
+
+    @Test
+    fun `the read cap counts bytes, not UTF-16 units`() = runBlocking {
+        // 100_000 accented characters: 100_000 UTF-16 units but 200_000 bytes. The 128 KB cap sits
+        // between the two measures, so this file fits by one count and not by the other — and the
+        // audit's "bytes" column used to be the UTF-16 count, which is what it is named after.
+        Files.writeString(root.resolve("accents.txt"), "é".repeat(100_000))
+
+        val result = executor().execute(call(TOOL_READ, "path" to "accents.txt"))
+
+        assertTrue(
+            "the text is cut at the byte cap: ${result.text.lineSequence().first()}",
+            result.text.contains("truncated at the size cap"),
+        )
+        assertTrue("and the audit counts bytes: ${audit.single().bytes}", audit.single().bytes > 100_000L)
+        assertTrue("up to the cap and no further", audit.single().bytes <= 128L * 1024)
     }
 
     @Test
