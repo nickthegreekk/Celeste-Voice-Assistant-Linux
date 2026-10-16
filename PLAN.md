@@ -608,7 +608,7 @@ cluster commit lands.
 | RAG, SearXNG web search, file attachments | M5 | HTTP, unchanged |
 | Image generation: ComfyUI + A1111, workflow tokens | M3 | Pure logic copies over |
 | Per-character workflow binding (persona to template id) | M3 | Unchanged |
-| Image viewer with pinch-zoom/pan | M3 | Pointer gestures instead of touch |
+| Image viewer with pinch-zoom/pan | M3 | A `DialogWindow` sized by the app, not a dialog the toolkit sizes; the same gestures, driven by a mouse |
 | Skills and skill triggers | M5 | Unchanged |
 | Rooms (multi-persona group chat) | M4 | Unchanged |
 | Spontaneous messages | M4 | Scheduler is pure; the driver is new |
@@ -846,10 +846,12 @@ Desktop's `DialogProperties` — the compiler said so and nothing else did. The 
 it was. Its pure geometry test came across **byte-identical** on a new `m3` arrival group added to
 the sync script for the purpose — a test whose subject has not been ported is exactly what the group
 split exists to keep out of the source set, and the ledger reconciles with it (82 lines, 0 changes).
-One thing is recorded as *expected but unseen*, in the file and in `docs/PROVENANCE.md`: a Compose
-Desktop `Dialog` sizes itself to its content rather than to the screen, so the black surface should
-end up exactly as large as the picture and the pan bounds are measured against that window. Android's
-is full-screen by construction. If it looks wrong, the repair is one line and is named there.]
+The container changed the same evening, on the user's call: upstream's `Dialog` — which compiles here
+but hands its size to the toolkit, since a Compose Desktop dialog takes its size from its content —
+became a `DialogWindow` with an explicit size. That is the whole of "ditch the Android logic" for
+this file, and it removes the one thing the first version could only have flagged as unseen: the pan
+clamp measures its *container*, so a container sized by its own content measures the picture against
+itself. A window we size is a window we can reason about.]
 
 The counts, settled by the anchored grep rather than by a mention count:
 

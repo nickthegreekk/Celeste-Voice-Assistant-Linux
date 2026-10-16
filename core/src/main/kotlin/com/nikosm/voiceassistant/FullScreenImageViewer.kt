@@ -24,10 +24,11 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
+import androidx.compose.ui.window.DialogWindow
+import androidx.compose.ui.window.rememberDialogState
 import coil3.compose.AsyncImage
 import java.io.File
 
@@ -39,6 +40,17 @@ private const val MAX_SCALE = 8f
 
 /** Where a double-tap lands when the image is at its resting size. */
 private const val DOUBLE_TAP_SCALE = 3f
+
+/**
+ * The viewer window's opening size — chosen, not derived.
+ *
+ * Every derivation available is worse: the image's own size is a 256x256 generation as often as a
+ * photograph, the screen's size needs AWT (platform code in `:core`), and the toolkit's default is
+ * "whatever the content asks for" — which is how the first version of this port ended up with a
+ * window nobody had decided the size of. Comfortable for a photo, and resizable from there.
+ */
+private val VIEWER_WIDTH = 1100.dp
+private val VIEWER_HEIGHT = 800.dp
 
 /**
  * The largest pan, in pixels, that still keeps a `ContentScale.Fit` image covering its
@@ -91,24 +103,32 @@ internal fun imagePanBounds(
  *  - **double-tap** toggles between the resting size and [DOUBLE_TAP_SCALE]x;
  *  - **single tap** or the close button dismisses it.
  *
- * ## The one adaptation (PLAN.md §7 marks this file ADAPT)
+ * ## The container is the port, and it is a window (PLAN.md §7 marks this file ADAPT)
  *
- * Android sizes a `Dialog` to the screen and `decorFitsSystemWindows = false` lets the black
- * surface run under the status and navigation bars. Neither has a counterpart here:
- * `decorFitsSystemWindows` is not a parameter of Compose Desktop's `DialogProperties` — the compiler
- * rejects it, which is how this file's whole Android surface was found — and there are no system
- * bars for a surface to run under. So the diff against upstream is one deleted argument, and the
- * gestures, the clamps and the layout are untouched.
+ * Android sizes a `Dialog` to the screen, and `decorFitsSystemWindows = false` lets the black
+ * surface run under the status and navigation bars. `decorFitsSystemWindows` is not a parameter of
+ * Compose Desktop's `DialogProperties` — the compiler found that, and it was this file's whole
+ * Android surface — and there are no system bars to run under. Upstream's `Dialog` with that one
+ * argument deleted compiles, but it hands the size to the toolkit: a Compose Desktop `Dialog` takes
+ * its size from its content, so the black surface would have been exactly as large as the picture,
+ * by a rule nobody chose and nobody could see.
  *
- * **What that means for the window on this platform, stated because it is not obvious and has not
- * been seen:** a Compose Desktop `Dialog` takes its size from its content (it is not a screen-sized
- * system window), and `Modifier.fillMaxSize()` inside an unbounded dialog resolves to the content's
- * own size — so the black surface should end up exactly as large as the picture, which is
- * edge-to-edge but not screen-filling, and the pan bounds are then measured against that window
- * rather than against a screen. Android's version is a full-screen surface by construction. If this
- * looks wrong in use, the repair is local and one line — a screen-sized `DialogWindow` state, or the
- * `AlertDialog` + `Modifier.fillMaxSize()` idiom `SettingsDialog` uses — and it is deliberately not
- * invented here, where it cannot be seen.
+ * So the container is a real desktop window with an explicit size — `DialogWindow` and
+ * `rememberDialogState`, the same family as the application's own window. That is all "ditch the
+ * Android logic" means here, and it is not only taste: [imagePanBounds] measures the *container*, so
+ * a container sized by its own content would have been measuring the picture against itself, and the
+ * clamp that exists to stop a zoomed image being flung out of view would have had nothing to clamp
+ * against.
+ *
+ * (`DialogWindow` is a desktop-only Compose API, which is allowed in `:core`: the ported screens
+ * already compile against the desktop artifacts, and the boundary AGENTS.md §2 draws is that `:core`
+ * must not import `:platform` or `:desktop` — not that it must be toolkit-neutral.)
+ *
+ * Everything above the container is upstream's and unchanged — the same zoom range, the same clamps,
+ * the same two detectors. A mouse drives them: drag pans, double-click toggles between the resting
+ * size and [DOUBLE_TAP_SCALE]x, a click or the close button dismisses. Scroll-wheel zoom is not
+ * wired separately: whether Compose Desktop reports a wheel as zoom through `detectTransformGestures`
+ * is the toolkit's business, and it belongs on the list of things for a human to look at.
  */
 @Composable
 fun FullScreenImageViewer(
@@ -122,12 +142,11 @@ fun FullScreenImageViewer(
     // The image's intrinsic ratio, learned from Coil once the decode succeeds. 1f until then.
     var imageAspect by remember { mutableFloatStateOf(1f) }
 
-    Dialog(
-        onDismissRequest = onDismiss,
-        // `usePlatformDefaultWidth` is upstream's and stays: it is the argument that stops the
-        // platform clamping a dialog to a default width. See the class comment for the one upstream
-        // argument that does not exist here, and for what the window does instead.
-        properties = DialogProperties(usePlatformDefaultWidth = false)
+    DialogWindow(
+        onCloseRequest = onDismiss,
+        state = rememberDialogState(size = DpSize(VIEWER_WIDTH, VIEWER_HEIGHT)),
+        // The file's own name, so two open viewers are tellable apart in a window list.
+        title = file.name,
     ) {
         Box(
             modifier = Modifier

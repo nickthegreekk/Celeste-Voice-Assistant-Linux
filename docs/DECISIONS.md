@@ -13,6 +13,29 @@ not stop for it. Stop only for the four cases listed in AGENTS.md §10.
 
 ---
 
+## 2026-10-16 — The image viewer is a window we size, not a dialog the toolkit sizes
+
+The ported `FullScreenImageViewer` compiled with one argument deleted (`decorFitsSystemWindows`), and
+that was recorded as expected-but-unseen: a Compose Desktop `Dialog` takes its size from its content,
+so the black surface would have been as large as the picture, by a rule nobody chose. The user's
+question — *"it's linux, could we use another mechanism, ditch the android logic"* — is the right one,
+and the answer is that the sizing rule is exactly the Android logic worth dropping.
+
+**Decided: a `DialogWindow` with an explicit size** (`rememberDialogState(size = DpSize(1100.dp,
+800.dp))`, resizable), the same API family as the application's own window. It is not only taste:
+`imagePanBounds` — upstream's tuned clamp, whose pure test arrived byte-identical — measures the
+*container*, so a container sized by its own content would have been measuring the picture against
+itself and had nothing to clamp against. The gestures stay upstream's; a mouse drives them.
+
+Rejected: **handing the file to the desktop's viewer** (`xdg-open` with an `imv`/`feh`/`eog`
+fallback chain, a new seam in `:core` plus a `:platform` implementation). It is the most Linux-native
+option and the least code, and it was the tempting one — but it leaves the app for a chat lightbox,
+makes a viewer a runtime dependency, and throws away the pan tuning and its test. Rejected too:
+**keeping upstream's `Dialog`** and judging it on screen, which is how a platform-decided size becomes
+a permanent quirk nobody remembers choosing. Also rejected: sizing the window from the image, which
+is a 256x256 generation as often as a photograph, or from the screen, which needs AWT — platform code
+in `:core`. → PLAN.md §7, §8, §10
+
 ## 2026-10-16 — The milestone names win over the marker numbers, and nine markers move
 
 M1's amendment left fifteen `DEFERRED TO M<n>` markers and wrote each receiving milestone's §10 list
