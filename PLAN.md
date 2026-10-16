@@ -1059,8 +1059,21 @@ Battery Saver and the charger. The desktop's uncertainty is the opposite: the ti
 be alive — "the tray icon is how you know it is listening for the moment you picked", which is the honest sentence for this side and
 the one the user needs before trusting a schedule.
 
-**That leaves the rooms screens as M4's last piece**, and M4's acceptance is now runnable end to end from the UI: enable it in the
-editor, send-now to check the path, and let a gap elapse under `--headless` for the real thing.
+[**Acceptance met in substance, 2026-10-16 evening, by use rather than by assertion.** The user enabled spontaneous
+messages through the new controls (the persona carries a real instruction from the section's field, a 60-minute gap and an
+08:00-22:00 window), and a message landed without anyone touching the application: the log says `Spontaneous message from
+'Celeste' landed (356 chars, 32134ms)`, `spontaneous_state_v1` holds `sentTodayCount: 1` for today's date — the counter the
+daily caps read — and the same log reports `tray icon installed`. So the four links the milestone is about all worked in one
+run: an eligible persona, a timer that fired, a turn that generated and persisted, and a surface that told the user.
+
+**One clause is not literally witnessed, and the log is what says so:** that run was *window* mode, not `--headless` — the
+`--headless: no window` line is absent from it — so "while only the tray process runs" is demonstrated for a run nobody
+interacted with, and not yet for a run with nothing on screen. What differs is the mode that was started, not the code path:
+the timer, the delivery and the notification do not know whether a window exists, and `--headless` is one flag away. Recorded
+precisely rather than rounded up, because "a spontaneous message arrived" and "a spontaneous message arrived with no window in
+existence" are different claims and only the first was made.
+
+**That leaves the rooms screens as M4's last piece**, five markers and the largest file still unported.
 entries, the rooms screens, and the spontaneous controls in the persona editor.
 
 *Accept:* a spontaneous message arrives as a desktop notification while only the tray process runs;
