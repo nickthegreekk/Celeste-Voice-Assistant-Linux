@@ -1413,12 +1413,16 @@ Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
         // or stop hosting the detail inside the category page. Both are a deliberate call for
         // whoever owns settings navigation; until then it is cosmetic only -- both arrows go
         // back to the same server list, and system back is bound to the same onBack.
-        // DEFERRED TO M3: `ModelsScreen(server, state, healthStatus, favoriteModels, onRefresh,
-        // onToggleFavorite, accentColor, onBack)`. The screen itself is the half of ModelScreens.kt
-        // that M1 did NOT take — the shared widgets the model picker needs came across, the screen
-        // did not — and it belongs with the rest of the model browsing. The list-to-detail state
-        // above (`modelsServerUrl`, `catalog`, `serverStatus`) is still computed, so this is a call
-        // to restore rather than a navigation to rebuild.
+        ModelsScreen(
+            server = modelsServer,
+            state = catalog[modelsServer.url] ?: ModelCatalogState.NotLoaded,
+            healthStatus = serverStatus[modelsServer.url],
+            favoriteModels = favoriteModels,
+            onRefresh = { service.fetchModelCatalog(modelsServer, force = true) },
+            onToggleFavorite = { service.toggleFavoriteModel(it) },
+            accentColor = currentThemeColor,
+            onBack = { modelsServerUrl = null }
+        )
         return@Column
     }
     SettingsSectionHeader(title = "Connections", icon = Icons.Default.Dns)

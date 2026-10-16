@@ -448,12 +448,18 @@ fun ChatList(
                                 menuMessageIndex = null
                             }
                         )
-                        // DEFERRED TO M3: the Share entry. Upstream builds an `ACTION_SEND`
-                        // intent and hands it to the system chooser — Android's cross-application
-                        // share sheet, which PLAN.md §7 substitutes with `--send-text` on the
-                        // command line. That flag is M3's to add, so the menu offers Copy, Edit and
-                        // Delete until then: an entry that opened nothing would be worse than its
-                        // absence, and the marker keeps the gap counted rather than forgotten.
+                        // DROPPED, NOT DEFERRED — and here is the record, because this one is a judgement
+                        // rather than §9's table. Upstream's Share entry built an `ACTION_SEND` intent
+                        // and handed it to the system chooser: Android's cross-application share
+                        // sheet. This platform has no such chooser, and §7 substitutes the *inbound*
+                        // direction with `--send-text` / `--send-file` (M3 built both). Outbound, the
+                        // two things a Share entry would do are already here: **Copy**, two rows up,
+                        // is the clipboard, and handing a file to another application is `xdg-open`,
+                        // which docs/BEYOND-THE-PORT.md keeps outside M0–M7 by §2's rule.
+                        //
+                        // So the menu keeps Copy, Edit and Delete, and this comment is why there is no
+                        // third substitute to write: a Share entry with nothing behind it is worse
+                        // than its absence, which is what the M1 marker said while it waited.
                         DropdownMenuItem(
                             text = { Text("Edit") },
                             leadingIcon = { Icon(Icons.Default.Edit, null, modifier = Modifier.size(18.dp)) },

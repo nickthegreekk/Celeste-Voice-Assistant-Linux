@@ -1,15 +1,14 @@
 package com.nikosm.voiceassistant
 
-// PARTIALLY PORTED IN M1. What is here is the shared half: the model-list widgets the M1 screens
-// call — LoadingRow, StaleNote, EmptyNote, ModelRowBody and FavoriteStar (all used by ModelPicker)
-// and ModelsEntryRow (used by SettingsScreens). What is NOT here is `ModelsScreen` itself and its
-// private helpers `ModelsHeader`, `filterEmptyMessage` and `ModelRow`, which are the whole-screen
-// feature and belong with the milestone that draws it. PLAN.md §7's row for this file says
-// "partially ported in M1" for the same reason, and docs/PROVENANCE.md repeats it.
+// PORTED WHOLE IN M3. The shared widgets came across in M1 with their first callers (PLAN.md §5's
+// shared-block rule); the screen itself and its three private helpers — `ModelsHeader`,
+// `filterEmptyMessage`, `ModelRow` — arrived with the milestone that draws it.
 //
-// The rule that decided the split is PLAN.md §5's: a shared building block arrives with its first
-// caller, and only whole features are deferred. `ModelsScreen` is reached from Settings, so its
-// call site carries the `DEFERRED TO M3` marker rather than this file carrying a stub.
+// The file's entire Android surface turned out to be one line: upstream's
+// `BackHandler(onBack = onBack)` at the top of `ModelsScreen`. A desktop window has no system back
+// gesture, and §9's substitution for this platform is the header's own arrow — which upstream draws
+// too, in `ModelsHeader` — so the call and its import are deleted rather than translated. Nothing
+// else in 467 lines named an Android type.
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
@@ -55,8 +54,183 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 
+/**
+ * The per-server models screen (step 3).
+ *
+ * ## Reading discipline
+ *
+ * Everything shown here is INFORMATIONAL and is worded "reported by this server". No
+ * capability value hides, blocks, disables or greys anything on this screen, and none of it
+ * feeds a gate anywhere else: the persona editor, image attach and tool use are untouched
+ * until step 4, and even then only for the model CHOICE, never for capability gating. The
+ * reason is measured, not theoretical — `/api/tags` and `/api/show` disagree with each
+ * other in both directions (see ModelCatalog.kt), so a value read here cannot be trusted as
+ * a capability claim.
+ *
+ * ## Layout
+ *
+ * A plain [Column] with no scroller of its own, exactly like `RoomEditor`/`SkillEditor`: the
+ * category page's LazyColumn is the single scroller. That is why the filter chips sit in a
+ * horizontally-scrolling Row — a nested vertical scroller here would fight the page.
+ */
+@Composable
+internal fun ModelsScreen(
+    server: ServerConfig,
+    state: ModelCatalogState,
+    healthStatus: String?,
+    favoriteModels: List<String>,
+    onRefresh: () -> Unit,
+    onToggleFavorite: (String) -> Unit,
+    accentColor: Color,
+    onBack: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    // Deleted: upstream's `BackHandler(onBack = onBack)` — system back returning to the server
+    // list. There is no system back here, and §9 names the substitute that already exists: the
+    // header's arrow, drawn by `ModelsHeader` below and wired to this same `onBack`.
 
+    var filters by rememberSaveable { mutableStateOf(setOf<ModelCapability>()) }
+    var favoritesOnly by rememberSaveable { mutableStateOf(false) }
+    var sort by rememberSaveable { mutableStateOf(ModelSort.NAME) }
 
+    // Fetch on FIRST open only. Never polled: the refresh control is the only other trigger.
+    LaunchedEffect(server.url) {
+        if (state is ModelCatalogState.NotLoaded) onRefresh()
+    }
+
+    val favorites = remember(favoriteModels) { favoriteModels.toSet() }
+    // No favorites for THIS server means the toggle starts on "Show all"; otherwise the
+    // list the user curated is what they want to see first.
+    val hasFavorites = remember(favorites, server.name) { serverHasFavorites(server.name, favorites) }
+    LaunchedEffect(hasFavorites) { if (!hasFavorites) favoritesOnly = false }
+
+    val loaded = state as? ModelCatalogState.Loaded
+    val unreachable = isServerUnreachable(healthStatus)
+    val selected = loaded?.let {
+        selectModels(it.entries, server.name, favorites, filters, favoritesOnly, sort)
+    } ?: emptyList()
+
+    Column(
+        modifier = modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        ModelsHeader(
+            server = server,
+            state = state,
+            unreachable = unreachable,
+            onRefresh = onRefresh,
+            onBack = onBack
+        )
+
+        // Controls: filters, sort, favorites toggle.
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // Deliberately NOT disabled when there are no favorites: switching to it is how
+            // the user reaches the empty state, which explains how to add a favorite.
+            FilterChip(
+                selected = favoritesOnly,
+                onClick = { favoritesOnly = !favoritesOnly },
+                label = { Text(if (favoritesOnly) "Favorites" else "Show all") }
+            )
+            FilterChip(
+                selected = sort == ModelSort.NAME,
+                onClick = { sort = if (sort == ModelSort.NAME) ModelSort.SIZE else ModelSort.NAME },
+                label = { Text(if (sort == ModelSort.NAME) "Name" else "Size") }
+            )
+            FILTERABLE_CAPABILITIES.forEach { capability ->
+                FilterChip(
+                    selected = capability in filters,
+                    onClick = {
+                        filters = if (capability in filters) filters - capability else filters + capability
+                    },
+                    label = { Text(capabilityLabel(capability)) }
+                )
+            }
+        }
+
+        when {
+            state is ModelCatalogState.Loading -> LoadingRow()
+            state is ModelCatalogState.Failed -> EmptyNote(
+                "Could not load models from this server. ${(state as ModelCatalogState.Failed).reason}"
+            )
+            loaded != null && selected.isEmpty() && !loaded.entries.isEmpty() ->
+                EmptyNote(filterEmptyMessage(filters, favoritesOnly))
+            loaded != null && selected.isEmpty() -> EmptyNote("No models on this server")
+            else -> Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                // A refresh keeps the stale list on screen rather than blanking it.
+                if (loaded?.stale == true) {
+                    StaleNote(loaded.degradedReason, unreachable)
+                }
+                selected.forEach { entry ->
+                    val favoriteKey = "[${server.name}] ${entry.name}"
+                    ModelRow(
+                        entry = entry,
+                        serverName = server.name,
+                        showState = loaded?.showStates?.get(entry.name) ?: ModelShowState.PENDING,
+                        isFavorite = favoriteKey in favorites,
+                        accentColor = accentColor,
+                        onToggleFavorite = { onToggleFavorite(favoriteKey) }
+                    )
+                }
+            }
+        }
+    }
+}
+
+private fun filterEmptyMessage(filters: Set<ModelCapability>, favoritesOnly: Boolean): String {
+    if (favoritesOnly) return "No favorites yet. Tap a star to add one."
+    if (filters.isEmpty()) return "No models on this server"
+    return "No model on this server reports " +
+        filters.joinToString(", ") { capabilityLabel(it).lowercase() } +
+        " — reported by this server"
+}
+
+@Composable
+private fun ModelsHeader(
+    server: ServerConfig,
+    state: ModelCatalogState,
+    unreachable: Boolean,
+    onRefresh: () -> Unit,
+    onBack: () -> Unit
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            IconButton(onClick = onBack) {
+                Icon(Icons.Default.ArrowBack, contentDescription = "Back to servers")
+            }
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = server.name,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+                // Informational only: the health dot never hides or disables anything here.
+                Text(
+                    text = if (unreachable) UNREACHABLE_LABEL else "Online",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (unreachable) MaterialTheme.colorScheme.error
+                    else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                )
+            }
+            IconButton(onClick = onRefresh) {
+                Icon(Icons.Default.Refresh, contentDescription = "Refresh models for ${server.name}")
+            }
+        }
+        val fetchedAt = (state as? ModelCatalogState.Loaded)?.fetchedAtMillis
+        Text(
+            text = modelFreshnessLabel(fetchedAt),
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
+        )
+    }
+}
 
 @Composable
 internal fun LoadingRow() {
@@ -85,6 +259,52 @@ internal fun EmptyNote(text: String) {
     )
 }
 
+/**
+ * One model row.
+ *
+ * The short name is prominent and the tag quieter, with the full name available underneath:
+ * model names like `hf.co/DavidAU/L3.1-Dark-Planet-SpinFire-Uncensored-8B-GGUF:q4_k_m` are
+ * far too long for one line, and the full name is never clipped — it wraps to two lines
+ * with an ellipsis.
+ */
+@Composable
+private fun ModelRow(
+    entry: ModelEntry,
+    serverName: String,
+    showState: ModelShowState,
+    isFavorite: Boolean,
+    accentColor: Color,
+    onToggleFavorite: () -> Unit
+) {
+    val description = modelContentDescription(entry, serverName, isFavorite)
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = 48.dp)
+            .semantics { contentDescription = description },
+        shape = RoundedCornerShape(12.dp),
+        color = Color.Black.copy(alpha = 0.2f),
+        border = BorderStroke(1.dp, accentColor.copy(alpha = 0.3f))
+    ) {
+        Row(
+            modifier = Modifier.padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            ModelRowBody(
+                entry = entry,
+                showState = showState,
+                accentColor = accentColor,
+                modifier = Modifier.weight(1f)
+            )
+            FavoriteStar(
+                isFavorite = isFavorite,
+                entryName = entry.name,
+                serverName = serverName,
+                onToggleFavorite = onToggleFavorite
+            )
+        }
+    }
+}
 
 /**
  * The name/chips/spec body of a model row, shared by the models screen and the persona

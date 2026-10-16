@@ -1088,10 +1088,20 @@ platform: the tray's "Listen now", a compositor binding to `celeste-linux --list
 section's stated reason for returning — "the user's one-tap voice entry is what the section comes back for" — answered in the words of
 the surface that now provides it, rather than with a row that would have asked a user to pin something no desktop has.
 
-`grep -rn 'DEFERRED TO M4' core/` returns nothing. What is left in the port: **two markers in M3** — `ModelsScreen`, a real screen
-still owed, and the message menu's Share entry, which §7 substitutes with the clipboard it already offers and with `--send-text`, so
-it wants a drop record rather than a build — and **two in M5**, both the skills screens. M4's own acceptance was met in substance
-earlier tonight, with the one unwitnessed clause named.
+`grep -rn 'DEFERRED TO M4' core/` returns nothing.
+
+**M3 closed the same evening, and both of its stragglers resolved the same way.** `ModelsScreen` and its three private helpers came
+across in a wholesale copy of `ModelScreens.kt` — the third time in one night that copying a file whole beat slicing it, and by now
+that is the method rather than the lucky answer: the widgets M1 had taken arrived with their first callers as §5's shared-block rule
+asked, and the screen arrived with the milestone that draws it. Its 467 lines needed exactly one deletion to compile:
+`BackHandler(onBack = onBack)`, because a desktop window has no system back gesture and §9's substitute is the header arrow upstream
+already draws. Its call site went in from upstream's own text, like the rooms call sites. The Share menu entry became a **recorded
+drop** rather than a build, and the reasoning is worth its line: this platform has no cross-application share sheet, §7 substitutes
+the *inbound* direction with the flags M3 built, Copy already *is* the clipboard, and handing a file to another application is
+`xdg-open` — which §2 and `BEYOND-THE-PORT` keep outside M0–M7.
+
+So the census reads **M3: 0, M4: 0, M5: 2** — the last two being the skills screens, which is M5's own work rather than a
+leftover.
 entries, the rooms screens, and the spontaneous controls in the persona editor.
 
 *Accept:* a spontaneous message arrives as a desktop notification while only the tray process runs;
