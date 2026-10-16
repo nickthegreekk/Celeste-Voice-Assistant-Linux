@@ -614,3 +614,38 @@ and it is the second place in the project that has to know which JDK is complete
 adding it would put a second JDK on the machine for an application that carries its own, which is PLAN.md §2.6's point, and the
 dependency namcap is asking for is inside `lib/runtime/`, where it cannot see it. *Missing url*: there is no published home for
 this port or for the upstream app, and a URL invented to silence a linter is worse than an empty field. → PLAN.md §4, §10 M6
+
+## 2026-10-16 — The `.deb`'s build environment, and a guard that asked the wrong question
+
+M6's Debian half. `packaging/debian/` is debhelper packaging built inside a Debian 13 container, and three forks in it were
+decided here rather than asked about.
+
+**The source is staged, not the checkout.** `dpkg-buildpackage` wants a source root with `debian/` at it, and PLAN.md §4 puts
+those files under `packaging/debian/`, so `build-package.sh` copies the tree — minus `.git`, build output and packaging output
+— into a `celeste-linux-<version>/` staging directory, puts `debian/` at its root, and builds there. Rejected: moving `debian/`
+to the repository root, which would contradict §4's layout to save a forty-line script.
+
+**`Build-Depends` lists fourteen C libraries in a package that compiles no C.** Not a mistake: `dh_shlibdeps` must find every
+library the bundled runtime and Skiko link against, because that is how it decides which package owns each one, and an
+uninstalled library is an error rather than a guess — measured, the first container build died at "cannot find library
+libX11.so.6 … cannot continue due to the errors listed above". The `-dev` names are used rather than the runtime ones because
+they are the stable ones across releases: Debian 13 spells two of the runtimes `libpng16-16t64` and `libasound2t64` after the
+64-bit `time_t` transition, and a `Build-Depends` should not have to be renamed along with it.
+
+**The container is the build environment; the source is mounted read-only.** The `.deb` cannot be assembled anywhere but
+Debian, because the bundled runtime links the build host's glibc (§12's risk row), so the Containerfile carries the toolchain
+— `openjdk-25-jdk-headless`, `debhelper`, `zip` and `unzip`, `build-essential`, the library packages — and the tree arrives as
+a volume rather than as a build context, which also keeps `dpkg-buildpackage` from ever writing into the checkout. The
+Containerfile restates `control`'s `Build-Depends`, which is duplication with a reason: nothing reads a control file to build
+an image, and `dpkg-checkbuilddeps` will refuse to build if any of them is missing.
+
+**The defect that made the whole exercise worth running: the ONNX cut silently did not happen.** `unzip` was missing from the
+container, and the guard was a *skip test* — `unzip -l … || continue` — which cannot tell "the tool failed" from "already
+trimmed". The second guard tested that the jar existed, and it did. So the `.deb` shipped 93,522,826 bytes of onnxruntime
+against the Arch package's 5,959,524, and what found it was comparing the two packages rather than reading either. The fix is
+a different *question* rather than a tighter condition: after the cut, **exactly one platform directory must remain in the
+jar**, and both packagings now assert that — the PKGBUILD too, since its loop had the same shape and the same hole in
+principle. The general form is worth keeping: when a step is conditional, assert its post-condition, because the condition
+itself can be wrong in ways the step never notices.
+
+→ PLAN.md §4, §10/M6; `packaging/debian/`

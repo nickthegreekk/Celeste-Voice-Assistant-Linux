@@ -21,21 +21,51 @@
 # have no `jmods` at all and the app image could not be built. `JAVA_HOME` is set so that
 # `debian/rules`' smoke test uses this JDK rather than whatever `java` a PATH may hold.
 #
-# `zip` makes the ONNX cut; `debhelper` and `dpkg-dev` are the packaging; `fakeroot` is what
-# `dpkg-buildpackage` reaches for on the way.
+# `zip` makes the ONNX cut and `unzip` tests it — the missing half is what let the first container
+# build ship the untrimmed jar, since `unzip -l … || continue` cannot tell a missing tool from a
+# trimmed jar. `debhelper` and `dpkg-dev` are the packaging; `fakeroot` is what `dpkg-buildpackage`
+# reaches for on the way.
 FROM debian:trixie
 
+# `build-essential` is not decoration: `dpkg-buildpackage` refuses to start without it — measured,
+# "unmet build dependencies: build-essential:native" — and `make` is what runs `debian/rules`.
+#
+# The `lib*-dev` packages at the end are `debian/control`'s `Build-Depends` restated, which is
+# duplication with a reason: nothing reads a control file to build a container image, and
+# `dpkg-checkbuilddeps` will refuse to build if any of them is missing. They are there for
+# `dh_shlibdeps`, which must find every library the bundled runtime links against in order to say
+# which package owns it — see the comment in `control` for the error that taught us.
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
+      build-essential \
       debhelper \
       dpkg-dev \
       fakeroot \
       zip \
+      unzip \
       ca-certificates \
       openjdk-25-jdk-headless \
+      libasound2-dev \
+      libfontconfig-dev \
+      libfreetype-dev \
+      libgif-dev \
+      libglvnd-dev \
+      libharfbuzz-dev \
+      libjpeg-dev \
+      liblcms2-dev \
+      libpng-dev \
+      libx11-dev \
+      libxext-dev \
+      libxi-dev \
+      libxrender-dev \
+      libxtst-dev \
  && rm -rf /var/lib/apt/lists/*
 
-ENV JAVA_HOME=/usr/lib/jvm/java-25-openjdk
-ENV PATH=/usr/lib/jvm/java-25-openjdk/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+# Debian's directory name carries the architecture — `/usr/lib/jvm/java-25-openjdk-amd64`, not the
+# `/usr/lib/jvm/java-25-openjdk` that the same JDK is called on other distributions, which is what
+# this said until the container was asked. Measured inside it: 69 `jmods`, the whole JDK, shipped by
+# `openjdk-25-jdk-headless`.
+ENV JAVA_HOME=/usr/lib/jvm/java-25-openjdk-amd64
+ENV PATH=/usr/lib/jvm/java-25-openjdk-amd64/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
 WORKDIR /src

@@ -56,16 +56,25 @@ override_dh_auto_build:
 	# before Gradle has built anything, so it would fail exactly the clean build it is meant to guard.
 	ls $(APP_IMAGE)/lib/app/core-$(VERSION)-*.jar >/dev/null 2>&1 || \
 	  { echo "no core-$(VERSION) jar in the app image: changelog and the build's version have drifted apart" >&2; exit 1; }
+	# The post-condition is the point. **The first container build skipped this cut in silence**:
+	# `unzip` was not installed, `unzip -l … || continue` read "the tool is missing" as "already
+	# trimmed", and the package shipped the untrimmed 90 MB jar — caught by comparing the .deb
+	# against the Arch package, 93,522,826 bytes against 5,959,524. A skip test cannot tell those
+	# two apart; what *must be true afterwards* can, so that is what is checked instead.
 	found=0; \
 	for jar in $(APP_IMAGE)/lib/app/onnxruntime-*.jar; do \
 	  [ -e "$$jar" ] || continue; \
 	  found=1; \
-	  unzip -l "$$jar" | grep -q 'ai/onnxruntime/native/win-x64/' || continue; \
-	  zip -q -d "$$jar" \
-	    'ai/onnxruntime/native/win-x64/*' \
-	    'ai/onnxruntime/native/osx-x64/*' \
-	    'ai/onnxruntime/native/osx-aarch64/*' \
-	    'ai/onnxruntime/native/linux-aarch64/*'; \
+	  if unzip -l "$$jar" | grep -q 'ai/onnxruntime/native/win-x64/'; then \
+	    zip -q -d "$$jar" \
+	      'ai/onnxruntime/native/win-x64/*' \
+	      'ai/onnxruntime/native/osx-x64/*' \
+	      'ai/onnxruntime/native/osx-aarch64/*' \
+	      'ai/onnxruntime/native/linux-aarch64/*'; \
+	  fi; \
+	  platforms=$$(unzip -l "$$jar" | grep -oE 'ai/onnxruntime/native/[^/]+/' | sort -u | wc -l); \
+	  [ "$$platforms" = 1 ] || \
+	    { echo "the onnxruntime jar still carries $$platforms platform directories, and this package can load one: the cut did not happen (unzip installed? paths changed?)" >&2; exit 1; }; \
 	done; \
 	[ "$$found" = 1 ] || \
 	  { echo "no onnxruntime jar in the app image: the cut has nothing to cut, and this package would ship every platform's natives" >&2; exit 1; }

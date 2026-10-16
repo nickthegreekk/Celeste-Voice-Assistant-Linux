@@ -1166,9 +1166,35 @@ error, and four dependencies read out of the bundled libraries' own `NEEDED` ent
 the hierarchy the icon is installed into. The two left standing: *Dependency java-runtime … not included*, because adding it
 would put a second JDK on the machine for an application that carries its own — §2.6's whole point — and *Missing url*,
 because there is no published home for this port or for the upstream app and a URL invented to silence a linter is worse than
-an empty field. **The package is 111,408,490 bytes** with the trimmed jar inside it. What M6 still owes: the `debian/` files
-with this same cut in their rules, the Arch and Debian 13 container builds, the install/run/uninstall acceptance in both, and
-the README's install section.
+an empty field. **The package is 111,408,490 bytes** with the trimmed jar inside it.
+
+**The `debian/` half landed next, and it took three container builds to be right — each one a fact that reading could not have
+given.** `packaging/debian/` is debhelper packaging (`control`, `rules`, `changelog`, `copyright`, `.install`, `.links`,
+`source/format`), built inside Debian 13 by `packaging/debian/Containerfile` from a *staged copy* of the tree:
+`dpkg-buildpackage` wants a source root with `debian/` at it, and this repository keeps its Debian files under `packaging/`.
+What the builds taught, in order. `dpkg-buildpackage` refuses to start without `build-essential` — "unmet build dependencies:
+build-essential:native". `dh_shlibdeps` must *find* every library the bundled runtime links against in order to say which
+package owns it, which is where `Depends`'s `libx11-6`, `libxi6`, `libxtst6`, `libgl1`, `libasound2t64`, `libpng16-16t64` and
+the rest come from: the same set namcap found by hand on the Arch side, computed here by the tool that owns the question.
+And **Debian's own JDK 25 is `openjdk-25-jdk-headless`, which ships `jmods`** — the thing this milestone spent a build
+discovering the hard way on Arch is one apt line here.
+
+**And the third build found a defect worth more than the package: the ONNX cut had not run at all.** `unzip` was not
+installed in the container, `unzip -l … || continue` read "the tool is missing" as "already trimmed", and the `found` guard
+passed because the jar *existed*. The `.deb` was 186,596,996 bytes against the Arch package's 111 MB, and the reason was one
+comparison — `onnxruntime-*.jar` at 93,522,826 bytes in the `.deb` against 5,959,524 in the `.pkg.tar.zst`. The fix is not a
+tighter condition but a different question: **a skip test cannot tell a missing tool from finished work, so what is asserted
+now is what must be *true afterwards* — exactly one platform directory survives in the jar** — and both packagings carry that
+post-condition. With it the `.deb` is **99,618,448 bytes** (xz, against the Arch package's zstd), plus a 1.45 MB `dbgsym`
+companion that debhelper produces by default.
+
+**M6's acceptance is therefore met on both distribution families**, and by running rather than by inspection. A clean Arch
+container: `pacman -U` pulls all seven declared dependencies, `celeste-linux --selftest` prints the XDG paths and exits 0 in
+**0.24 s**, and `pacman -Rns` leaves nothing under `/usr`. A clean Debian 13 container: apt pulls `pipewire-bin`,
+`libnotify-bin`, `libglib2.0-bin`, `libxtst6` and `hicolor-icon-theme`, the installed binary runs in **0.30 s** with
+**zero `openjdk` packages in the image**, and `apt-get remove` leaves nothing under `/usr` either. The audio warnings both
+containers print are the documented graceful answer to having no sound server. What M6 still owes is the README's install
+section — which can now be written from what the containers actually did rather than from the packaging's intent.
 
 That leaves **M7 (hardening)**, which is an estimate rather than a measurement, and therefore where the remaining percentage is
 softest.

@@ -2,7 +2,29 @@ Source: celeste-linux
 Section: sound
 Priority: optional
 Maintainer: Nikos <nikos@localhost>
-Build-Depends: debhelper-compat (= 13), openjdk-25-jdk-headless, zip
+# The library list is not a mistake in a Java package. Nothing here compiles C, and these are not
+# needed to build anything — `dh_shlibdeps` is: to turn the bundled runtime's and Skiko's `NEEDED`
+# entries into `Depends`, it must find each library on the system and ask which package owns it, and
+# a library that is not installed is an error rather than a guess. Measured: the first container
+# build died at "cannot find library libX11.so.6 … cannot continue due to the errors listed above".
+# The `-dev` packages are named rather than the runtime ones because their names are the stable ones
+# across releases — Debian 13 spells two of the runtimes `libpng16-16t64` and `libasound2t64` after
+# the 64-bit `time_t` transition, and a `Build-Depends` should not have to be renamed with it.
+Build-Depends: debhelper-compat (= 13), openjdk-25-jdk-headless, zip, unzip,
+ libasound2-dev,
+ libfontconfig-dev,
+ libfreetype-dev,
+ libgif-dev,
+ libglvnd-dev,
+ libharfbuzz-dev,
+ libjpeg-dev,
+ liblcms2-dev,
+ libpng-dev,
+ libx11-dev,
+ libxext-dev,
+ libxi-dev,
+ libxrender-dev,
+ libxtst-dev
 Standards-Version: 4.7.0
 Rules-Requires-Root: no
 # No `Homepage:` — there is no published home for this port or for the upstream Android app, and a

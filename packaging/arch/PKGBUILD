@@ -94,16 +94,28 @@ build() {
   # second build of an already-trimmed image is exactly that, measured rather than assumed — so the
   # cut is made only when there is something to cut, and the test is one of the platform directories
   # the patterns name.
-  local jar found=0
+  #
+  # **The post-condition is what makes that safe.** The Debian half of this packaging shipped the
+  # untrimmed jar for one build because `unzip` was missing there and a skip test cannot tell "the
+  # tool failed" from "already trimmed". This loop has the same shape and the same hole in
+  # principle, so it ends the same way rather than differently: count what is left and refuse to
+  # continue unless exactly one platform survives.
+  local jar found=0 platforms
   for jar in "$app"/lib/app/onnxruntime-*.jar; do
     [ -e "$jar" ] || continue
     found=1
-    bsdtar -tf "$jar" | grep -q '^ai/onnxruntime/native/win-x64/' || continue
-    zip -q -d "$jar" \
-      'ai/onnxruntime/native/win-x64/*' \
-      'ai/onnxruntime/native/osx-x64/*' \
-      'ai/onnxruntime/native/osx-aarch64/*' \
-      'ai/onnxruntime/native/linux-aarch64/*'
+    if bsdtar -tf "$jar" | grep -q '^ai/onnxruntime/native/win-x64/'; then
+      zip -q -d "$jar" \
+        'ai/onnxruntime/native/win-x64/*' \
+        'ai/onnxruntime/native/osx-x64/*' \
+        'ai/onnxruntime/native/osx-aarch64/*' \
+        'ai/onnxruntime/native/linux-aarch64/*'
+    fi
+    platforms=$(bsdtar -tf "$jar" | grep -oE '^ai/onnxruntime/native/[^/]+/' | sort -u | wc -l)
+    [ "$platforms" = 1 ] || {
+      printf '%s\n' "ERROR: the onnxruntime jar still carries $platforms platform directories, and this package can load one: the cut did not happen (bsdtar working? paths changed?)" >&2
+      return 1
+    }
   done
   # A silent skip is the failure mode worth refusing: if the jar is renamed or gone, the package
   # would ship every platform's natives and nothing above would have said so. `printf … >&2; return
