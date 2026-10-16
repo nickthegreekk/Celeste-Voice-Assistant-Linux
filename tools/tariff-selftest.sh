@@ -31,7 +31,9 @@ harness() {
     tariff_report'
 }
 
-off=$(( ( $(date +%s) - $(date -u +%s) ) / 3600 ))
+z=$(date +%z)
+sign=1; [ "${z:0:1}" = "-" ] && sign=-1
+off=$(( sign * 10#${z:1:2} ))
 first_end=$(printf '%02d:00' $(( (4  + off) % 24 )))
 second_end=$(printf '%02d:00' $(( (10 + off) % 24 )))
 monday=$(printf '%02d:00' $(( (1  + off) % 24 )))

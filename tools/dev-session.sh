@@ -95,7 +95,10 @@ deepseek_get() { # $1 = path. sets CODE and BODY
 tariff_report() {
   local utc_s off dow mins
   utc_s="${TARIFF_UTC_EPOCH:-$(date -u +%s)}"
-  off=$(( ( $(date +%s) - $(date -u +%s) ) / 3600 ))
+  local z sign
+  z=$(date +%z)
+  sign=1; [ "${z:0:1}" = "-" ] && sign=-1
+  off=$(( sign * 10#${z:1:2} ))
   dow=$(date -u -d "@$utc_s" +%u)
   mins=$(( 10#$(date -u -d "@$utc_s" +%H) * 60 + 10#$(date -u -d "@$utc_s" +%M) ))
 
