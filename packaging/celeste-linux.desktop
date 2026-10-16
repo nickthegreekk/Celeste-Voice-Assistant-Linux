@@ -1,0 +1,15 @@
+[Desktop Entry]
+Type=Application
+Name=Celeste
+GenericName=Voice assistant
+Comment=Chat, listen and generate images with your own models
+# `celeste-linux` by name, like the user unit and the per-persona entries: the packages put it on
+# the PATH, and a build tree points its own entry somewhere else rather than this file guessing.
+Exec=celeste-linux
+Icon=celeste-linux
+Terminal=false
+Categories=Utility;AudioVideo;
+Keywords=assistant;voice;chat;tts;stt;
+# `--listen` is the hotkey affordance (seam 12) and `--headless` the daemon; both are flags of this
+# same binary, so the menu entry and the tray are two doors into one process (PLAN.md §3/D1).
+StartupNotify=true

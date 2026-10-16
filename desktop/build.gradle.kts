@@ -83,11 +83,29 @@ compose.desktop {
                 appCategory = "Utility"
                 debMaintainer = "nikos@localhost"
             }
-            // Every module, rather than a jdeps guess: the runtime is what makes the image run on a
-            // machine with no JDK, and ONNX Runtime, Compose/Skiko, OkHttp and the TLS stack
-            // between them touch more of the platform than a hand-written list survives. §12's risk
-            // row says to measure the image; that measurement is below.
-            includeAllModules = true
+            // A module list rather than `includeAllModules = true`, which measured 354 MB with
+            // 165 MB of runtime. Every entry here is a *call site's* requirement rather than a
+            // guess, and the reasoning is the list:
+            //   java.desktop      AWT and Swing — the window, the tray, the file dialogs, Skiko
+            //   jdk.unsupported   sun.misc.Unsafe, which Skiko and Netty-style code still reach for
+            //   java.instrument   what Compose's runtime and OkHttp ask for on the JVM
+            //   java.management   ONNX Runtime's and OkHttp's JMX usage
+            //   java.naming       TLS and DNS resolution paths inside the JDK's own clients
+            //   java.xml          org.json's and the ported code's XML-adjacent helpers
+            //   jdk.crypto.ec     the elliptic-curve half of TLS — every backend here is HTTPS
+            // What this list cannot promise is that it is complete: the self-test exercises paths,
+            // a graphics stack and subprocess spawning, and it does *not* exercise TLS, an ONNX
+            // inference or an audio device. Those are verified by running the packaged application
+            // for real, which is what M6's acceptance does in its containers.
+            modules(
+                "java.desktop",
+                "jdk.unsupported",
+                "java.instrument",
+                "java.management",
+                "java.naming",
+                "java.xml",
+                "jdk.crypto.ec",
+            )
             // JDK 25 warns that Skiko loads its native library without declaring native access,
             // and PLAN.md §10/§6 asks for this flag in the packaged application's options.
             jvmArgs += listOf("--enable-native-access=ALL-UNNAMED")

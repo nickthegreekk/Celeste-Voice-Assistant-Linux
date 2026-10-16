@@ -1123,7 +1123,21 @@ image could not be built at all. The system JDK 27 has them and a 27 runtime run
 `javaHome` is pinned to it, with a fallback to the toolchain for a machine that differs. The trade is recorded in the build file:
 that one knob also decides which JDK `:desktop:run` uses.
 
-**Measured, not estimated: the image is 354 MB, 165 MB of it the bundled runtime** — which is what §12's risk row asked for and
+**The runtime was then trimmed to the call sites that need it, and the image went 354 MB → 269 MB.** `includeAllModules = true`
+became a seven-module list, each entry written down with the call site that requires it (`java.desktop` for AWT and Skiko,
+`jdk.unsupported` for `sun.misc.Unsafe`, `java.instrument`, `java.management`, `java.naming`, `java.xml`, `jdk.crypto.ec` for the
+elliptic-curve half of TLS). The runtime is now 81 MB where it was 165. **What that list cannot promise is completeness** — the
+self-test exercises paths, a graphics stack and an application, and it does not exercise TLS, an ONNX inference or an audio device —
+so the packaged application running for real is what closes it, which is what the containers are for.
+
+**And the remaining 187 MB is the application itself, where the measurement found something worth knowing:** the biggest single
+entry is `onnxruntime-1.19.2.jar` at 90 MB, and *inside* it are `native/win-x64/onnxruntime.pdb` — 301 MB of Windows debug symbols
+— plus macOS natives (29 MB and 26 MB) and a `linux-aarch64` library. The linux-x64 library this machine runs is 16 MB. So the
+packaging can shed most of that jar by excluding platform directories it will never load, which is a change to the *packaging
+scripts* rather than to the build's dependency graph, and therefore belongs with the PKGBUILD and the `debian/` rules rather than
+here. Recorded rather than done, because it is the kind of cut that should be visible in the file that makes it.
+
+**Measured, not estimated: the image was 354 MB, 165 MB of it the bundled runtime** — which is what §12's risk row asked for and
 what makes the next slice obvious, since `includeAllModules = true` is the safe choice rather than the small one. And the image
 *runs*: `bin/celeste-linux --selftest` printed the resolved XDG paths, the audio devices and the upstream commit, with no Gradle
 and no system JDK in the picture. What M6 still owes: the PKGBUILD, the `debian/` files and their container builds, an application
