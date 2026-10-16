@@ -681,6 +681,26 @@ substantially met. Still open for M1: settings surviving a restart, which nobody
 too — ComfyUI is stopped while the build has the RAM — and when it returns, check the app's ComfyUI entry address,
 because the imported one points at 192.0.2.12:8188 rather than the local 127.0.0.1:8188.]
 
+[Verified by hand by the user, 2026-10-16 (later the same day): **voice input and voice output with a headset on an
+Ollama persona (`Friend`) work**, text chat works, and ComfyUI image generation works. That is M2's acceptance in
+substance — the first hands-free use of the repaired HTTPS path, which is the voice-in sibling of the cloud
+conversation that first proved `595faaa` by use — and it also closes the ComfyUI question this file left open two
+paragraphs up: ComfyUI is running again and both `127.0.0.1:8188` and the imported `192.0.2.12:8188` answer
+`GET /system_stats` with 200, so the imported entry address is fine, and that entry carries a 2,556-character
+`comfyWorkflow`, which is what the ComfyUI route needs (`COMFY_NO_WORKFLOW_MESSAGE` is thrown without one).
+
+**Two clauses of this milestone's acceptance are not covered by that report, and one of them has never been measured
+by anyone:** it does not say *ten consecutive* exchanges with no dropped utterance — it says the voice works, which
+is the substance but not the count — and §6's latency budget (capture start to first chunk < 50 ms; utterance end to
+WAV on disk < 100 ms) has no instrumentation at all. The second is the honest gap: those two numbers are the
+milestone's stated budget and the only place they could be checked is a run like the one just done, with timing around
+`VADAudioRecorder`'s open and its `saveToWav`. Either measure them or record them as unmeasured; do not let "voice
+works" quietly stand in for "the budget is met".
+
+Also still unlooked-at: **the device pickers' rendering** (Settings → Audio, and a persona editor's Output device
+row). The voice run above used whatever the machine's default devices are, which is a different question from the
+pickers drawing and writing correctly — those were compiled and their logic is tested, but no one has seen them.]
+
 
 **M2 — Voice (3–6 d, revised: platform work only).** No `:core` porting here — the audio engine and its callers landed in M1. Implement seams 1/2/3/6 for real, replacing the `Stub*` classes (`grep -rn 'Stub' platform/src/main` is the list), then add capture and VAD (`VADAudioRecorder.kt`, `VADDetector.kt`), `/transcribe`, the three TTS routes, the hands-free loop, push-to-talk, source/sink selection, mute and cancel-playback.
 hands-free loop, push-to-talk hotkey, source/sink selection, mute, cancel-playback.
