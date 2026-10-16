@@ -19,6 +19,10 @@ import java.nio.file.Path
  */
 class SharedContentTest {
 
+    /** Stands in for `user.home`; the parser is handed it rather than reading it (:core resolves
+     * nothing — AGENTS.md §4). */
+    private val home: Path = Path.of("/home/tester")
+
     // ------------------------------------------------------------------ the append and its cap
 
     @Test
@@ -67,7 +71,7 @@ class SharedContentTest {
     fun `a text payload is a text request`() {
         assertEquals(
             SharedRequest.Text("hello there"),
-            parseShareArgs(listOf("--send-text", "hello there")),
+            parseShareArgs(listOf("--send-text", "hello there"), home),
         )
     }
 
@@ -77,20 +81,20 @@ class SharedContentTest {
         // line outlives it, so nothing has to be copied before the attachment is set.
         assertEquals(
             SharedRequest.Image(Path.of("/tmp/photo.PNG")),
-            parseShareArgs(listOf("--send-file", "/tmp/photo.PNG")),
+            parseShareArgs(listOf("--send-file", "/tmp/photo.PNG"), home),
         )
     }
 
     @Test
     fun `a flag with no value is nothing`() {
-        assertNull(parseShareArgs(listOf("--send-text")))
-        assertNull(parseShareArgs(listOf("--send-file")))
+        assertNull(parseShareArgs(listOf("--send-text"), home))
+        assertNull(parseShareArgs(listOf("--send-file"), home))
     }
 
     @Test
     fun `an empty value is nothing`() {
-        assertNull(parseShareArgs(listOf("--send-text", "")))
-        assertNull(parseShareArgs(listOf("--send-file", "   ")))
+        assertNull(parseShareArgs(listOf("--send-text", ""), home))
+        assertNull(parseShareArgs(listOf("--send-file", "   "), home))
     }
 
     @Test
@@ -98,8 +102,8 @@ class SharedContentTest {
         // The composer renders and sends its attachment as an image, so a PDF would be a broken
         // thumbnail and a refused turn. Upstream refused a non-image MIME type at this exact point;
         // on a command line the extension is what a MIME type becomes.
-        assertNull(parseShareArgs(listOf("--send-file", "/tmp/report.pdf")))
-        assertNull(parseShareArgs(listOf("--send-file", "/tmp/no-extension")))
+        assertNull(parseShareArgs(listOf("--send-file", "/tmp/report.pdf"), home))
+        assertNull(parseShareArgs(listOf("--send-file", "/tmp/no-extension"), home))
     }
 
     @Test
@@ -108,20 +112,51 @@ class SharedContentTest {
         // unrecognised argument must not stop the payload being read.
         assertEquals(
             SharedRequest.Text("note"),
-            parseShareArgs(listOf("--listen", "--unknown", "--send-text", "note")),
+            parseShareArgs(listOf("--listen", "--unknown", "--send-text", "note"), home),
         )
-        assertNull(parseShareArgs(listOf("--listen", "--headless")))
+        assertNull(parseShareArgs(listOf("--listen", "--headless"), home))
     }
 
     @Test
     fun `the first payload wins, because two shared items are two turns nobody composed`() {
         assertEquals(
             SharedRequest.Text("first"),
-            parseShareArgs(listOf("--send-text", "first", "--send-text", "second")),
+            parseShareArgs(listOf("--send-text", "first", "--send-text", "second"), home),
         )
         assertEquals(
             SharedRequest.Image(Path.of("/tmp/a.png")),
-            parseShareArgs(listOf("--send-file", "/tmp/a.png", "--send-text", "second")),
+            parseShareArgs(listOf("--send-file", "/tmp/a.png", "--send-text", "second"), home),
+        )
+    }
+
+    @Test
+    fun `a leading tilde is expanded, because nothing else expands it`() {
+        // Measured on 2026-10-16: `--send-file ~/Pictures/VoiceAssistant/Gen_….png` reached the
+        // application with the tilde intact — neither `gradle --args` nor a `.desktop` entry's
+        // `Exec` line is a shell — so the attachment was a file that does not exist and the chat
+        // bubble drew a black rectangle with nothing to explain it. The shell habit has to be
+        // honoured here, or the path has to be refused; silently attaching nothing is the one
+        // option that was wrong.
+        assertEquals(
+            SharedRequest.Image(Path.of("/home/tester/Pictures/a.png")),
+            parseShareArgs(listOf("--send-file", "~/Pictures/a.png"), home),
+        )
+    }
+
+    @Test
+    fun `a bare tilde expands to the home directory, and is then not an image`() {
+        // The expansion and the image rule are separate, and this is where they meet: `~` becomes a
+        // directory path, and a directory has no image extension, so nothing is attached.
+        assertNull(parseShareArgs(listOf("--send-file", "~"), home))
+    }
+
+    @Test
+    fun `a tilde naming someone else is left alone rather than guessed at`() {
+        // `~bob/x.png` is another user's home. Inventing an absolute path for it would be this
+        // process making a path up; left as it is, the landing's existence check names it.
+        assertEquals(
+            SharedRequest.Image(Path.of("~bob/x.png")),
+            parseShareArgs(listOf("--send-file", "~bob/x.png"), home),
         )
     }
 }

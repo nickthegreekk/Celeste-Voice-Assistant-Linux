@@ -87,20 +87,39 @@ private val SHAREABLE_IMAGE_EXTENSIONS = setOf("png", "jpg", "jpeg", "webp", "gi
  * entry or a script calls, and a malformed invocation should start the application rather than
  * refuse to.
  *
+ * A leading `~` is expanded against [home], because nothing else will: a shell expands it, and
+ * neither `gradle --args` nor a `.desktop` entry's `Exec` line does. Measured on 2026-10-16 — a
+ * `--send-file ~/Pictures/VoiceAssistant/Gen_….png` arrived with the tilde intact, the attachment
+ * was a file that does not exist, and the chat bubble rendered as a black rectangle with no clue
+ * why. [home] is a parameter rather than a `System.getProperty` call for AGENTS.md §4's reason:
+ * `:core` receives paths, it does not resolve them.
+ *
  * Public for `:desktop`; see [SharedRequest].
  */
-fun parseShareArgs(args: List<String>): SharedRequest? {
+fun parseShareArgs(args: List<String>, home: Path): SharedRequest? {
     for ((index, arg) in args.withIndex()) {
         val value = args.getOrNull(index + 1)?.takeIf { it.isNotBlank() } ?: continue
         when (arg) {
             "--send-text" -> return SharedRequest.Text(value)
             "--send-file" -> {
-                val path = runCatching { Path.of(value) }.getOrNull() ?: continue
+                val expanded = expandLeadingTilde(value, home)
+                val path = runCatching { Path.of(expanded) }.getOrNull() ?: continue
                 val extension = path.fileName?.toString()?.substringAfterLast('.', "")?.lowercase()
                 if (extension in SHAREABLE_IMAGE_EXTENSIONS) return SharedRequest.Image(path)
             }
         }
     }
     return null
+}
+
+/**
+ * `~/x` becomes `home/x`; `~` alone becomes [home]. A tilde naming another user (`~bob/x`) is left
+ * alone rather than guessed at — it will fail the caller's existence check and say so, which is a
+ * better answer than a path this process invented.
+ */
+private fun expandLeadingTilde(value: String, home: Path): String = when {
+    value == "~" -> home.toString()
+    value.startsWith("~/") -> home.resolve(value.removePrefix("~/")).toString()
+    else -> value
 }
 

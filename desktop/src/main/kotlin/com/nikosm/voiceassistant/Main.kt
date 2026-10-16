@@ -125,7 +125,9 @@ fun main(args: Array<String>) {
         // composition. Deliberately a *cold start* affordance — a second launch while one is running
         // is refused by the instance lock and names the holding pid (seam 12, 2026-10-16), so a
         // payload that arrived afterwards would have nowhere to land and no way to say so.
-        val sharedRequest = parseShareArgs(args.toList())
+        // `user.home` rather than anything from `AppEnv`: the CLI is where a user types `~`, and a
+        // `~` is a shell convention the application has to expand for itself — see parseShareArgs.
+        val sharedRequest = parseShareArgs(args.toList(), Path.of(System.getProperty("user.home")))
         if (sharedRequest != null) {
             appEnv.logger.i("Main", "sharing into the composer: ${sharedRequest::class.simpleName}")
         }

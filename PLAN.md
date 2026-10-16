@@ -896,7 +896,25 @@ size a dialog felt like taking.
 
 What is left in M3 is its third item, and it is the only one a click cannot exercise: `--send-text` / `--send-file`
 have not been invoked. One cold start closes it — `./gradlew :desktop:run --args="--send-text hello"` should come up
-with "hello" in the composer, and `--send-file <image>` with the attachment.]
+with "hello" in the composer, and `--send-file <image>` with the attachment.
+
+[Correction, later the same evening — the bracket above claims M3's acceptance met, and one of its three clauses was
+not. What the user reported as "image was just a black picture, not the cat ComfyUI rendered" was the **chat bubble**,
+and it was the *attachment* bubble: `--send-file ~/Pictures/VoiceAssistant/Gen_1792166349965.png` reached the
+application with the tilde intact, because neither `gradle --args` nor a `.desktop` entry's `Exec` line is a shell. The
+composer attached a path that does not exist, Coil drew nothing, and the bubble showed its own surface colour — which
+is precisely what "just a black picture" looks like from outside, with nothing anywhere saying why. The transcript has
+it in one line: the message at 19:05:09 carries `imagePath=~/Pictures/VoiceAssistant/Gen_1792166349965.png`,
+`exists=False`.
+
+Two repairs, both in the *flag* path rather than the image path: `parseShareArgs` now takes the home directory as a
+parameter and expands a leading `~` (a parameter and not a `System.getProperty` call, for §4's reason — `:core`
+receives paths), and the landing checks the file is there and names it when it is not, so a typo is a sentence instead
+of a black rectangle. A `~` naming another user is left alone and named by that check rather than guessed at.
+
+The generated image itself was never at risk — `gen_1792166193384.png`, 1,117,556 bytes, the same bytes the save
+copied — but the clause that matters, "**rendered in the chat**", is still unverified: what was rendered in the chat
+was a missing attachment. It is verified when the generation's own bubble is looked at and shows the cat.]
 
 The counts, settled by the anchored grep rather than by a mention count:
 

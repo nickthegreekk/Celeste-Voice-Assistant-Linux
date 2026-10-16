@@ -36,6 +36,7 @@ import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.*
+import java.nio.file.Files
 import java.nio.file.Path
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalWindowInfo
@@ -528,7 +529,16 @@ fun MainScreen(
                     service?.notifyUser("Shared text trimmed to $MAX_SHARED_TEXT_CHARS characters")
                 }
             }
-            is SharedRequest.Image -> attachedImage = request.path
+            is SharedRequest.Image -> {
+                // A path that is not there is a mistake on the command line, and an attachment of
+                // a missing file renders as an empty surface — which is how `~/…` arrived before
+                // the parser learned to expand it. Named, then not attached.
+                if (Files.isRegularFile(request.path)) {
+                    attachedImage = request.path
+                } else {
+                    service?.notifyUser("No such image: ${request.path}")
+                }
+            }
         }
         onSharedHandled()
     }
