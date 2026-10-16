@@ -6,7 +6,8 @@
 #   1. find the repo                      — fail before touching the machine if anything is wrong
 #   2. get the DeepSeek key               — from the environment, or 0600 keyfile, or ask once
 #   3. verify the key, resolve the model  — a wrong key or a guessed model id must fail HERE,
-#                                           not after the agent has spent tokens (and never v4-pro)
+#                                           not after the agent has spent tokens (and never v4-pro), and report whether the tariff is peak
+#                                           or off-peak right now, since peak doubles the rate
 #   4. ask for your sudo password ONCE    — sudo -v up front, so nothing stops halfway through
 #   5. free the machine                   — stop comfyui, unload ollama models (mirrors ~/bin/dev-mode)
 #   6. launch the harness in the repo
@@ -87,6 +88,50 @@ deepseek_get() { # $1 = path. sets CODE and BODY
   rm -f "$CURLE_CFG"
 }
 
+# Peak is 01:00-04:00 and 06:00-10:00 UTC, Monday to Friday; everything else - all weekend and Chinese
+# public holidays - is off-peak at half price (DeepSeek's published rule). Computed rather than stated,
+# so the line is still true at 08:59, and the local windows come from this machine's current offset.
+# TARIFF_UTC_EPOCH takes a UTC epoch and exists so both branches can be demonstrated with a fixed clock.
+tariff_report() {
+  local utc_s off dow mins
+  utc_s="${TARIFF_UTC_EPOCH:-$(date -u +%s)}"
+  off=$(( ( $(date +%s) - $(date -u +%s) ) / 3600 ))
+  dow=$(date -u -d "@$utc_s" +%u)
+  mins=$(( 10#$(date -u -d "@$utc_s" +%H) * 60 + 10#$(date -u -d "@$utc_s" +%M) ))
+
+  local windows
+  windows=$(printf '%02d:00-%02d:00 and %02d:00-%02d:00' \
+    $(( (1 + off) % 24 )) $(( (4 + off) % 24 )) $(( (6 + off) % 24 )) $(( (10 + off) % 24 )))
+
+  if [ "$dow" -le 5 ] && { { [ "$mins" -ge 60 ] && [ "$mins" -lt 240 ]; } || { [ "$mins" -ge 360 ] && [ "$mins" -lt 600 ]; }; }; then
+    local end_ts left
+    if [ "$mins" -lt 240 ]; then
+      end_ts=$(TZ=UTC date -d "$(date -u -d "@$utc_s" +%F) 04:00" +%s)
+    else
+      end_ts=$(TZ=UTC date -d "$(date -u -d "@$utc_s" +%F) 10:00" +%s)
+    fi
+    left=$(( (end_ts - utc_s) / 60 ))
+    warn "tariff: PEAK — double rate until $(date -d "@$end_ts" '+%H:%M') local (${left}m from now)"
+    say "${DIM}  off-peak halves it: 0.15 instead of 0.30 per M cache-miss input, 0.60 instead of 1.20 per M output${R}"
+  else
+    local next_ts="" ts d off_d start day
+    for off_d in 0 1 2 3 4; do
+      day=$(date -u -d "@$(( utc_s + off_d * 86400 ))" +%F)
+      for start in 01:00 06:00; do
+        ts=$(TZ=UTC date -d "$day $start" +%s)
+        d=$(date -u -d "@$ts" +%u)
+        [ "$d" -le 5 ] || continue
+        if [ "$ts" -gt "$utc_s" ]; then next_ts="$ts"; break 2; fi
+      done
+    done
+    ok "tariff: off-peak (half price) — peak today is $windows local"
+    if [ -n "$next_ts" ]; then
+      local delta=$(( (next_ts - utc_s) / 60 ))
+      say "${DIM}  next peak: $(date -d "@$next_ts" '+%a %H:%M') local, in $(( delta / 60 ))h $(( delta % 60 ))m${R}"
+    fi
+  fi
+}
+
 # ---------------------------------------------------------------- 1. repo
 hdr "repo"
 [ -d "$REPO" ] || die "repo not found: $REPO (set REPO=...)"
@@ -157,7 +202,7 @@ deepseek_get "/user/balance"
 if [ "$CODE" = "200" ] && command -v jq >/dev/null 2>&1; then
   BAL="$(printf '%s' "$BODY" | jq -r '(.balance_infos // [])[0] | "\(.total_balance // "?") \(.currency // "")"' 2>/dev/null || true)"
   [ -n "$BAL" ] && ok "balance: $BAL" || warn "balance: could not read the response"
-  say "${DIM}  flash is \$0.60/M output and \$0.15/M cache-miss input off-peak; peak (01:00-04:00, 06:00-10:00 UTC Mon-Fri) doubles it.${R}"
+  tariff_report
   say "${DIM}  watch the spend at $USAGE_URL — check it after every milestone.${R}"
 else
   warn "balance check unavailable (HTTP $CODE)"
