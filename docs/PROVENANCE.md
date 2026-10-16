@@ -568,6 +568,39 @@ microphone as a hot loop. Upstream could not hit it, because `AudioRecord.read` 
 that is still open. The seam's KDoc now says 0 means the stream has ended, and `VADAudioRecorder`
 breaks on it.
 
+### The two layers that both keep a default, and the label that lied
+
+Worth its own note because it is invisible until it is not. Linux audio has two places a default
+device can be recorded — PulseAudio's database, which `pactl get-default-sink`/`-source` read, and
+the PipeWire graph's default node, which WirePlumber marks with `*` in `wpctl status` and which
+`pw-play`/`pw-record` actually consult. The port only asks the second, because the second is what
+decides what happens.
+
+`LinuxAudioDevices` first asked the **first**, and on this machine the two agree for sinks and
+disagree for sources: `pactl get-default-source` names `alsa_input.pci-0000_2f_00.4.analog-stereo`
+while `wpctl status` marks no source at all — which is the same fact that makes `pw-record` fail with
+"no target node available", the failure seam 1's fallback exists for. So `--selftest` printed
+"(default)" beside the one input the recorder would refuse to use by default.
+
+`pactl`'s answer is a real query, so this was not a fabricated label — it was a true answer to a
+different question, which is the harder kind to notice. The seam now sources the marker from
+`wpctl status` + `wpctl inspect <serial>`, and `AudioDevice.isDefault`'s KDoc says which of the two
+it means. **The join is on `node.name`, not on the serial**: serials are PipeWire global object ids
+and they shift as nodes come and go — the same sink read as 34 in one command and 60 in another a
+minute later — so a join by id would have been silently wrong on exactly the machines where it
+mattered.
+
+The corresponding external check, without running anything of ours:
+
+```
+pactl get-default-source    -> alsa_input.pci-0000_2f_00.4.analog-stereo
+wpctl status                -> no source marked with '*'
+pw-record (no --target)     -> exit 1, "no target node available"
+```
+
+Three commands, three answers, and only two of them agree. The selftest now agrees with the pair
+that decides.
+
 ## Hand-written files in `core/`
 
 Not from upstream, so they have no upstream commit.

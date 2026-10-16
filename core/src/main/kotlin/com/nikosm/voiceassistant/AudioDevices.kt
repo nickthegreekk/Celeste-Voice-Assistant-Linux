@@ -10,7 +10,22 @@ package com.nikosm.voiceassistant
 data class AudioDevice(
     val id: String,
     val name: String,
-    /** True for the one the sound server is currently using, so a picker can say so. */
+    /**
+     * True for the device a player or recorder will use **when the caller names no device**.
+     *
+     * That is a narrower claim than it sounds, and the narrowness is the point. It does **not** mean
+     * "the one currently in use" — something may be playing through another one right now — and it
+     * is **not** whatever `pactl get-default-sink` answers. On Linux there are two layers that both
+     * keep a default, PulseAudio's database and the PipeWire graph's default node, and the players
+     * this port spawns consult only the second. On the development machine the two disagree for
+     * *sources*: `pactl get-default-source` names the analog input while WirePlumber marks no source
+     * at all, so a label sourced from the first said "(default)" beside the one device `pw-record`
+     * refuses to use without a `--target`.
+     *
+     * The seam therefore means the graph's default, and an implementation must ask the layer that
+     * decides what actually happens. An unmarked device — `false` everywhere — is a real answer: it
+     * is a machine where nothing will be chosen for you and the picker has to be used.
+     */
     val isDefault: Boolean = false,
 ) {
     /**

@@ -85,7 +85,7 @@ class LinuxAudioDevices(
         if (blocks != null) {
             val devices = parsePactl(blocks)
             if (devices.isNotEmpty()) {
-                val defaultName = defaultFromPactl(kind)
+                val defaultName = wpctlDefaultName(kind)
                 return devices.map { it.copy(isDefault = it.id == defaultName) }
             }
         }
@@ -141,9 +141,24 @@ class LinuxAudioDevices(
      * top-level section, then the sub-heading inside it, and reads the `* `<serial>. <description>`
      * entries between one sub-heading and the next.
      */
-    private fun parseWpctl(lines: List<String>, kind: String): List<AudioDevice> {
+    private data class WpctlEntry(val serial: Int, val isDefault: Boolean, val description: String)
+
+    private fun parseWpctl(lines: List<String>, kind: String): List<AudioDevice> =
+        wpctlEntries(lines, kind).map { entry ->
+            AudioDevice(
+                // The serial, because `pw-play --target` accepts it and this is the fallback path —
+                // reached when `pactl` is absent, which is when the PulseAudio spelling would not
+                // have helped anyway.
+                id = entry.serial.toString(),
+                name = entry.description.ifBlank { "node ${entry.serial}" },
+                isDefault = entry.isDefault,
+            )
+        }
+
+    /** The one walk over `wpctl status`, shared by the enumeration and the default lookup. */
+    private fun wpctlEntries(lines: List<String>, kind: String): List<WpctlEntry> {
         val wanted = if (kind == "sinks") "Sinks:" else "Sources:"
-        val devices = mutableListOf<AudioDevice>()
+        val entries = mutableListOf<WpctlEntry>()
         var inAudio = false
         var inList = false
 
@@ -168,26 +183,42 @@ class LinuxAudioDevices(
             val description = body.substringAfter('.', "").trim()
                 .substringBefore("[")   // drop the `[vol: 0.25]` suffix
                 .trim()
-            devices.add(
-                AudioDevice(
-                    // The serial, because `pw-play --target` accepts it and this is the fallback
-                    // path — reached when `pactl` is absent, which is when the PulseAudio spelling
-                    // would not have helped anyway.
-                    id = serial.toString(),
-                    name = description.ifBlank { "node $serial" },
-                    isDefault = isDefault,
-                )
-            )
+            entries.add(WpctlEntry(serial, isDefault, description))
         }
-        return devices
+        return entries
     }
 
-    /** `pactl get-default-sink`, which answers with the name and not with a state. */
-    private fun defaultFromPactl(kind: String): String? =
-        run(listOf("pactl", "get-default-" + if (kind == "sinks") "sink" else "source"))
-            ?.firstOrNull()
+    /**
+     * Which node is the default, asked of the layer that decides it — and this is deliberately not
+     * `pactl get-default-sink`.
+     *
+     * `pactl get-default-*` answers **PulseAudio's** question. `pw-play` and `pw-record` do not
+     * consult that database; they ask the PipeWire graph, whose default is the node WirePlumber
+     * marks with `*` in `wpctl status`. On the development machine those two answers **differ for
+     * sources**: `pactl get-default-source` names the analog input, `wpctl status` marks no source
+     * at all, and `pw-record` with no `--target` fails with "no target node available". So the
+     * picker labelled the one input the recorder would refuse to use as "(default)".
+     *
+     * It is a two-call answer and worth both. `wpctl status` gives the marked node's *serial*;
+     * `wpctl inspect <serial>` gives its `node.name`, which is the same spelling `pactl list`
+     * produced and therefore the thing that joins the two lists. Not the serial: those are PipeWire
+     * global object ids and they shift between runs, so the same sink was 34 in one command and 60
+     * in another a minute later — which is what a join by id would have silently got wrong.
+     *
+     * Null when there is no default, which is a real answer and printed as one: an unmarked device
+     * is a device the players will not choose on their own.
+     */
+    private fun wpctlDefaultName(kind: String): String? {
+        val status = run(listOf("wpctl", "status")) ?: return null
+        val serial = wpctlEntries(status, kind).firstOrNull { it.isDefault }?.serial ?: return null
+        return run(listOf("wpctl", "inspect", serial.toString()))
+            ?.firstOrNull { it.contains("node.name") }
+            ?.substringAfter("node.name", "")
+            ?.substringAfter("=", "")
             ?.trim()
+            ?.trim('"')
             ?.takeIf { it.isNotEmpty() }
+    }
 
     /**
      * Runs [command] and returns its output, or null if it cannot be run or does not answer in time.
