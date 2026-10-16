@@ -18,10 +18,22 @@ not stop for it. Stop only for the four cases listed in AGENTS.md §10.
 Two defects from the acceptance run, one of them needing a measurement before it could be called
 anything. **The unspoken replies** — three `chunk 0 could not be synthesised` lines, no reason —
 turned out to be a *decision* by the gateway, correctly provoked and invisibly reported: the reply
-quoted one Russian phrase, so the on-device script heuristic classified it as Russian (a rule kept
+carried a Russian phrase, so the on-device script heuristic classified it as Russian (a rule kept
 exactly as upstream wrote it: a translation reply must be spoken in the target language), the gateway
 answered `200 application/json` with `{"audio": null, "note": "Russian has no TTS voice available —
 text only."}`, and that note was logged at DEBUG — FINE, which `java.util.logging` never prints.
+
+**The phrase came from the transcription, and that is the finding that outlived the fix.** The reply
+carried it because the *user's own turn* had been transcribed as Russian: re-sending that turn's
+recording to `/transcribe` returns `{"text": " Я тут корректно"}` for 15.5 s of English speech —
+identically with and without a `language` field, which the endpoint does not accept. Whisper
+substituted a short fluent phrase in a language nobody spoke rather than failing, and the culprit is
+the audio it was handed: the recording has no energy at all above 4 kHz — the Bluetooth headset's
+HFP/CVSD telephone-band microphone, upsampled to 16 kHz by the capture path. So the chain is not "the
+TTS mis-detected the reply" but "the recogniser invented a language, everything downstream obeyed, and
+the voice route was the first link that refused to pretend". Nothing in the app can repair that — the
+remedy is the microphone, which the settings pickers already allow — but it is why threading the
+diagnostics was worth doing: a silent reply three steps from its cause is unattributable.
 
 **So the reason travels, in the caller's words, to the line a user reads.** `synthesizeWithGateway`
 returns a `GatewaySpeech` whose `noAudioReason` is non-null exactly when the audio is null;
