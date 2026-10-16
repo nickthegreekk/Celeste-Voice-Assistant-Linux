@@ -817,23 +817,18 @@ internal fun adaptiveThemeDescription(): String =
         "Unavailable: deriving colors from the wallpaper is an Android feature with no desktop " +
             "equivalent, so the standard theme is used instead."
 
-/**
- * "Add to Quick Settings" — the tile is otherwise invisible to users, so offer the
- * system's own placement prompt. [android.app.StatusBarManager.requestAddTileService]
- * arrived in API 33; below that the tile is added by editing the panel by hand, so this
- * row is absent rather than dead.
- *
- * The prompt is best-effort: a device that refuses it (OEM policy, repeated denials)
- * must not crash the settings screen, hence the `runCatching`.
- */
-// DEFERRED TO M4: `QuickSettingsTileRow()` — the whole composable, not an empty one.
+// DROPPED, NOT DEFERRED — PLAN.md §9's substitution table, and this comment is the record.
 //
-// Upstream drew the "Add Celeste to your Quick Settings panel" copy and a button calling
-// `StatusBarManager.requestAddTileService(ComponentName(context, CelesteTileService::class.java),
-// context.getString(R.string.tile_celeste_label), Icon.createWithResource(context,
-// R.drawable.ic_tile_celeste), context.mainExecutor)`. PLAN.md §9 drops the tile and names its
-// equivalent rather than a resurrection: the tray, which is M4's and can carry the same one-tap
-// voice entry without asking the user to pin anything. Its call site carries the same marker.
+// Upstream's `QuickSettingsTileRow()` drew "Add Celeste to your Quick Settings panel" and a button
+// calling `StatusBarManager.requestAddTileService(ComponentName(context, CelesteTileService::class
+// .java), …)` — an Android panel the user has to pin the tile into by hand, and an API that only
+// exists from API 33 up. §9 names its equivalent instead of a resurrection: **the tray**, which M4
+// built, and which carries the same one-tap voice entry (`Listen now`, and `--listen` behind a
+// compositor binding) without asking anyone to pin anything.
+//
+// So there is no `QuickSettingsTileRow` to restore and no marker left here: the feature exists, on
+// the surface this platform has for it. What a user needs from this screen is where that surface is,
+// and the "Shortcuts" section below says so.
 
 
 
@@ -1009,13 +1004,41 @@ Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
         }
     }
 
-    // DEFERRED TO M4: the "Shortcuts" section, which held the Quick Settings tile row.
-    //
-    // Upstream gated it on `Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU` — the
-    // `requestAddTileService` API arrived in API 33, and below that the tile had to be added by
-    // editing the panel by hand, so the row was hidden rather than dead. §9 drops the tile; M4's
-    // tray is its equivalent, and it is what this section comes back for. Absent rather than
-    // empty: a "Shortcuts" header with nothing under it is worse than no section.
+    // Upstream's section held the Quick Settings tile row and hid itself below API 33, where the
+    // tile had to be pinned by hand. §9 drops the tile; the tray is its equivalent, so this section
+    // comes back saying where one-tap listening actually lives on this platform — which is the thing
+    // the section's absence was hiding from anyone who never reads a manual.
+    SettingsSectionHeader(title = "Shortcuts", icon = Icons.Default.TouchApp)
+    SettingsSection {
+        Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text("One-tap listening", style = MaterialTheme.typography.bodyMedium)
+            Text(
+                text = "The tray icon's \u201cListen now\u201d arms the microphone without opening " +
+                    "the window, and it is what turns listening off again. Nothing to pin, nothing " +
+                    "to configure: the icon is there whenever Celeste is running.",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            Text("A key, from anywhere", style = MaterialTheme.typography.bodyMedium)
+            Text(
+                text = "Bind a compositor shortcut to `celeste-linux --listen` and one keypress " +
+                    "starts a voice turn with no window in the way. Per-desktop bindings for " +
+                    "Plasma, GNOME, Xfce, sway, i3 and Hyprland are in docs/DEVICES.md.",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            Text("Later, with the tray open", style = MaterialTheme.typography.bodyMedium)
+            Text(
+                text = "\u201cMute microphone\u201d in the same menu silences the microphone " +
+                    "without stopping the timer, which is what you want in a meeting rather than " +
+                    "quitting and losing the schedule.",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
+            )
+        }
+    }
 
     SettingsSectionHeader(title = "Data & Usage", icon = Icons.Default.Analytics)
     SettingsSection {

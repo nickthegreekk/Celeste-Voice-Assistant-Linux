@@ -1081,11 +1081,17 @@ explains the room-versus-persona backdrop bug in words upstream's does not. The 
 retyped, which is the same lesson one level down: the block that failed twice under a hand-written edit went in first time as an
 extraction. Its two tests arrived byte-identical on the m4 group, 40 cases between them, and core now runs 302.
 
-**M4 has two markers left, and they are a pair about something §9 drops.** `QuickSettingsTileRow()` and the `"Shortcuts"` section
-that held it are the Android quick-settings tile; §9's substitution table says the *tray* is its equivalent, and the tray now exists
-with the one-tap "Listen now" the section's note said it would come back for. What remains is therefore not a port: it is a small
-settings section saying where one-tap listening actually lives on this platform (the tray, and the hotkey in `docs/DEVICES.md`), and
-turning the tile's marker into a recorded §9 drop rather than a deferral.
+**M4 closes with no markers left.** The last pair was the quick-settings tile and the `"Shortcuts"` section that held it — and the
+resolution was not a port: §9 names the tray as the tile's equivalent, the tray exists, so the tile became a **recorded drop** (the
+comment says why, and §9's table already had the row) and the section came back saying where one-tap listening actually lives on this
+platform: the tray's "Listen now", a compositor binding to `celeste-linux --listen`, and the tray's mute for a meeting. That is the
+section's stated reason for returning — "the user's one-tap voice entry is what the section comes back for" — answered in the words of
+the surface that now provides it, rather than with a row that would have asked a user to pin something no desktop has.
+
+`grep -rn 'DEFERRED TO M4' core/` returns nothing. What is left in the port: **two markers in M3** — `ModelsScreen`, a real screen
+still owed, and the message menu's Share entry, which §7 substitutes with the clipboard it already offers and with `--send-text`, so
+it wants a drop record rather than a build — and **two in M5**, both the skills screens. M4's own acceptance was met in substance
+earlier tonight, with the one unwitnessed clause named.
 entries, the rooms screens, and the spontaneous controls in the persona editor.
 
 *Accept:* a spontaneous message arrives as a desktop notification while only the tray process runs;
