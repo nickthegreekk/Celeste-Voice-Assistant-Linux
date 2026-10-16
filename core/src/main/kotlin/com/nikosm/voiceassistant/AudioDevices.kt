@@ -77,3 +77,26 @@ interface AudioDevices {
      */
     fun earpiece(): AudioDevice?
 }
+
+/**
+ * The device a stored preference names, or null when there is nothing stored or it is not there.
+ *
+ * The id is matched **exactly**, because it is the same string a player is pointed at: a
+ * near-match that "looks right" would be a device the player then refuses.
+ *
+ * Null covers two different situations on purpose — "no preference" and "the preference's device
+ * is gone" — because the caller's answer is the same for both (use the default), and the *caller*
+ * is where the difference can be said out loud. `sinkForPersona` and `inputDeviceForCapture` do
+ * exactly that: they log the disappearance, so a device that was renamed or unplugged is a line in
+ * the log rather than a mystery about why the headphones stopped working.
+ *
+ * Why falling back is right here, when `AudioCapture.open` refuses to substitute a device the
+ * caller *named*: that rule protects a per-turn choice — silently listening to the wrong room for
+ * one utterance. A stored preference is a much weaker claim, made once, days ago; a persona whose
+ * headphones are unplugged should still be able to speak, and a user should not have to fix a
+ * setting before the assistant can hear them.
+ */
+internal fun pickDevice(devices: List<AudioDevice>, storedId: String?): AudioDevice? {
+    if (storedId.isNullOrBlank()) return null
+    return devices.firstOrNull { it.id == storedId }
+}

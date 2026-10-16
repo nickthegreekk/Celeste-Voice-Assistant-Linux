@@ -1098,6 +1098,23 @@ class SettingsManager(
         return store.getString("searxng_url")
     }
 
+    /**
+     * The microphone the assistant listens to — an [AudioDevice.id], or "" / absent for the
+     * sound server's default. A NEW key, not an upstream one: M2's source picker has no phone
+     * counterpart to migrate from, and an absent key already means exactly what the default
+     * value would.
+     *
+     * Global rather than per persona, unlike the output side: a persona's headphones say
+     * something about that conversation, but there is one room being listened to and one
+     * microphone in it. The input is also the one place where falling back is nearly always
+     * right — see `inputDeviceForCapture`.
+     */
+    fun saveAudioInputDevice(deviceId: String?) {
+        store.edit().putString("audio_input_device", deviceId.orEmpty()).commit()
+    }
+
+    fun getAudioInputDevice(): String? = store.getString("audio_input_device")?.takeIf { it.isNotBlank() }
+
     fun saveUserLocation(location: String) {
         store.edit().putString("user_location", location).commit()
     }

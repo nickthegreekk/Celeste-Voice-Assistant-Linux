@@ -138,6 +138,10 @@ internal val SETTINGS_CATEGORIES = listOf(
     SettingsCategory("General", Icons.Default.Settings, SettingsGroup.APP),
     SettingsCategory("Servers", Icons.Default.Dns, SettingsGroup.CONNECTIONS),
     SettingsCategory("Cloud", Icons.Default.Cloud, SettingsGroup.CONNECTIONS),
+    // The machine's audio devices, not the personas' — M2's source picker (PLAN.md §9). Placed
+    // before Personas because the persona editor's output picker lists the same devices, and a
+    // user who has not chosen a microphone here meets that list with no idea what is in it.
+    SettingsCategory("Audio", Icons.Default.Mic, SettingsGroup.CONNECTIONS),
     SettingsCategory("Personas", Icons.Default.Person, SettingsGroup.ASSISTANTS),
     SettingsCategory("Rooms", Icons.Default.Forum, SettingsGroup.ASSISTANTS),
     // After Personas, not beside them: a skill only means something once the persona that
@@ -263,6 +267,10 @@ internal fun settingsCategorySummaries(
                 "General" -> GENERAL_SETTINGS_SUMMARY
                 "Servers" -> serversSummary(ollamaServers, gatewayServers, imageGenServers)
                 "Cloud" -> cloudSummary(cloudProvidersWithKey, customCloudProviders)
+                // Static: which microphone is chosen is a device id, and the row is a summary
+                // rather than a status line. Naming the device here would mean enumerating the
+                // audio graph to draw a settings list.
+                "Audio" -> "Which microphone the assistant listens to"
                 "Personas" -> personasSummary(personas)
                 "Rooms" -> roomsSummary(rooms)
                 "Skills" -> skillsSummary(skills)
@@ -737,6 +745,7 @@ fun SettingsDialog(
                                     totalCost = totalCost,
                                     onDismiss = onDismiss
                                 )
+                                "Audio" -> AudioSettings(service = svc)
                                 "Servers" -> ServerSettings(
                                     service = svc,
                                     gateways = serverBases,
@@ -1263,6 +1272,63 @@ internal fun modelsServerUrlAfterListLoad(
  * services and the knowledge base. Body of [SettingsCategoryScreen]; every list keeps
  * its add/edit/reorder/delete/test-connection behaviour unchanged.
  */
+/**
+ * M2's source picker: which microphone the assistant listens to.
+ *
+ * One device, not one per persona, and that is the difference from the output side — a persona's
+ * headphones are about that conversation, but there is one room being listened to and one
+ * microphone in it. The choice is stored in settings and read when a capture session opens, so
+ * changing it here applies to the next session rather than to one already listening (the subtitle
+ * says so; swapping a device under a running VAD loop is how one turn ends up half on one
+ * microphone and half on another).
+ *
+ * The list is fetched **once**, off the main thread, when the screen opens: `inputs()` shells out
+ * to `pactl`/`wpctl` and takes up to three seconds, so enumerating during composition would spawn
+ * a process per recomposition. Until it arrives the section says it is looking, which is the
+ * honest state rather than an empty picker.
+ */
+@Composable
+internal fun AudioSettings(service: AssistantService?) {
+    var devices by remember { mutableStateOf<List<AudioDevice>?>(null) }
+    var selectedId by remember { mutableStateOf(service?.settingsManager?.getAudioInputDevice()) }
+
+    LaunchedEffect(Unit) {
+        devices = withContext(Dispatchers.IO) { service?.audioDevices?.inputs() }.orEmpty()
+    }
+
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        SettingsSectionHeader("Microphone", Icons.Default.Mic)
+        SettingsSection {
+            when (val found = devices) {
+                null -> Text(
+                    "Looking for capture devices...",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                )
+                else -> AudioDevicePickerRow(
+                    title = "Input device",
+                    subtitle = buildString {
+                        append("Where hands-free listening and push-to-talk record from. ")
+                        if (found.none { it.isDefault }) {
+                            append("This machine marks no default input, so choosing one is worth doing. ")
+                        }
+                        append("Takes effect when listening starts.")
+                    },
+                    devices = found,
+                    selectedId = selectedId,
+                    onSelect = { id ->
+                        selectedId = id
+                        service?.setAudioInputDevice(id)
+                    },
+                )
+            }
+        }
+    }
+}
+
 @Composable
 fun ServerSettings(
     service: AssistantService,

@@ -373,3 +373,34 @@ Also fixed on the same path: an empty query is no longer sent to SearXNG. Measur
 instance, a blank `q` is the only thing that produces a 400 (`{"error":"No query"}`) — every populated query
 answers 200 whatever the format, including json — and a blank query only arrives from a turn with no text.
 The guard turns a pointless request and an alarming log line into nothing at all. → PLAN.md §5 seam rules
+
+## 2026-10-16 — Source and sink selection: two different scopes, and a preference falls back
+
+M2's last code item. The sink is **per persona** (`Persona.outputDeviceId`) and the microphone is **global**
+(`audio_input_device` in settings, Settings → Audio), because the plan's substitution is per-persona for the output
+(§9 replaced the earpiece route toggle, which the phone used to say "this conversation is private") while there is
+only one room being listened to and one microphone in it. Rejected: per-persona microphones (a persona cannot be
+listening on a different device from the one the VAD loop opened — the loop is one stream) and a global sink (that
+is what the toggle was, and it is the thing the plan specifically replaced).
+
+**A stored device that is gone falls back to the default and logs it** — `pickDevice` returns null either way and
+`sinkForPersona`/`inputDeviceForCapture` are where the two cases get told apart in words. This is deliberately weaker
+than `AudioCapture.open`'s rule, which *refuses* to substitute a device the caller named: that rule protects a
+per-turn choice from silently listening to the wrong room, while a stored preference is a claim made once, days ago,
+and a persona whose headphones are unplugged should still be able to speak. Changing the microphone takes effect on
+the **next** capture session, not on a running one — swapping the device under an open stream is how one utterance
+ends up half on one microphone and half on another — and the picker says so.
+
+Two things found while wiring it, both recorded rather than fixed silently:
+
+- **Push-to-talk opened its capture with `playbackTarget()`** — a port artefact, not upstream behaviour (upstream's
+  `MediaRecorder` named no device at all and relied on Android's process-wide route). Harmless while `earpiece()`
+  answered null on every desktop, and it would have handed `pw-record` a *sink* name the moment a persona could choose
+  one. Both capture paths now use `inputDeviceForCapture()`.
+- **The "Phone mode" menu item is left in place, inert.** On this platform `AudioDevices.earpiece()` returns null by
+  decision, so the toggle has done nothing since M2 began, and now the per-persona sink outranks it. Removing a visible
+  affordance is a user-facing change and is not this milestone's call — flagged for the user instead.
+
+`AudioDevicePickerRow` (UIComponents.kt) is the one picker both screens use, and it takes the device list as a
+parameter: `outputs()`/`inputs()` shell out to `pactl`/`wpctl` with a 3s bound, so each screen fetches once, off the
+main thread, when it opens. → PLAN.md §9, §10 M2; docs/DEVICES.md

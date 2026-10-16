@@ -224,16 +224,62 @@ internal fun splitIntoTtsChunks(text: String, minChunkChars: Int = 80): List<Str
 private var ttsUtteranceCounter: Long = 0
 
 /**
- * The output a playback should target right now: the earpiece when the user has asked for it,
- * otherwise the default.
+ * The output a playback should target right now: the persona's chosen sink, else the earpiece when
+ * the user has asked for it, else the default.
  *
  * Upstream recomputed Android's routing on every playback entry point — `audioManager.mode`,
  * `setCommunicationDevice`, `isSpeakerphoneOn` — which is where the ~40 deleted lines went. On
  * this platform the whole decision is one lookup that may legitimately answer null, and null
  * means the sound server's default, which is the right answer far more often here.
+ *
+ * The chosen sink is read from [currentPersona] rather than threaded in: every playback entry
+ * point already speaks for the current persona, and the chunked path resolves its persona at
+ * speech time, so a parameter would only offer a second way to disagree with the transcript.
  */
 internal fun AssistantService.playbackTarget(): AudioDevice? =
-    if (earpieceMode.value) audioDevices.earpiece() else null
+    sinkForPersona(currentPersona) ?: if (earpieceMode.value) audioDevices.earpiece() else null
+
+/**
+ * The output [persona] asked for, or null for the default — PLAN.md §9's sink selection, and the
+ * replacement for what the phone's earpiece toggle meant.
+ *
+ * A stored id whose device is no longer there logs once and falls back; see [pickDevice] for why
+ * that is the right answer for a preference (a per-turn choice is different, and
+ * `AudioCapture.open` still refuses to substitute one).
+ */
+internal fun AssistantService.sinkForPersona(persona: Persona?): AudioDevice? {
+    val wanted = persona?.outputDeviceId ?: return null
+    val device = pickDevice(audioDevices.outputs(), wanted)
+    if (device == null) {
+        logger.w(
+            "AssistantService",
+            "'${persona.name}' is set to play to an output that is gone ($wanted) — using the default. " +
+                "Re-pick it in the persona's settings.",
+        )
+    }
+    return device
+}
+
+/**
+ * The microphone to capture from: the one the user selected in Settings, or null for the default.
+ *
+ * Used by **both** capture paths. Push-to-talk used to open with `playbackTarget()`, which is a
+ * port artefact rather than upstream's behaviour — upstream's `MediaRecorder` named no device at
+ * all (`AudioSource.MIC`) and relied on Android's process-wide route. That was harmless while
+ * `earpiece()` answered null on every desktop, and would have started handing `pw-record` a *sink*
+ * name the moment a persona could choose one.
+ */
+internal fun AssistantService.inputDeviceForCapture(): AudioDevice? {
+    val wanted = settingsManager.getAudioInputDevice() ?: return null
+    val device = pickDevice(audioDevices.inputs(), wanted)
+    if (device == null) {
+        logger.w(
+            "AssistantService",
+            "the selected microphone is gone ($wanted) — using the default input. Re-pick it in Settings.",
+        )
+    }
+    return device
+}
 
 fun AssistantService.toggleEarpieceMode() {
     _earpieceMode.value = !earpieceMode.value

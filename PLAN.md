@@ -615,7 +615,7 @@ cluster commit lands.
 |---|---|---|
 | `AcousticEchoCanceler` on the mic session | Headphones or push-to-talk; optionally a PipeWire echo-cancel sink | No OS counterpart; decision recorded in README |
 | Transient audio focus with retry-on-DELAYED | Stop our own playback; optional `playerctl pause` | No focus stack on PipeWire |
-| Earpiece/Bluetooth route toggle | `wpctl` sink selection, remembered per persona | Different model, same intent |
+| Earpiece/Bluetooth route toggle | `wpctl` sink selection, remembered per persona | Different model, same intent. **Landed 2026-10-16** as the persona editor's *Output device* row (`Persona.outputDeviceId`, an `AudioDevice.id`, null = the system default), resolved by `sinkForPersona` on every playback. The input side is a separate, **global** choice (Settings → Audio, `audio_input_device`) — a persona's headphones say something about that conversation, but there is one room being listened to and one microphone in it. Push-to-talk used to open its capture with `playbackTarget()`, a port artefact: upstream's `MediaRecorder` named no device at all. A stored device that has since disappeared falls back to the default **and says so** in the log, which is the weaker claim a preference makes — a *per-turn* choice is still refused rather than substituted (`AudioCapture.open`) |
 | Foreground service + persistent notification | Tray icon while listening; systemd user unit for autostart | Desktop concept |
 | `WorkManager` (survives reboot, batched) | In-process timer, exact; systemd timer if the app must wake a sleeping session | A desktop may be off too, and this is honest about it |
 | Runtime permission prompts | Device picker in settings; mic access is granted by the session | No permission model for a normal user app |
@@ -686,8 +686,9 @@ utterance, and the latency budget in §6 met.
 real and all four have now been run against the hardware; the hands-free loop and push-to-talk were ported in M1 and
 are wired to those seams; seam 12 lands as `--listen` (§5's row, with what it lost). What is left of M2: **source/sink
 selection**, the last unbuilt item on the scope line above — §9's substitution for the earpiece/Bluetooth route toggle
-is `wpctl` sink selection remembered per persona, and nothing reads a chosen device yet (`playbackTarget()` consults
-only `earpieceMode`, which is null on a desktop by design). Then the acceptance run itself.
+is `wpctl` sink selection remembered per persona — **done (2026-10-16), and M2's last code item**: the persona editor
+now has an *Output device* row and Settings an *Audio* category for the microphone. What remains is the acceptance run,
+and the headset it needs. (Re-read the note below for why that run is not blocked on anything else.)
 
 **The acceptance splits in two, and only one half is blocked (2026-10-16).** The earlier note above is kept for the
 history — it was written when `server_bases_v2` was `"[]"` and applied.

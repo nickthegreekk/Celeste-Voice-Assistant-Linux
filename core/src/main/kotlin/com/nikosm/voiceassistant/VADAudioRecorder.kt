@@ -49,6 +49,15 @@ class VADAudioRecorder(
     private val detector: VADDetector,
     private val cacheDir: Path,
     private val scope: CoroutineScope,
+    /**
+     * The microphone to listen on, or null for the sound server's default — the user's choice
+     * from Settings, resolved once when the session starts.
+     *
+     * Read once rather than per open, because there is one open per session: the service builds a
+     * new recorder each time hands-free is switched on, which is also when a changed choice is
+     * picked up.
+     */
+    private val inputDevice: AudioDevice?,
     private val onSpeechStart: () -> Unit,
     private val onSpeechEnd: (Path) -> Unit,
     private val onAmplitudeUpdate: (Float) -> Unit = {}
@@ -112,10 +121,14 @@ class VADAudioRecorder(
             // Null means no microphone could be opened — no sound server, no input device, or a
             // helper binary that is not installed. Upstream has the same shape for the same
             // reason: it logs once and stops monitoring rather than retrying into a hot loop.
-            val stream = capture.open(sampleRate, chunkSize)
+            val stream = capture.open(sampleRate, chunkSize, inputDevice)
             if (stream == null) {
                 isMonitoring = false
-                LogSink.logger.e("VADAudioRecorder", "No capture stream could be opened")
+                LogSink.logger.e(
+                    "VADAudioRecorder",
+                    if (inputDevice == null) "No capture stream could be opened"
+                    else "The selected microphone could not be opened (${inputDevice.label})",
+                )
                 return@launch
             }
 

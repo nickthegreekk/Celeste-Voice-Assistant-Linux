@@ -165,6 +165,13 @@ internal data class PersonaEditorFields(
     val voiceEngine: String,
     val kokoroVoice: String,
     val backendUrl: String,
+    /**
+     * The output this persona's replies play to — an [AudioDevice.id], or null for the system
+     * default. Carried through the editor for the reason the image character below is: BOTH commit
+     * paths rebuild a WHOLE Persona from this snapshot, so a field missing here is silently
+     * reverted to whatever the persona held when the editor opened.
+     */
+    val outputDeviceId: String?,
     /** The persona's chosen Image Character id (see [Persona.imageWorkflowId]). */
     val imageWorkflowId: String? = null,
     val enabledSkillIds: List<String>,
@@ -251,6 +258,7 @@ internal fun Persona.withEditorFields(
         voiceEngine = fields.voiceEngine,
         kokoroVoice = fields.kokoroVoice,
         backendUrl = fields.backendUrl,
+        outputDeviceId = fields.outputDeviceId,
         imageWorkflowId = fields.imageWorkflowId,
         enabledSkillIds = fields.enabledSkillIds,
         // Gated (plan location #2): never commit an opt-in the persona could not honour.
@@ -406,6 +414,13 @@ fun PersonaEditor(
     var voiceEngine by remember(persona) { mutableStateOf(persona.voiceEngine) }
     var kokoroVoice by remember(persona) { mutableStateOf(persona.kokoroVoice) }
     var backendUrl by remember(persona) { mutableStateOf(persona.backendUrl) }
+    // The chosen output sink (PLAN.md §9's replacement for the phone's earpiece route), tracked
+    // locally for the same whole-Persona-rebuild reason as imageWorkflowId and enabledSkillIds.
+    var outputDeviceId by remember(persona) { mutableStateOf(persona.outputDeviceId) }
+    var outputDevices by remember { mutableStateOf<List<AudioDevice>?>(null) }
+    LaunchedEffect(Unit) {
+        outputDevices = withContext(Dispatchers.IO) { service.audioDevices.outputs() }.orEmpty()
+    }
     // The chosen Image Character (ComfyUI only). Tracked locally for exactly the reason
     // enabledSkillIds is: BOTH commit paths rebuild a WHOLE Persona from this editor's snapshot,
     // so a field omitted here would be written back at its open-time value the moment any other
@@ -567,6 +582,7 @@ fun PersonaEditor(
         voiceEngine = voiceEngine,
         kokoroVoice = kokoroVoice,
         backendUrl = backendUrl,
+        outputDeviceId = outputDeviceId,
         imageWorkflowId = imageWorkflowId,
         enabledSkillIds = enabledSkillIds,
         spontaneousEnabled = spontaneousEnabled,
@@ -615,7 +631,7 @@ fun PersonaEditor(
     }
 
     // Auto-save logic
-    LaunchedEffect(name, model, systemPrompt, themeColor, temp, topP, topK, repeatPenalty, maxTokens, numCtx, enableThinking, webSearchEnabled, ragEnabled, allowGatewayFailover, isTranslator, isImageGenerator, targetLanguage, voiceMode, voiceEngine, kokoroVoice, backendUrl, imageWorkflowId, enabledSkillIds, iconImageUri, backgroundImageUri, spontaneousEnabled, spontaneousInstruction, spontaneousGapMinutes, spontaneousWindowStartMin, spontaneousWindowEndMin, editorIsCloudModel, customProviderNames, spontaneousAllowed) {
+    LaunchedEffect(name, model, systemPrompt, themeColor, temp, topP, topK, repeatPenalty, maxTokens, numCtx, enableThinking, webSearchEnabled, ragEnabled, allowGatewayFailover, isTranslator, isImageGenerator, targetLanguage, voiceMode, voiceEngine, kokoroVoice, backendUrl, outputDeviceId, imageWorkflowId, enabledSkillIds, iconImageUri, backgroundImageUri, spontaneousEnabled, spontaneousInstruction, spontaneousGapMinutes, spontaneousWindowStartMin, spontaneousWindowEndMin, editorIsCloudModel, customProviderNames, spontaneousAllowed) {
         // Skip initial evaluation if needed? No, persona change will trigger it once, which is fine.
         delay(500)
         // The SAME single builder as the dispose flush (see `editorFields` above), so a save from
@@ -1225,6 +1241,26 @@ fun PersonaEditor(
             Icon(Icons.AutoMirrored.Filled.VolumeUp, null)
             Spacer(Modifier.width(8.dp))
             Text("Test Audio")
+        }
+
+        Spacer(Modifier.height(8.dp))
+        // PLAN.md §9's replacement for the phone's earpiece route: instead of a boolean that
+        // means "the private one", this names the output. Fetched once, off the main thread —
+        // `outputs()` shells out to pactl/wpctl, so enumerating during composition would spawn a
+        // process per recomposition.
+        when (val outputs = outputDevices) {
+            null -> Text(
+                "Looking for output devices...",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+            )
+            else -> AudioDevicePickerRow(
+                title = "Output device",
+                subtitle = "Where this persona's replies are played. The default follows the system.",
+                devices = outputs,
+                selectedId = outputDeviceId,
+                onSelect = { outputDeviceId = it },
+            )
         }
 
         if (voiceMode == VoiceMode.GATEWAY) {

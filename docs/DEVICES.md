@@ -46,6 +46,18 @@ will tell you when a combination is taken.
 A future milestone may add the XDG GlobalShortcuts portal, which would let the application register
 its own accelerator and spare you this section. It is marked optional in the plan and is not built.
 
+## Choosing the devices
+
+- **Microphone** — Settings → **Audio**. One choice for the whole application: it is what hands-free listening and
+  push-to-talk record from. A change applies the next time listening starts, not to a session already running.
+- **Output** — the persona editor's **Output device** row, per persona, because "this conversation goes to my
+  headphones" is a property of the conversation. *System default* is the first entry and means exactly that.
+
+Both lists are read from the sound server when the screen opens, so a device that is plugged in while a picker is
+already open will appear the next time it is opened. A device that is chosen and later disappears is not an error:
+the application falls back to the system default and logs which device it was, because a persona whose headphones are
+unplugged should still be able to speak.
+
 ## Audio
 
 - **Headphones, or push-to-talk.** There is no acoustic echo cancellation, by decision (README.md, and

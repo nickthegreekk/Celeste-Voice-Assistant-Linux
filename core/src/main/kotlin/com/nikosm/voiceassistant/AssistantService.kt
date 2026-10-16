@@ -1026,6 +1026,20 @@ class AssistantService(
         // exactly once.
     }
 
+    /**
+     * Which microphone the assistant listens to — null for the sound server's default.
+     *
+     * Same UI-choice shape as [setCelestialUi]: persisted here, and read back by
+     * `inputDeviceForCapture()` when a capture session opens. **A change applies to the next
+     * session**, not to one already listening: the VAD loop holds its stream open, and swapping
+     * the device underneath a running loop is how a turn ends up half on one microphone and half
+     * on another. Switching hands-free off and on is what rebuilds the recorder, and the picker's
+     * subtitle says so.
+     */
+    fun setAudioInputDevice(deviceId: String?) {
+        settingsManager.saveAudioInputDevice(deviceId)
+    }
+
     fun forceCheckHealth(target: ServerConfig, isGateway: Boolean, isImageGen: Boolean = false) {
         serviceScope.launch(Dispatchers.IO) {
             checkServerHealth(target, isGateway, isImageGen)
@@ -2528,7 +2542,9 @@ class AssistantService(
         _state.value = AssistantState.LISTENING
         updateNotification("Listening...")
 
-        val target = playbackTarget()
+        // The selected INPUT, not the playback target: push-to-talk records, and on this platform
+        // the two directions have independent devices.
+        val target = inputDeviceForCapture()
         capturing = true
         recordingChunks.clear()
         serviceScope.launch(Dispatchers.IO) {
@@ -3018,6 +3034,9 @@ class AssistantService(
                 capture = audioCapture,
                 detector = vadDetector!!,
                 cacheDir = cacheDir.toPath(),
+                // The user's microphone, resolved per start: switching hands-free off rebuilds
+                // the recorder, so a choice changed in the meantime lands on the next session.
+                inputDevice = inputDeviceForCapture(),
                 // No input device is named, which is upstream's behaviour: it used the default
                 // input too. Choosing one is M2's "source/sink selection", and the seam takes a
                 // target when that arrives.

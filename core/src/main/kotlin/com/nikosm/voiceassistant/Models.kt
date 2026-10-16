@@ -236,7 +236,28 @@ data class Persona(
     val spontaneousWindowStartMin: Int? = null,
     val spontaneousWindowEndMin: Int? = null,
     /** Max spontaneous messages per day; 0 ⇒ SpontaneousPolicy.DEFAULT_MAX_PER_DAY. */
-    val spontaneousMaxPerDay: Int = 0
+    val spontaneousMaxPerDay: Int = 0,
+    /**
+     * The output this persona's replies are played to — an [AudioDevice.id], or null for the
+     * sound server's default.
+     *
+     * This is PLAN.md §9's substitution for the phone's earpiece/Bluetooth route toggle: same
+     * intent (send *this* persona's voice to *those* headphones), a different model — a sink
+     * chosen by name rather than a route chosen by boolean. Per persona rather than global
+     * because the toggle it replaces was the phone's way of saying "this conversation is
+     * private", and that is a property of the conversation.
+     *
+     * The id is stored rather than a serial number or a label: the id is the string a player
+     * accepts (`pw-play --target`), so it is the only form that can be handed back. A device
+     * that has since disappeared is not an error — see `sinkForPersona`, which falls back to
+     * the default and says so, because a persona whose headphones are unplugged should still
+     * be able to speak.
+     *
+     * Declared LAST, like [ServerConfig.backendType] and for the same reason: the positional
+     * `Persona(...)` constructions all over the app and its tests must keep compiling unchanged,
+     * and a new key with a default decodes an older backup without one.
+     */
+    val outputDeviceId: String? = null
 )
 
 @Serializable
