@@ -238,6 +238,11 @@ class FreshStartNetworkTest {
     }
 
     // ------------------------------------------------------------------ the seams, as fakes
+    //
+    // `FakeAppEnv`, `InMemoryStore`, `NoImageCodec` and the five seam no-ops moved to
+    // `ServiceFakes.kt` when a second test needed to drive a real turn through the same harness.
+    // Their defaults are unchanged — the notifier and the scheduler still throw when touched, which
+    // is half of what the first-run assertions above mean.
 
     /**
      * Records every host OkHttp resolves a proxy for, and refuses to give it one. Refusing is what
@@ -253,99 +258,5 @@ class FreshStartNetworkTest {
         }
 
         override fun connectFailed(uri: URI, sa: SocketAddress, ioe: java.io.IOException) = Unit
-    }
-
-    private class FakeAppEnv : AppEnv {
-        private val root: Path = java.nio.file.Files.createTempDirectory("celeste-fresh-start")
-        override val configDir: Path get() = root.resolve("config")
-        override val dataDir: Path get() = root.resolve("data")
-        override val stateDir: Path get() = root.resolve("state")
-        override val cacheDir: Path get() = root.resolve("cache")
-        override val picturesDir: Path get() = cacheDir.resolve("Pictures")
-    override val applicationsDir: Path get() = cacheDir.resolve("applications")
-    // No Desktop in a test: `null` is not possible on the interface, so this points at a directory
-    // that does not exist — which is exactly the case the writer has to skip (it never creates it).
-    override val desktopDir: Path get() = cacheDir.resolve("no-such-desktop")
-    // A home that does not exist, like the Desktop above: nothing in these tests reaches into it,
-    // and the workspace rules that will are tested against real temp directories of their own.
-    override val homeDir: Path get() = cacheDir.resolve("home")
-        override val debugLogging: Boolean get() = false
-        override val logger: AppLogger get() = StderrLogger
-        // Both throw rather than no-op: a first run posts nothing and arms nothing, so a fake that
-        // answered would be hiding a call rather than serving one.
-        override val notifier: Notifier
-            get() = throw UnsupportedOperationException("a first run posts no notification")
-        // The guard is on `arm`, not on touching the seam at all: `AssistantService.start()` attaches
-        // its scope to an in-process scheduler (seam 10) so a persona enabled later can be armed —
-        // attaching arms nothing, sends nothing and schedules nothing, and M4 is when that hook had
-        // to exist. What must stay impossible on a first run is a *timer*, and that is what throws.
-        override val scheduler: Scheduler = object : Scheduler {
-            override fun arm(personaName: String, slot: Int, delayMillis: Long): Unit =
-                throw UnsupportedOperationException("a first run arms no timer")
-
-            override fun disarm(personaName: String) = Unit
-
-            override fun isArmed(personaName: String): Boolean = false
-        }
-    }
-
-    /** The whole store, in a map. No file, no `~/.config`, nothing to restore afterwards. */
-    private class InMemoryStore : SettingsStore {
-        private val values = mutableMapOf<String, Any>()
-
-        override fun getString(key: String, default: String?): String? = values[key] as? String ?: default
-        override fun getLong(key: String, default: Long): Long = values[key] as? Long ?: default
-        override fun getFloat(key: String, default: Float): Float = values[key] as? Float ?: default
-        override fun getBoolean(key: String, default: Boolean): Boolean = values[key] as? Boolean ?: default
-        override fun allKeys(): Set<String> = values.keys.toSet()
-        override fun edit(): SettingsEdit = object : SettingsEdit {
-            private val staged = mutableMapOf<String, Any?>()
-            override fun putString(key: String, value: String) = apply { staged[key] = value }
-            override fun putLong(key: String, value: Long) = apply { staged[key] = value }
-            override fun putFloat(key: String, value: Float) = apply { staged[key] = value }
-            override fun putBoolean(key: String, value: Boolean) = apply { staged[key] = value }
-            override fun remove(key: String) = apply { staged[key] = null }
-            override fun commit() {
-                staged.forEach { (k, v) -> if (v == null) values.remove(k) else values[k] = v }
-            }
-        }
-    }
-
-    private object NoImageCodec : ImageCodec {
-        override fun downscaleToJpeg(source: Path, target: Path, maxDim: Int, quality: Int): Boolean = false
-    }
-
-    private object SilentAudioPlayback : AudioPlayback {
-        override fun play(file: Path, target: AudioDevice?, onEnd: (PlaybackEnd) -> Unit): PlaybackHandle =
-            throw UnsupportedOperationException("a first run plays nothing")
-        override fun playPcm(samples: ByteArray, sampleRate: Int, target: AudioDevice?, onEnd: (PlaybackEnd) -> Unit): PlaybackHandle =
-            throw UnsupportedOperationException("a first run plays nothing")
-        override fun stopAll() = Unit
-    }
-
-    private object NoAudioDevices : AudioDevices {
-        override fun outputs(): List<AudioDevice> = emptyList()
-        override fun inputs(): List<AudioDevice> = emptyList()
-        override fun earpiece(): AudioDevice? = null
-    }
-
-    private object NoTextToSpeech : TextToSpeech {
-        override val systemReady: Boolean get() = false
-        override fun speakSystem(text: String, utteranceId: String, onEnd: (PlaybackEnd) -> Unit): Boolean = false
-        override fun stopSystem() = Unit
-        override fun synthesizeLocal(text: String, voice: String): SpeechSamples? = null
-        override fun releaseLocal() = Unit
-    }
-
-    private object NoAudioCapture : AudioCapture {
-        override fun open(sampleRate: Int, chunkFrames: Int, target: AudioDevice?): CaptureStream? = null
-    }
-
-    private object NoFileDialogs : FileDialogs {
-        override fun openImage(title: String): Path? = null
-        override fun openTextFile(title: String): Path? = null
-        override fun openFiles(title: String): List<Path> = emptyList()
-        override fun save(defaultName: String, title: String): Path? = null
-        override fun openDirectory(title: String): Path? = null
     }
 }
