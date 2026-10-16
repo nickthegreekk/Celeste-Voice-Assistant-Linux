@@ -102,11 +102,12 @@ fun PersonaSelector(
                 }
             }
             if (onRoomSelected != null) {
-                // DEFERRED TO M4, and now half-done: `RoomPickerRows` exists in `RoomScreens.kt`
-                // (arrived wholesale in M4, compiles) and this call is the restore the M1 marker
-                // promised — one `RoomPickerRows(rooms, activeRoomId, accentColor, onRoomSelected)`
-                // — but it is not restored yet, so the Rooms picker draws nothing. The parameters
-                // it needs are all live at this site.
+                RoomPickerRows(
+                    rooms = rooms,
+                    activeRoomId = activeRoomId,
+                    accentColor = personaColor,
+                    onRoomSelected = onRoomSelected
+                )
             }
             Spacer(modifier = Modifier.height(24.dp))
         }
@@ -765,9 +766,12 @@ fun SettingsDialog(
                                     initialEditingIndex = pendingEditIndex,
                                     onInitialEditConsumed = { pendingEditIndex = null }
                                 )
-                                // DEFERRED TO M4, and now half-done: `RoomSettings` exists in
-                                // `RoomScreens.kt` and this branch is its one call site. Not
-                                // restored yet, so the category routes here and draws nothing.
+                                "Rooms" -> RoomSettings(
+                                    service = svc,
+                                    rooms = rooms,
+                                    personas = personas,
+                                    currentThemeColor = personaColor
+                                )
                                 // DEFERRED TO M5: `"Skills" -> SkillSettings(service, skills,
                                 // personas, currentThemeColor)`. The category is still listed and
                                 // still routes here; this is the screen body, which is

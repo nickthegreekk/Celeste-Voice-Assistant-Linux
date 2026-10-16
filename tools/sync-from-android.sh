@@ -114,6 +114,10 @@ TEST_SOURCES=(
   # had since §7a. The two siblings upstream that are NOT here need WorkManager or a Context
   # (`SpontaneousWorkTotalityTest`, `SpontaneousGuardTest`), and SpontaneousUiTest is instrumented.
   "m4|SpontaneousTurnTest.kt"
+  # The rooms screens' two tests. Both import only androidx.compose.ui.graphics.Color — for the Persona
+  # fields — so they arrive byte-identical like the rest of the m4 group.
+  "m4|RoomModelTest.kt"
+  "m4|RoomUiTest.kt"
 )
 
 

@@ -980,15 +980,31 @@ fun MainScreen(
                     // + room input replace the voice/HUD body AND the ControlBar below.
                     // The persona chat state above is untouched, so the normal UI below
                     // renders exactly as before the moment the room is left.
-                    // DEFERRED TO M4, and now half-done: `RoomChatArea` EXISTS — `RoomScreens.kt`
-                    // arrived wholesale in M4 and compiles — but this call is not restored yet, so
-                    // with a room active the persona chat still renders while the service believes
-                    // a room is active. `activeRoomId` and the whole room state below (messages,
-                    // round, text input, list state) are live and publishing; what is missing at
-                    // this site is `val roomScope = activeRoom` and the `if (roomScope != null)`
-                    // around the call. The two scripted attempts at it damaged the file and were
-                    // reverted; the next one reads upstream's block and copies it whole.
- else if (celestialActive) {
+                    val roomScope = activeRoom
+                    if (roomScope != null) {
+                        RoomChatArea(
+                            room = roomScope,
+                            messages = roomMessages,
+                            personas = personaList,
+                            roundState = roomRound,
+                            chatFontSize = chatFontSize,
+                            textInput = roomTextInput,
+                            onTextInputChange = { roomTextInput = it },
+                            onSend = { text ->
+                                // The existing supersede path: a send during a round is
+                                // a new round, no new supersede logic here.
+                                if (service?.startRoomRound(roomScope, text) == true) {
+                                    roomTextInput = ""
+                                }
+                            },
+                            // The existing red Stop control, in room mode: stopRoomRound
+                            // instead of stopEverything (which also stops room rounds
+                            // via its markRoomRoundStopped hook, so both stay correct).
+                            onStop = { service?.stopRoomRound() },
+                            focusRequester = focusRequester,
+                            listState = roomListState
+                        )
+                    } else if (celestialActive) {
                         CelestialHudBody(
                             state = state,
                             personaColor = personaColor,

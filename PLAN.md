@@ -1073,7 +1073,19 @@ the timer, the delivery and the notification do not know whether a window exists
 precisely rather than rounded up, because "a spontaneous message arrived" and "a spontaneous message arrived with no window in
 existence" are different claims and only the first was made.
 
-**That leaves the rooms screens as M4's last piece**, five markers and the largest file still unported.
+**The rooms screens landed, and they were the largest remaining file anywhere in the port.** `RoomScreens.kt` came across *wholesale*
+— 1,006 lines, compiled unchanged — which is the outcome §7's "Compose only" for that file predicted and the opposite of what two
+scripted attempts at slicing it produced. The one deliberate difference is M1's KDoc above `personaBackdropPath`, kept because it
+explains the room-versus-persona backdrop bug in words upstream's does not. The three call sites — `RoomChatArea` (MainVoiceScreen),
+`RoomPickerRows` and the `"Rooms" -> RoomSettings(…)` branch (SettingsScreens) — were restored from upstream's own text rather than
+retyped, which is the same lesson one level down: the block that failed twice under a hand-written edit went in first time as an
+extraction. Its two tests arrived byte-identical on the m4 group, 40 cases between them, and core now runs 302.
+
+**M4 has two markers left, and they are a pair about something §9 drops.** `QuickSettingsTileRow()` and the `"Shortcuts"` section
+that held it are the Android quick-settings tile; §9's substitution table says the *tray* is its equivalent, and the tray now exists
+with the one-tap "Listen now" the section's note said it would come back for. What remains is therefore not a port: it is a small
+settings section saying where one-tap listening actually lives on this platform (the tray, and the hotkey in `docs/DEVICES.md`), and
+turning the tile's marker into a recorded §9 drop rather than a deferral.
 entries, the rooms screens, and the spontaneous controls in the persona editor.
 
 *Accept:* a spontaneous message arrives as a desktop notification while only the tray process runs;
