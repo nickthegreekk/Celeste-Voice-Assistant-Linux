@@ -415,6 +415,12 @@ fun MainScreen(
     var pendingCert by remember { mutableStateOf<CertApprovalRequest?>(null) }
     // M8: the write confirmation the service is waiting on, if any.
     var pendingFsWrite by remember { mutableStateOf<FsWriteRequest?>(null) }
+    // M8: `notifyUser` has published `transientMessage` since M1 and **nothing has ever rendered
+    // it** — every "Saved to…", "Shortcut added", "Import failed" the application has raised has
+    // gone nowhere. The tool refusals and the write timeouts need a destination, so this is it, and
+    // everything that was already calling `notifyUser` gets one at the same time.
+    var transientMessage by remember { mutableStateOf<String?>(null) }
+    val snackbarHostState = remember { SnackbarHostState() }
 
     LaunchedEffect(service) {
         if (service != null) {
@@ -439,6 +445,7 @@ fun MainScreen(
             // composition state, so closing and reopening the window re-renders the same question
             // instead of losing it.
             launch { service.fsWriteGate.pending.collect { pendingFsWrite = it } }
+            launch { service.transientMessage.collect { transientMessage = it } }
             launch { service.rooms.collect { rooms = it } }
             launch { service.activeRoomId.collect { activeRoomId = it } }
             launch { service.roomMessages.collect { roomMessages = it } }
@@ -1152,6 +1159,19 @@ fun MainScreen(
             openPersonaEditorFor = editPersonaRequest,
             onOpenPersonaEditorConsumed = { editPersonaRequest = null }
         )
+    }
+
+    // M8: the snackbar host, driven by the service's `transientMessage` and consumed only once it
+    // has actually been shown — the flow is a `String?` rather than a channel precisely so that a
+    // message raised while the window is closed is still there when it opens (PLAN.md §9).
+    LaunchedEffect(transientMessage) {
+        transientMessage?.let { message ->
+            snackbarHostState.showSnackbar(message)
+            service?.consumeTransientMessage()
+        }
+    }
+    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.BottomCenter) {
+        SnackbarHost(snackbarHostState)
     }
 
     // M8: the last line of defence — the path and the change, in front of the person whose files

@@ -65,6 +65,17 @@ internal fun AssistantService.setFsWorkspaceSetting(path: String?) {
     logger.i("FsTools", if (path.isNullOrBlank()) "workspace cleared" else "workspace set")
 }
 
+/** The persona editor's two writes. Null mode means "follow the global", which is the default. */
+internal fun AssistantService.setPersonaFsModeSetting(personaName: String, mode: FsToolMode?) {
+    settingsManager.savePersonaFsMode(personaName, mode)
+    fsWriteGate.forgetTrust()
+}
+
+internal fun AssistantService.setPersonaFsWorkspaceSetting(personaName: String, path: String?) {
+    settingsManager.savePersonaFsWorkspace(personaName, path)
+    fsWriteGate.forgetTrust()
+}
+
 /** Why this folder cannot be the workspace, or null when it can — asked where the user picks it. */
 internal fun AssistantService.fsWorkspaceRefusalFor(path: Path): String? =
     workspaceRootRefusal(path, fsExcludedPaths())

@@ -33,6 +33,7 @@ import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.AddPhotoAlternate
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Dns
@@ -410,6 +411,10 @@ fun PersonaEditor(
     // itself: Models.kt is a COPY file (PLAN.md §7) and a new field there would demote it. Read
     // once on open, then held locally — which is what the row shows.
     var outputDeviceId by remember(persona) { mutableStateOf(service.settingsManager.getPersonaOutputDevice(persona.name)) }
+    // M8: this persona's filesystem answer, read once on open for the same reason the sink above is —
+    // it lives in the settings blob under the persona's name, not in the `Persona`.
+    var personaFsMode by remember(persona) { mutableStateOf(service.settingsManager.getPersonaFsMode(persona.name)) }
+    var personaFsWorkspace by remember(persona) { mutableStateOf(service.settingsManager.getPersonaFsWorkspace(persona.name)) }
     var outputDevices by remember { mutableStateOf<List<AudioDevice>?>(null) }
     LaunchedEffect(Unit) {
         outputDevices = withContext(Dispatchers.IO) { service.audioDevices.outputs() }.orEmpty()
@@ -1127,6 +1132,25 @@ fun PersonaEditor(
         // toggles collect into `enabledSkillIds`, which was live and committed all through M1 —
         // so a persona's existing skill attachments survived the editor untouched, and only the
         // controls that change them were absent.
+        // M8: beside Skills, because both answer "what may this persona do".
+        SettingsSectionHeader(title = "Filesystem", icon = Icons.Default.Folder)
+        SettingsSection {
+            PersonaFsSection(
+                personaName = persona.name,
+                personaMode = personaFsMode,
+                onModeChange = { chosen ->
+                    personaFsMode = chosen
+                    service.setPersonaFsModeSetting(persona.name, chosen)
+                },
+                workspace = personaFsWorkspace,
+                onWorkspaceChange = { chosen ->
+                    personaFsWorkspace = chosen
+                    service.setPersonaFsWorkspaceSetting(persona.name, chosen)
+                },
+                service = service
+            )
+        }
+
         SettingsSectionHeader(title = "Skills", icon = Icons.Default.AutoAwesome)
         SettingsSection {
             PersonaSkillSection(

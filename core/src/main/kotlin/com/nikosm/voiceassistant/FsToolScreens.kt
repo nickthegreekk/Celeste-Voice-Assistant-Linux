@@ -220,6 +220,74 @@ internal fun FsWriteApprovalDialog(request: FsWriteRequest, onAnswer: (approve: 
     )
 }
 
+/**
+ * The persona editor's section: this persona's own answer, or the global one.
+ *
+ * **Null is "follow the global"** and is the default, which is why the four-way row starts there
+ * rather than at Off: a persona that has never been configured should inherit what the user set once
+ * in Settings, not silently opt out of it. Choosing any mode *pins* it for this persona, and the
+ * folder then appears for it — the shape the image-generation entry picker already uses
+ * ("follow the global" first, the specific choice after).
+ *
+ * Written through the service on every change, keyed by the editor's **live** name: the editor
+ * rebuilds a whole `Persona` on save, so name-keyed state must not wait for that.
+ */
+@Composable
+internal fun PersonaFsSection(
+    personaName: String,
+    personaMode: FsToolMode?,
+    onModeChange: (FsToolMode?) -> Unit,
+    workspace: String?,
+    onWorkspaceChange: (String?) -> Unit,
+    service: AssistantService,
+) {
+    val options: List<FsToolMode?> = listOf(null) + FsToolMode.entries
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+            options.forEachIndexed { index, option ->
+                SegmentedButton(
+                    selected = personaMode == option,
+                    onClick = { onModeChange(option) },
+                    shape = SegmentedButtonDefaults.itemShape(index, options.size),
+                ) { Text(option?.label ?: "Global") }
+            }
+        }
+        val effective = resolveFsWorkspace(
+            personaMode = personaMode,
+            personaPath = workspace,
+            globalMode = service.fsModeSetting(),
+            globalPath = service.fsWorkspaceSetting(),
+        )
+        Text(
+            when {
+                effective == null -> "This persona cannot reach any files."
+                else -> "This persona may ${if (effective.mode.allowsWrites) "read and write" else "read"} in ${effective.root}."
+            },
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
+        )
+        if (personaMode != null) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(onClick = {
+                    runCatching { service.fileDialogs.openDirectory("Choose this persona's folder") }
+                        .getOrNull()
+                        ?.let { picked ->
+                            if (service.fsWorkspaceRefusalFor(picked) == null) onWorkspaceChange(picked.toString())
+                        }
+                }) { Text(if (workspace.isNullOrBlank()) "Choose folder…" else "Change folder…") }
+                if (!workspace.isNullOrBlank()) {
+                    TextButton(onClick = { onWorkspaceChange(null) }) { Text("Use the global folder") }
+                }
+            }
+            Text(
+                "Empty means the folder chosen in Settings → Filesystem.",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+            )
+        }
+    }
+}
+
 internal const val FS_AUDIT_ROWS = 20
 
 @Composable
