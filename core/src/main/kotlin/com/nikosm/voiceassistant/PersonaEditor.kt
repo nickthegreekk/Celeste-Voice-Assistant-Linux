@@ -1130,18 +1130,42 @@ fun PersonaEditor(
         // attachments survive this editor untouched; only the controls that change them are
         // absent.
 
-        // DEFERRED TO M4: the Spontaneous Messages section. Upstream draws
-        // `SettingsSectionHeader("Spontaneous Messages")` and a `SettingsSection` wrapping
-        // `PersonaSpontaneousSection(eligibility, enabled, instruction, gapMinutes,
-        // windowStartMin, windowEndMin, onEnabledChange, onInstructionChange, onGapChange,
-        // onWindowChange, onSendNow)` — SpontaneousScreens.kt, which is M4's, the milestone that
-        // delivers spontaneous delivery.
-        //
-        // `spontaneousEligibility` above is still computed and still gates the commit, because
-        // that verdict is what decides whether a stored opt-in survives a save — a persona that
-        // has become ineligible must not keep speaking on a schedule nobody can reach the
-        // controls for. Computing it here and drawing it in M4 is the correct split: the
-        // *decision* is M1's, the *controls* are M4's.
+        SettingsSectionHeader("Spontaneous Messages")
+        SettingsSection {
+            PersonaSpontaneousSection(
+                // The verdict M1 already computes, and the reason it is safe for the controls to
+                // arrive after it: the same value gates the commit below, so a persona that has
+                // become ineligible cannot keep a stored opt-in it can no longer act on.
+                eligibility = spontaneousEligibility,
+                enabled = spontaneousEnabled,
+                instruction = spontaneousInstruction,
+                gapMinutes = spontaneousGapMinutes,
+                windowStartMin = spontaneousWindowStartMin,
+                windowEndMin = spontaneousWindowEndMin,
+                onEnabledChange = { spontaneousEnabled = it },
+                onInstructionChange = { spontaneousInstruction = it },
+                onGapChange = { spontaneousGapMinutes = it },
+                onWindowChange = { start, end ->
+                    spontaneousWindowStartMin = start
+                    spontaneousWindowEndMin = end
+                },
+                onSendNow = {
+                    // `persona.name` is the identity the service currently knows this persona by,
+                    // as `setSkillEnabled`'s lookup is. After a committed rename the lookup misses
+                    // and the call refuses — fail-closed, because the alternative is sending for
+                    // someone else.
+                    when (val outcome = service.sendSpontaneousMessageNow(persona.name)) {
+                        is AssistantService.SpontaneousNowOutcome.Accepted -> service.notifyUser(
+                            // Honest about silence: the model may legitimately have nothing to add,
+                            // and the turn writes nothing in that case.
+                            "${persona.name} is writing — a message will appear in their chat if " +
+                                "they have something to say."
+                        )
+                        is AssistantService.SpontaneousNowOutcome.Refused -> service.notifyUser(outcome.reason)
+                    }
+                }
+            )
+        }
 
         var voiceExpanded by remember { mutableStateOf(false) }
         val currentModeLabel = when (voiceMode) {

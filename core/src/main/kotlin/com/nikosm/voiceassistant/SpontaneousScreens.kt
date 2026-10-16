@@ -13,6 +13,29 @@
 
 package com.nikosm.voiceassistant
 
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.NotificationsActive
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Switch
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.unit.dp
+
 
 
 /**
@@ -174,3 +197,174 @@ internal fun spontaneousScheduleSummary(
  * `service.ollamaServerNames()` / `service.cloudProviderNames()` values — see the file
  * header for why a collected snapshot must never be passed here.
  */
+
+
+/**
+ * The controls for a persona that messages on its own — the M4 half of this file, whose pure
+ * helpers (the sliders' snapping, the window arithmetic, the summaries) were ported in M1 and have
+ * been waiting for a caller since.
+ *
+ * Upstream's shape is kept whole, including the two details that are decisions rather than layout:
+ *
+ * - **An ineligible persona says why instead of drawing dead controls.** The reason comes from the
+ *   same [RoomEligibility.Blocked] the guard uses, so the editor and the enforcement cannot describe
+ *   one rule two ways.
+ * - **Send-now stays visible while the feature is off**, disabled rather than absent. Hiding it would
+ *   put the section's most useful debugging control behind the switch that turns the feature on —
+ *   and turning it on is exactly why someone is here.
+ *
+ * What changed is one paragraph. Upstream told the user that *Android* decides when background work
+ * really runs, and to expect the message later than the window says: Battery Saver, doze, and a
+ * phone that is off the charger. The desktop's truth is the opposite kind of uncertainty — the timer
+ * here is exact, but it only runs while the application does:
+ */
+@Composable
+internal fun PersonaSpontaneousSection(
+    eligibility: RoomEligibility,
+    enabled: Boolean,
+    instruction: String,
+    gapMinutes: Int,
+    windowStartMin: Int?,
+    windowEndMin: Int?,
+    onEnabledChange: (Boolean) -> Unit,
+    onInstructionChange: (String) -> Unit,
+    onGapChange: (Int) -> Unit,
+    onWindowChange: (Int?, Int?) -> Unit,
+    onSendNow: () -> Unit,
+) {
+    if (eligibility !is RoomEligibility.Eligible) {
+        Text(
+            text = (eligibility as RoomEligibility.Blocked).reason,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+        )
+        return
+    }
+
+    // A stored 0 means "use the policy default", so the slider opens on the default rather than at
+    // the floor. Dragging it therefore pins a concrete value — the honest outcome: the user has now
+    // made an explicit choice.
+    val isDefaultGap = gapMinutes <= 0
+    val sliderGap = SpontaneousPolicy.effectiveGapMinutes(gapMinutes)
+        .coerceAtMost(SPONTANEOUS_GAP_MAX_MINUTES)
+    val windowOn = windowStartMin != null || windowEndMin != null
+
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text("Let this persona message you on its own", style = MaterialTheme.typography.bodyMedium)
+                Text(
+                    text = if (enabled) {
+                        "Currently ${spontaneousScheduleSummary(sliderGap, isDefaultGap, windowStartMin, windowEndMin)}."
+                    } else {
+                        "Local (Ollama) personas only."
+                    },
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
+                )
+            }
+            Switch(
+                checked = enabled,
+                onCheckedChange = onEnabledChange,
+                modifier = Modifier.testTag("spontaneousMasterSwitch")
+            )
+        }
+
+        if (enabled) {
+            Spacer(Modifier.height(4.dp))
+            OutlinedTextField(
+                value = instruction,
+                onValueChange = onInstructionChange,
+                label = { Text("What should it talk about? (optional)") },
+                placeholder = { Text("e.g. check in naturally about what we were discussing") },
+                modifier = Modifier.fillMaxWidth(),
+                maxLines = 3
+            )
+            Text(
+                text = "Left blank, it decides for itself from your recent conversation.",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
+            )
+
+            Spacer(Modifier.height(8.dp))
+            ParameterSlider(
+                label = "Minimum gap between messages",
+                value = sliderGap.toFloat(),
+                range = SpontaneousPolicy.MIN_GAP_MINUTES.toFloat()..SPONTANEOUS_GAP_MAX_MINUTES.toFloat(),
+                onValueChange = { onGapChange(spontaneousGapFromSlider(it)) },
+                format = { formatGap(spontaneousGapFromSlider(it)) },
+                lowLabel = "Every ${formatGap(SpontaneousPolicy.MIN_GAP_MINUTES)}",
+                highLabel = "Every ${formatGap(SPONTANEOUS_GAP_MAX_MINUTES)}"
+            )
+
+            Spacer(Modifier.height(8.dp))
+            Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("Only between certain hours", style = MaterialTheme.typography.bodyMedium)
+                    Text(
+                        text = "Keeps it from messaging you overnight. The clock here is exact, so " +
+                            "these are real bounds rather than preferences.",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
+                    )
+                }
+                Switch(
+                    checked = windowOn,
+                    modifier = Modifier.testTag("spontaneousWindowSwitch"),
+                    onCheckedChange = { on ->
+                        onWindowChange(
+                            if (on) windowStartMin ?: DEFAULT_WINDOW_START_MIN else null,
+                            if (on) windowEndMin ?: DEFAULT_WINDOW_END_MIN else null
+                        )
+                    }
+                )
+            }
+
+            if (windowOn) {
+                ParameterSlider(
+                    label = "Do not message before",
+                    value = (windowStartMin ?: DEFAULT_WINDOW_START_MIN).toFloat(),
+                    range = 0f..(SPONTANEOUS_DAY_MINUTES - SPONTANEOUS_WINDOW_STEP_MINUTES).toFloat(),
+                    onValueChange = { onWindowChange(spontaneousWindowMinuteFromSlider(it), windowEndMin) },
+                    format = { formatMinuteOfDay(spontaneousWindowMinuteFromSlider(it)) },
+                    lowLabel = "00:00",
+                    highLabel = "23:30"
+                )
+                ParameterSlider(
+                    label = "Do not message after",
+                    value = (windowEndMin ?: DEFAULT_WINDOW_END_MIN).toFloat(),
+                    range = 0f..(SPONTANEOUS_DAY_MINUTES - SPONTANEOUS_WINDOW_STEP_MINUTES).toFloat(),
+                    onValueChange = { onWindowChange(windowStartMin, spontaneousWindowMinuteFromSlider(it)) },
+                    format = { formatMinuteOfDay(spontaneousWindowMinuteFromSlider(it)) },
+                    lowLabel = "00:00",
+                    highLabel = "23:30"
+                )
+                Text(
+                    text = "An end earlier than the start means an overnight window.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
+                )
+            }
+
+            Text(
+                text = "Celeste has to be running for a message to arrive — the timer is in this " +
+                    "process, so the tray icon is how you know it is listening for the moment you " +
+                    "picked. Nothing is scheduled while the application is closed.",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.45f)
+            )
+        }
+
+        // Outside the enabled block on purpose — see the class comment.
+        Spacer(Modifier.height(12.dp))
+        OutlinedButton(
+            onClick = onSendNow,
+            enabled = enabled,
+            modifier = Modifier.fillMaxWidth().testTag("spontaneousSendNow")
+        ) {
+            Icon(Icons.Filled.NotificationsActive, contentDescription = null, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(8.dp))
+            Text("Send me a message now")
+        }
+    }
+}

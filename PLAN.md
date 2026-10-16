@@ -1048,7 +1048,19 @@ The launcher's confirmation dialog has no counterpart; the snackbar says where t
 desktop-entry specification's escaping rather than the shell's, which is the difference between an entry that opens the right
 persona and one that opens none.
 
-Still to come in M4: the rooms screens and the spontaneous controls in the persona editor.
+**And the controls, which close the loop between the feature and a person.** `PersonaSpontaneousSection` is upstream's shape
+whole — the master switch, the optional instruction, the gap slider, the window's two sliders and their overnight rule, and a
+Send-now button that stays *visible* while the feature is off, because hiding it would put the section's most useful debugging
+control behind the switch that turns it on. Two things are this platform's rather than Android's. The eligibility verdict was
+already here (M1 computes it and it gates the commit, which is why a persona that has become ineligible cannot keep an opt-in it
+can no longer act on) — the controls only draw it now, using the same words the guard uses. And one paragraph is rewritten: upstream
+warned that Android decides when background work actually runs, expecting a message later than the window says, because of doze,
+Battery Saver and the charger. The desktop's uncertainty is the opposite: the timer is exact, and what it needs is for the process to
+be alive — "the tray icon is how you know it is listening for the moment you picked", which is the honest sentence for this side and
+the one the user needs before trusting a schedule.
+
+**That leaves the rooms screens as M4's last piece**, and M4's acceptance is now runnable end to end from the UI: enable it in the
+editor, send-now to check the path, and let a gap elapse under `--headless` for the real thing.
 entries, the rooms screens, and the spontaneous controls in the persona editor.
 
 *Accept:* a spontaneous message arrives as a desktop notification while only the tray process runs;
