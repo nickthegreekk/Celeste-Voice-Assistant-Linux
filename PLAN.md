@@ -1248,6 +1248,39 @@ acceptance**: a persona on a model whose capabilities include `tools`, a scratch
 asks and then stops asking once trusted, and — the negative case — a gateway persona refusing in words rather than
 answering about a file it cannot read.
 
+**[2026-10-16, M8 reviewed adversarially — read this before touching the filesystem tools.]** Three reviewers went
+over the milestone (safety core, chat hot path, settings/UI) and found that **as first committed it did not work at
+all**, plus a security hole. Fixed since, each with the test that would have caught it: the window icon crashed the
+application on startup (`painterResource` resolves Compose resource paths, not classpath entries — it null-dereferences,
+inside the composition that opens the window); **the Ollama request never declared the tools**, so a conforming local
+model answered in prose and the loop never saw a call; **a write could reach the credentials file or `~/.ssh`** through a
+symlink inside the workspace, because the exclusion was checked against the unresolved target; the audit JSONL could be
+overwritten from inside a `$HOME` workspace; two calls to the same tool in one round both received the first call's
+result; an indented marker could close the untrusted-content frame; an absent `content` argument emptied the file; and
+the read header counted a phantom last line on any file ending in a newline.
+
+**Open, and the order they should be taken in** — the first two are hot-path edits that need the stream loop, the three
+apply blocks and the cloud builders in view at once, which is why they were not rushed at the end of a long session:
+
+1. **The cloud loop is unreachable and its sentinel reaches the transcript.** `AssistantServiceChat.kt`'s fork tests
+   `turnContext.fsToolMode.allowsReads`, which is `OFF` at that point, so `performCloudChatWithTools` is dead code; and
+   unlike the Ollama wrapper, the cloud apply block runs *inside* `performCloudChat`, so the `Triple("", null, null)`
+   sentinel would be appended as an empty bubble and the user's turn dropped from the next round's history. **Fix them
+   together** — the one-word gate fix alone trades "no tools" for empty bubbles.
+2. **A tool round still executes after Stop**, a persona switch or a newer message: the currency and persona guards sit
+   on the content path, after the tool-call capture and its `continue`.
+3. **Read safety**: `Files.readAllBytes` before the cap (a 20 GB file is an OOM) and no `isRegularFile` check, so a FIFO
+   in the workspace blocks the turn forever. Then the caps themselves: `spent` resets per round (the executor is built
+   per round), the counts are UTF-16 units rather than bytes, and accumulated tool output is never counted against
+   `resolveHistoryBudget` — the `extraFixed` parameter the design named does not exist.
+4. **The timeout is invisible**: `requestFsWriteApproval` tests `pending.value != null` *after* the gate cleared it, so
+   the notifier branch is dead code, and the audit records a timeout as `confirmed = "denied"` — the documented
+   `timeout` and `session-trust` values are never written. `denyPending()` has no caller at all, despite the design
+   saying a superseded turn denies the pending write.
+5. **Settings/UI**: un-pinning a persona's mode (`Global`) removes only the mode key, leaving its folder to be used with
+   the *global* mode — more access than was chosen; and the editor writes under the name the persona had when it opened,
+   so an in-editor rename strands the pair under the dead name (a later persona of that name inherits it).
+
 That leaves **M7 (hardening)**, which is an estimate rather than a measurement, and therefore where the remaining percentage is
 softest.
 entries, the rooms screens, and the spontaneous controls in the persona editor.
