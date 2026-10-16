@@ -454,9 +454,27 @@ The payoff is testability, and that is why this shape beats a suspending one: a 
 chunked sequencing, the cancel-previous guard and the progress arithmetic provable in M1 - with no audio hardware and no
 M2 implementation - instead of leaving 240 lines of tuned behaviour unchecked until the stubs are replaced.
 
-**Latency budget to verify in M2:** capture start to first chunk < 50 ms; utterance end to WAV on
-disk < 100 ms; WAV to `/transcribe` to reply to first audio out is dominated by the gateway and the
-model.
+**Latency budget (restated 2026-10-16, after it was measured for the first time).** The original
+wording — "capture start to first chunk < 50 ms" — measured the wrong moment for a design that spawns
+a process, and the first acceptance run said so: every arming measured 404-408 ms, all of it the
+*deliberate* 400 ms liveness grace in `ProcessAudioCapture.open`, paid once per arming and never per
+turn. So the budget now names the three moments that exist, each with where its number comes from:
+
+- **arming a capture session < 500 ms.** Measured 404, 404, 408 and 408 ms across four armings in two
+  runs — the grace, plus the spawn and the first-open tool probe at ~8 ms. 500 bounds the design and
+  leaves room on a loaded machine; 450 would still clear every measurement if a tighter bound is
+  wanted later.
+- **utterance end → WAV on disk < 100 ms.** Unchanged, and met with two orders of magnitude to spare:
+  0-9 ms over the utterances of three runs, the 9 ms one a 1.4 MB file. This number bounds the disk,
+  not the design.
+- **resume after a reply → the first live chunk: no figure yet.** This is the span a user actually
+  feels and the one the original budget never named. It was measured at 154, 214, 251 and 214 ms —
+  but with the drain's first (wrong) implementation, which chased the writer for 33-182 ms of that;
+  the snapshot fix landed after those samples and the span has not been measured since. The figure to
+  beat is therefore "well under 154 ms", and one short hands-free run fills it in.
+
+WAV to `/transcribe` to reply to first audio out stays out of the budget on purpose: it is dominated
+by the gateway and the model.
 [Measured on the user's own run, 2026-10-16 — `grep -E 'capture start|utterance end'`, because the logger is
 a single facade and the message text never contains the class name: `capture start → first chunk: 404 ms (open
 404 ms, first read 0 ms)` on all three armings, and `utterance end → WAV: 0-1 ms` on all four utterances,
