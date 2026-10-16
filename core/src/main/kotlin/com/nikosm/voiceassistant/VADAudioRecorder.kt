@@ -1,5 +1,6 @@
 package com.nikosm.voiceassistant
 
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -264,6 +265,15 @@ class VADAudioRecorder(
                         }
                     }
                 }
+            } catch (e: CancellationException) {
+                // `stop()` cancels this job, so a cancellation here is how monitoring is *ended*,
+                // not a fault in it. It arrives at a suspension point — the paused branch's
+                // `delay(200)` is the usual one, since that is where the loop sits between an
+                // utterance and the reply — and reported as an error it read as a crash on every
+                // stop: "Recording error: StandaloneCoroutine was cancelled" at SEVERE, which is
+                // what the 2026-10-16 run shows. Rethrown rather than swallowed: the coroutine is
+                // cancelled and must stay cancelled, and this is the value `launch` expects.
+                throw e
             } catch (e: Exception) {
                 LogSink.logger.e("VADAudioRecorder", "Recording error: ${e.message}")
             } finally {

@@ -2592,6 +2592,13 @@ class AssistantService(
                     // snapshot must not have a late chunk appended to it afterwards.
                     if (capturing) recordingChunks.add(buffer.copyOf())
                 }
+            } catch (e: CancellationException) {
+                // Push-to-talk ends by clearing `capturing`, so this loop normally exits through
+                // its own condition. A cancellation means the *scope* went away underneath it —
+                // teardown, or a superseded turn — which is not a recording error, and reporting
+                // it as one put a SEVERE on every shutdown. Rethrown, because the coroutine is
+                // cancelled and must stay cancelled; the `finally` below still releases the mic.
+                throw e
             } catch (e: Exception) {
                 logger.e("AssistantService", "Recording error: ${e.message}")
             } finally {
