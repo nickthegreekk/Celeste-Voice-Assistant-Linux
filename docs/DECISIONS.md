@@ -307,3 +307,30 @@ for the life of the process, a failure is not — the next call probes again.** 
 about the filesystem rather than a transient one, and the cost of the remaining case (installing
 libnotify mid-session) is one dropped transitory notification. The distinction is process-probe versus
 filesystem-probe, and it is a distinction rather than an exemption. → AGENTS.md §9.6, PLAN.md §5 seam 6
+
+## 2026-10-16 — Seam 12 is a flag, and a second launch is refused rather than forwarded
+
+The hotkey is a WM binding to `celeste-linux --listen`, per PLAN.md §5's row, so M2 owed the flag and the
+docs, not an interface. **There is no `Hotkey.kt` in `:core`**: upstream has no counterpart to implement
+against ("None — proximity"), and on this platform the key is the compositor's, so an interface would have
+one caller (the CLI) and one implementation (nothing). Rejected: grabbing the key in-process, which is the
+XDG GlobalShortcuts portal — still marked optional in the plan, still unbuilt, and the one thing that would
+restore what the replacement lost (see below).
+
+`--listen` makes a second launch easy, and two copies are two VAD loops on one microphone, both
+transcribing the user and both answering. Rejected: a socket or pidfile handoff that would let the second
+launch tell the first to arm — that is the daemon protocol D1 forbids, and M4's tray is the in-process
+answer to "arm it while it is running". Chosen: an `fcntl` record lock in `$XDG_RUNTIME_DIR` (fallback
+`stateDir`), taken before anything else starts, and a second launch exits 1 naming the pid that holds it.
+The kernel drops the lock when the process dies, so a crash leaves nothing stale — which is what a flag
+file would have left. Exit code 1 rather than 0 because a launcher reporting success for a no-op is how a
+hotkey ends up looking broken.
+
+**What this seam's replacement lost**, in §5's family ("the replacement lost a property the old path had
+and the loss shows up as plausible data rather than an error"): the phone's gesture reached a *running*
+service, so it could interrupt a reply. A key that starts a process cannot, and the failure is silence —
+a keypress that does nothing. The response is the family's too: make it legible. The refusal names the
+pid, and `--listen` warns plainly when it armed nothing because no gateway is configured (the service's
+own "No server configured" goes through `updateNotification`, a DEBUG line the default threshold hides —
+found by running the flag on a machine with `server_bases_v2 = "[]"`, where it armed nothing and said
+nothing). → PLAN.md §5 seam 12, §10 M2, §14 Q3; docs/DEVICES.md

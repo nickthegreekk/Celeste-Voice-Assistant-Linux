@@ -13,6 +13,7 @@ import com.nikosm.voiceassistant.linux.ProcessAudioCapture
 import com.nikosm.voiceassistant.linux.LinuxAudioDevices
 import com.nikosm.voiceassistant.linux.PwPlayback
 import com.nikosm.voiceassistant.linux.ProcessTextToSpeech
+import com.nikosm.voiceassistant.linux.SingleInstance
 import com.nikosm.voiceassistant.ui.theme.VoiceAssistantTheme
 import java.io.IOException
 import java.nio.file.Files
@@ -23,9 +24,12 @@ import kotlin.system.exitProcess
  * The one entry point. `--headless` is a flag on this program, not a second program — the service
  * core and the UI are the same process and talk through the same `StateFlow`s (PLAN.md §3, D1).
  *
- * At M0 there is nothing to run yet, so argument handling is exactly one recognised flag. The
- * window, the tray and the real flag set (`--headless`, `--listen`, `--send-text`) arrive with the
- * milestones that build them; guessing at them now would be inventing a CLI.
+ * `--listen` arms hands-free listening at launch, and it is seam 12's whole Linux implementation:
+ * the plan's answer to Android's proximity barge-in is a desktop hotkey bound to this command
+ * (PLAN.md §5), so what the application owes that hotkey is a flag that comes up listening. The
+ * window opens with it — D1 keeps the service and the UI in one process, and `--headless` is the
+ * separate question of running without one — and the bound key is documented per desktop in
+ * `docs/DEVICES.md`.
  *
  * `--selftest` is the milestone's acceptance criterion and the shape M6's packaging smoke test
  * reuses (PLAN.md §11 runs `celeste-linux --selftest` against an installed artefact). It prints
@@ -37,6 +41,9 @@ import kotlin.system.exitProcess
  * A missing upstream pin is *not* a failure. It is printed as a warning, because a build with no
  * pin can still be perfectly usable, and a smoke test that fails for a reason unrelated to the
  * machine it is testing is worse than no smoke test.
+ *
+ * The remaining flags (`--headless`, `--send-text`) still arrive with the milestones that build
+ * them; guessing at them now would be inventing a CLI.
  */
 fun main(args: Array<String>) {
     if (args.contains("--selftest")) exitProcess(selfTest())
@@ -48,6 +55,20 @@ fun main(args: Array<String>) {
     val appEnv = LinuxAppEnv.resolve().installLogging()
     val audioDevices = LinuxAudioDevices(appEnv.logger)
 
+    // One copy of the program, because `--listen` makes a second launch easy: a hotkey fires
+    // whether or not the window is already open, and two copies are two VAD loops on one
+    // microphone — both transcribing the user and both answering. A second launch says who holds
+    // the lock and exits non-zero, which is a real answer to "why did my hotkey do nothing".
+    //
+    // Held for the life of the process and held *reachably*: `FileLock` is released when its
+    // channel is garbage-collected, so a guard that lived only in a local nothing reads again is a
+    // guard the JIT may drop — and the second launch would then succeed at exactly the moment it
+    // matters. The shutdown hook is what keeps it reachable; the close is tidiness, since the
+    // kernel releases the lock at exit regardless.
+    val instance = SingleInstance.acquire(appEnv.stateDir, appEnv.logger)
+    if (instance == null) exitProcess(1)
+    Runtime.getRuntime().addShutdownHook(Thread({ instance.close() }, "instance-lock-release"))
+
     val settingsManager = SettingsManager(
         appEnv = appEnv,
         store = JsonSettingsStore(appEnv.configDir.resolve("settings.json"), appEnv.logger),
@@ -56,9 +77,10 @@ fun main(args: Array<String>) {
 
     val service = AssistantService(
         appEnv = appEnv,
-        // The four audio seams are M2's, and these are the stubs that say so once, at INFO, naming
-        // the milestone that replaces them. A build in this state starts, converses and persists;
-        // it does not hear or speak. `grep -rn 'Stub' platform/src/main` is the whole list.
+        // The four audio seams are real as of M2 — `PwPlayback`, `LinuxAudioDevices`,
+        // `ProcessTextToSpeech` and `ProcessAudioCapture` — so there is no `Stub*` left here to
+        // name a milestone. `grep -rn 'Stub' platform/src/main` is the whole list, and it is one
+        // file: the scheduler, which is M4's.
         audioPlayback = PwPlayback(appEnv.logger),
         audioDevices = audioDevices,
         tts = ProcessTextToSpeech(appEnv.logger),
@@ -67,6 +89,33 @@ fun main(args: Array<String>) {
         settingsManager = settingsManager,
     )
     service.start()
+
+    // After `start()`, and that ordering is load-bearing rather than tidy: `startVadListening`
+    // refuses to arm when no server is configured, and the server list is filled by
+    // `loadSettings()`, which `start()` runs synchronously. Arming first would ask the question
+    // before the answer had been read.
+    if (args.contains("--listen")) {
+        appEnv.logger.i("Main", "--listen: arming hands-free listening")
+        service.startVadListening()
+        // Checked here rather than trusted, because the hotkey's most likely misconfiguration has
+        // to be legible from outside the application: a bound key is pressed while looking at
+        // something else, and the service's own refusal ("No server configured") goes out through
+        // `updateNotification`, which is a DEBUG line — below the default threshold, so it reaches
+        // neither the terminal nor journald. Measured on the development box, whose settings have
+        // no gateway: `--listen` armed nothing and said nothing.
+        //
+        // Hands-free transcribes through the Voice Gateway, so a server is a prerequisite here and
+        // not a preference; the Ollama entries are for chat and cannot hear. The tray's status line
+        // is where this belongs once M4 builds it.
+        if (service.serverBases.value.isEmpty()) {
+            appEnv.logger.w(
+                "Main",
+                "--listen: no Voice Gateway server is configured, so nothing was armed — " +
+                    "hands-free listening transcribes through the gateway (Settings → Servers). " +
+                    "The window is open and push-to-talk needs a server for the same reason.",
+            )
+        }
+    }
 
     application {
         Window(

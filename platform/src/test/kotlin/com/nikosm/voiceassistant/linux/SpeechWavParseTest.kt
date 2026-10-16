@@ -1,7 +1,5 @@
 package com.nikosm.voiceassistant.linux
 
-import com.nikosm.voiceassistant.AppLogger
-import com.nikosm.voiceassistant.LogLevel
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -149,11 +147,4 @@ class SpeechWavParseTest {
             put(id.toByteArray())
             putInt(size)
         }.array()
-
-    private class RecordingLogger : AppLogger {
-        val errors = mutableListOf<String>()
-        override fun log(level: LogLevel, tag: String, message: String, error: Throwable?) {
-            if (level == LogLevel.ERROR) errors.add(message)
-        }
-    }
 }

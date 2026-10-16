@@ -186,7 +186,7 @@ implementation in `platform/`; `core` never imports from `platform`.
 | 9 | `Notifier` | `NotificationManager` + channels | `notify-send`, tracking the notification id so a cancel is possible. **Lands real in M1**, not as a stub, because a byte-identical COPY file calls `cancelSpontaneousNotification`; M4 adds the Open action and the click routing rather than replacing it |
 | 10 | `Scheduler` | `WorkManager` (self-rescheduling, reboot-safe) | coroutine timer inside the service core, driven by the already pure `SpontaneousScheduler`; optional systemd user timer. **Lands in M1 as an interface plus `StubScheduler`**, since a byte-identical COPY file calls `armSpontaneousWork`, `disarmSpontaneousWork` and `isSpontaneouslyArmed` three times each; M4 replaces the stub |
 | 11 | `Tray` | Quick-settings tile | AWT `SystemTray` menu (Listen now, Mute mic, Open, Quit) |
-| 12 | `Hotkey` | None (proximity "wave to interrupt") | WM/desktop hotkey to `celeste-linux --listen` (documented per desktop); optional XDG GlobalShortcuts portal |
+| 12 | `Hotkey` | None (proximity "wave to interrupt") | **Landed in M2 as a CLI affordance rather than an interface** (2026-10-16): `celeste-linux --listen` comes up with the microphone armed, and the per-desktop bindings live in `docs/DEVICES.md`. There is no `Hotkey.kt` and no in-process key grabber — the compositor is the only thing that knows the user's layout and which keys are free, and the plan's answer was already this flag. A second launch while one is running finds the instance lock taken, names the holding pid and exits 1 (`SingleInstance`), because two copies are two microphones: both transcribe the user and both answer. **What the replacement lost is the part worth naming**, in §5's family: the phone's gesture reached a *running* service and could therefore interrupt a reply, and a key that starts a process cannot — so "arm or interrupt from outside" belongs to M4's tray, which is in-process. The optional XDG GlobalShortcuts portal is still unbuilt, and would restore exactly that |
 | 13 | `FileDialogs` | SAF `ActivityResult` pickers | AWT `FileDialog` / chooser |
 | 14 | `CertTrust` | `networkSecurityConfig` + TOFU prompt | OkHttp `X509TrustManager` + TOFU store file in `~/.local/share/celeste-linux/` |
 | 15 | `ImageCodec` | Android `BitmapFactory` / `Bitmap.compress` | `javax.imageio` decode, scale and encode, with JPEG quality 88 and the upstream dimension limits |
@@ -645,6 +645,21 @@ hands-free loop, push-to-talk hotkey, source/sink selection, mute, cancel-playba
 *Accept:* ten consecutive hands-free exchanges with headphones, no manual input, no dropped
 utterance, and the latency budget in §6 met.
 
+[Progress, 2026-10-16 — the hotkey is in, and one prerequisite is missing from the development box. Seams 1/2/3/6 are
+real and all four have now been run against the hardware; the hands-free loop and push-to-talk were ported in M1 and
+are wired to those seams; seam 12 lands as `--listen` (§5's row, with what it lost). What is left of M2: **source/sink
+selection**, the last unbuilt item on the scope line above — §9's substitution for the earpiece/Bluetooth route toggle
+is `wpctl` sink selection remembered per persona, and nothing reads a chosen device yet (`playbackTarget()` consults
+only `earpieceMode`, which is null on a desktop by design). Then the acceptance run itself.
+
+**The acceptance run has a prerequisite that is not satisfied:** hands-free transcribes through the Voice Gateway, and
+the settings on this machine have no server configured at all (`server_bases_v2` is `"[]"`). `--listen` and the
+microphone button both refuse — correctly, that is upstream's guard — and until now the refusal was invisible, because
+the service's own message goes through `updateNotification`, which is a DEBUG line below the printed threshold;
+`Main.kt` now warns in plain sight when a launch armed nothing. Push-to-talk needs a server for the same reason
+(`/transcribe`). So the ten-exchange acceptance waits on a gateway, not on code — and the same absence means the
+machine has no Ollama entry either, so M1's acceptance conversation has not been run on it yet either.]
+
 [Pre-flight, 2026-10-15: buildhost runs PipeWire 1.6.9 with pipewire-pulse and WirePlumber, and `pw-record`, `pw-play`,
 `pw-cat`, `wpctl`, `parec`, `paplay`, `pactl`, `arecord` and `aplay` are all present — so both the primary path and the
 fallbacks can be built and hand-tested on the acceptance machine. What is missing is a capture device: the only input is
@@ -796,8 +811,13 @@ substitution being made the wrong way round.]
    something else?
 2. **Fresh `git init` here?** Recommended: this directory becomes its own repository, upstream stays
    untouched and unlinked.
-3. **Default interaction on the desktop:** always-listening while the app runs, or a hotkey that
-   arms listening for the session? (Affects M2 and the hotkey design.)
+3. ~~**Default interaction on the desktop:** always-listening while the app runs, or a hotkey that
+   arms listening for the session?~~ **Answered by M2's implementation (2026-10-16): neither is
+   forced.** `--listen` arms listening at launch, so the hotkey case exists; the app does not arm
+   itself, so a run that only wanted to chat is not listening to the room. Which one a user gets is
+   which command their key is bound to — `celeste-linux` or `celeste-linux --listen` — and M4's tray
+   is where an always-on preference would be stored if one is wanted.
+   (Was: "Affects M2 and the hotkey design.")
 4. **v1 scope:** is rooms + spontaneous messaging wanted in the first release, or is
    text + voice + images enough to ship and the rest follows?
 5. **Local offline TTS:** rely on the distro's `espeak-ng` (thin, robotic, always available), or
