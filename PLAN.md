@@ -1111,8 +1111,26 @@ What M5 still owes is not code but a run: its acceptance is "a spoken translatio
 translator, RAG and web search logic all arrived in M1's COPY files. It is the same shape M4's acceptance had — the substance is
 here, and one session with the app settles it.
 
-That leaves **M6 (packaging) and M7 (hardening)**, which are the two milestones that are estimates rather than measurements, and
-therefore where the remaining percentage is softest.
+[**M6 opened with the app image, and two of its facts were measured rather than assumed.** `nativeDistributions` — deliberately
+absent until now, since the build file said it was this milestone's work — carries the package name the unit file and the
+per-persona entries already use, GPL-3.0, the `Deb` target (the containers build that one, per this file's own glibc note), a
+`linux` block with category, maintainer and a **drawn placeholder icon** (`packaging/icons/`, the same shape as the tray's, because
+the repository had no icon and jpackage wants a file), every module, and the `--enable-native-access=ALL-UNNAMED` the plan asked for.
+
+**The packaging JDK has to be one with `jmods`, and this box's did not.** The Gradle-provisioned Adoptium 25 has no `jmods/`
+directory, so `jlink` refused it — "This JDK does not contain packaged modules and cannot be used to create another image" — and the
+image could not be built at all. The system JDK 27 has them and a 27 runtime runs the JVM-25 classes the project compiles, so
+`javaHome` is pinned to it, with a fallback to the toolchain for a machine that differs. The trade is recorded in the build file:
+that one knob also decides which JDK `:desktop:run` uses.
+
+**Measured, not estimated: the image is 354 MB, 165 MB of it the bundled runtime** — which is what §12's risk row asked for and
+what makes the next slice obvious, since `includeAllModules = true` is the safe choice rather than the small one. And the image
+*runs*: `bin/celeste-linux --selftest` printed the resolved XDG paths, the audio devices and the upstream commit, with no Gradle
+and no system JDK in the picture. What M6 still owes: the PKGBUILD, the `debian/` files and their container builds, an application
+`.desktop` entry beside the per-persona ones, trimming the runtime, and the README's install section.
+
+That leaves **M7 (hardening)**, which is an estimate rather than a measurement, and therefore where the remaining percentage is
+softest.
 entries, the rooms screens, and the spontaneous controls in the persona editor.
 
 *Accept:* a spontaneous message arrives as a desktop notification while only the tray process runs;

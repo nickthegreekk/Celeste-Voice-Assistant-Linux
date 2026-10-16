@@ -1,4 +1,5 @@
 // :desktop — the Compose Multiplatform UI, the window, the tray, and the packaging.
+import org.jetbrains.compose.desktop.application.dsl.TargetFormat
 //
 // One process, not two (PLAN.md §3, D1): the service core and the UI live together and
 // talk through the StateFlows the ported code already exposes. `--headless` is a flag
@@ -55,10 +56,42 @@ tasks.withType<Test>().configureEach {
 // the app runs on the JDK M6 bundles into the package.
 compose.desktop {
     application {
-        // Gives the module `run` and `packageDistribution` (PLAN.md §6). The
-        // `nativeDistributions` block — target formats, icons, the bundled runtime — is
-        // M6 packaging work and is deliberately not guessed at here.
+        // Gives the module `run` and `packageDistribution` (PLAN.md §6), and the
+        // `nativeDistributions` block below is M6's work — written now that the milestone that
+        // owns it has arrived, rather than guessed at earlier.
         mainClass = "com.nikosm.voiceassistant.MainKt"
+
+        nativeDistributions {
+            // The packaged application is `celeste-linux`, which is the name the unit file, the
+            // per-persona `.desktop` entries and the documentation all already use.
+            packageName = "celeste-linux"
+            packageVersion = project.version.toString()
+            description = "Celeste — the assistant, ported to Linux"
+            vendor = "VoiceAssistant-Linux"
+            // Upstream is GPL-3.0 and LICENSE travels with the port; the package says the same.
+            copyright = "GPL-3.0"
+            // The `.deb` is what the containers build (PLAN.md §6: a jpackage runtime carries the
+            // build host's glibc, so a Debian artefact has to be made on Debian). Declared here so
+            // the same project can produce it there; building it *here* needs dpkg-deb, and
+            // `createDistributable` — the app image — needs nothing but the JDK.
+            targetFormats(TargetFormat.Deb)
+            linux {
+                // A placeholder drawn for the purpose: the repository had no icon, and jpackage
+                // wants a real file. Same shape as the tray's drawn icon, and the same caveat —
+                // M6 packaging is where a real asset would land, not a second source of truth.
+                iconFile.set(project.file("../packaging/icons/celeste-linux.png"))
+                appCategory = "Utility"
+                debMaintainer = "nikos@localhost"
+            }
+            // Every module, rather than a jdeps guess: the runtime is what makes the image run on a
+            // machine with no JDK, and ONNX Runtime, Compose/Skiko, OkHttp and the TLS stack
+            // between them touch more of the platform than a hand-written list survives. §12's risk
+            // row says to measure the image; that measurement is below.
+            includeAllModules = true
+            // JDK 25 warns that Skiko loads its native library without declaring native access,
+            // and PLAN.md §10/§6 asks for this flag in the packaged application's options.
+            jvmArgs += listOf("--enable-native-access=ALL-UNNAMED")
+        }
 
         // The plugin's `run` task derives its `executable` from this and **not** from the Kotlin
         // toolchain, the way `compileKotlin` and `test` do. Left unset it launches the application
@@ -73,8 +106,19 @@ compose.desktop {
         // through `tasks.withType<JavaExec>` on purpose: the plugin writes `executable` itself,
         // after any task configuration a build script adds, so a `setExecutable` call is silently
         // overwritten. `javaHome` is the plugin's own knob and it wins.
-        javaHome = javaToolchains.launcherFor {
-            languageVersion = JavaLanguageVersion.of(25)
-        }.get().metadata.installationPath.asFile.absolutePath
+        // **The packaging JDK, and it has to be one with `jmods`.** Measured on this box: the
+        // Gradle-provisioned Adoptium 25 has no `jmods/` directory, and `jlink` refuses it
+        // outright — "This JDK does not contain packaged modules and cannot be used to create
+        // another image" — so the app image could not be built with it at all. The system JDK 27
+        // does have them, and a 27 runtime runs the JVM-25 classes this project compiles (a newer
+        // runtime is backward compatible; the *target* is still 25, set by the toolchain above).
+        //
+        // This one knob also decides which JDK `./gradlew :desktop:run` uses. That is the trade:
+        // packaging needs a complete JDK, and the alternative is provisioning another 25 that may
+        // or may not carry `jmods`. PLAN.md §10's M6 records the requirement.
+        javaHome = file("/usr/lib/jvm/java-27-openjdk").takeIf { it.isDirectory }?.absolutePath
+            ?: javaToolchains.launcherFor {
+                languageVersion = JavaLanguageVersion.of(25)
+            }.get().metadata.installationPath.asFile.absolutePath
     }
 }
