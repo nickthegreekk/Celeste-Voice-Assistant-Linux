@@ -1224,7 +1224,16 @@ class SettingsManager(
     fun getFsWorkspace(): String? = store.getString("files_workspace")?.takeIf { it.isNotBlank() }
 
     /**
-     * Null means "follow the global" and removes the key.
+     * Null means "follow the global", and **removes the folder with the mode** — the pair is the pin,
+     * exactly as it is for [migratePersonaFs] and [removePersonaFs].
+     *
+     * Leaving the folder behind was a widening (M8 review): the resolution takes the mode from one
+     * level and the path from the other, so a persona un-pinned from read-only would have kept its
+     * folder at the *global* trust level — write access to a directory the user chose for something
+     * narrower. And the editor hides the folder controls once the mode is `Global`, so it was a
+     * folder they could no longer see, let alone clear. A user who wants a folder at the global trust
+     * level chooses a folder and leaves the mode alone, which is a different action and still writes
+     * only [savePersonaFsWorkspace].
      *
      * A value this build cannot read resolves to `OFF` rather than to "follow the global", and that
      * asymmetry is deliberate: `fromName`'s fallback is the deny-everything one, so a corrupted
@@ -1234,7 +1243,12 @@ class SettingsManager(
         if (personaName.isBlank()) return
         val key = PERSONA_FS_MODE_PREFIX + personaName
         val edit = store.edit()
-        if (mode == null) edit.remove(key) else edit.putString(key, mode.name)
+        if (mode == null) {
+            edit.remove(key)
+            edit.remove(PERSONA_FS_WORKSPACE_PREFIX + personaName)
+        } else {
+            edit.putString(key, mode.name)
+        }
         edit.commit()
     }
 

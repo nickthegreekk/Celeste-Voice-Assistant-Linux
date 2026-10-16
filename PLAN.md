@@ -1327,9 +1327,20 @@ apply blocks and the cloud builders in view at once, which is why they were not 
    Four tests, all failing with the old behaviour restored: `expected:<[timeout]> but was:<[denied]>`,
    `expected:<[session-trust]> but was:<[user]>`, an announcement list that stayed empty, and a question still on screen
    after Stop.
-5. **Settings/UI**: un-pinning a persona's mode (`Global`) removes only the mode key, leaving its folder to be used with
-   the *global* mode — more access than was chosen; and the editor writes under the name the persona had when it opened,
-   so an in-editor rename strands the pair under the dead name (a later persona of that name inherits it).
+5. ~~**Settings/UI**: un-pinning a persona's mode (`Global`) removes only the mode key, leaving its folder to be used
+   with the *global* mode — more access than was chosen; and the editor writes under the name the persona had when it
+   opened, so an in-editor rename strands the pair under the dead name (a later persona of that name inherits it).~~
+   **Fixed 2026-10-16.** The un-pin is now a whole-pair action in `savePersonaFsMode` — the folder goes with the mode,
+   as it already does for the rename and delete legs, so the two keys cannot be mixed — and the editor clears its
+   display of the folder at the same moment, since the folder row is hidden once the mode is `Global` and the user
+   could otherwise be shown a folder that was no longer in play. The **live-name** half was the output device's fix,
+   made one family too late: `setPersonaOutputDevice(name, id)` has written under the editor's live name since M2,
+   with a comment naming this exact failure, and the filesystem callbacks were written with the open-time `persona.name`
+   instead. They use `name` now, and `PersonaFsSection` no longer takes a persona name at all — the argument was
+   unused, and it was the thing that made the wrong one look right. The policy half has a test
+   (`and the folder goes with it expected null, but was:</home/u/work>` with the old code back); the **name wiring does
+   not, and cannot**: it is a Compose callback, which no JVM test in this repo reaches — the same reason the output
+   device's identical fix has none.
 6. **A cloud tool turn whose final answer is blank writes an empty bubble** *(noted while fixing item 1, 2026-10-16)*.
    The Ollama loop answers that case with a sentence — `withToolSummary`, and DECISIONS.md records the rule ("an empty
    bubble is worse than a sentence", and the reply is then *spoken*, which is what a hands-free user gets instead of

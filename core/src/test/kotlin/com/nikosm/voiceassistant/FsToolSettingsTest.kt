@@ -142,6 +142,32 @@ class FsToolSettingsTest {
     }
 
     @Test
+    fun `un-pinning a persona drops its folder with the mode, so the pair cannot be mixed`() {
+        // The two halves of the resolution are read from two levels, and that is what made this a
+        // widening rather than a tidiness bug: the global mode applied to the persona's own folder.
+        manager.saveFsMode(FsToolMode.READ_WRITE)
+        manager.saveFsWorkspace("/home/u/everything")
+        manager.savePersonaFsMode("Work", FsToolMode.READ_ONLY)
+        manager.savePersonaFsWorkspace("Work", "/home/u/work")
+
+        manager.savePersonaFsMode("Work", null)
+
+        assertNull("the mode is gone", manager.getPersonaFsMode("Work"))
+        assertNull("and the folder goes with it", manager.getPersonaFsWorkspace("Work"))
+        assertEquals(
+            "so the persona follows the global pair rather than keeping read-write access to a " +
+                "folder it chose for reading",
+            FsWorkspace(Path.of("/home/u/everything"), FsToolMode.READ_WRITE),
+            resolveFsWorkspace(
+                manager.getPersonaFsMode("Work"),
+                manager.getPersonaFsWorkspace("Work"),
+                manager.getFsMode(),
+                manager.getFsWorkspace(),
+            ),
+        )
+    }
+
+    @Test
     fun `a corrupted persona mode narrows to off rather than following the global`() {
         // The asymmetry that matters: "follow the global" would be a widening if the global is
         // read-write, so the decoder's deny-everything fallback is the only safe direction here.

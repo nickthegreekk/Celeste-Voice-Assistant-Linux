@@ -1136,16 +1136,26 @@ fun PersonaEditor(
         SettingsSectionHeader(title = "Filesystem", icon = Icons.Default.Folder)
         SettingsSection {
             PersonaFsSection(
-                personaName = persona.name,
                 personaMode = personaFsMode,
                 onModeChange = { chosen ->
                     personaFsMode = chosen
-                    service.setPersonaFsModeSetting(persona.name, chosen)
+                    // Written under the editor's LIVE name, like the output device above and for the
+                    // same reason: the autosave's rename migration runs off the same local state, so a
+                    // write under a name the user has just edited away lands where the migration
+                    // cannot find it — and a persona later created with that name would inherit it.
+                    service.setPersonaFsModeSetting(name, chosen)
+                    if (chosen == null) {
+                        // "Global" is a whole-pair answer and the store drops the folder with the mode
+                        // (see `savePersonaFsMode`). This is the display half of it: the folder row is
+                        // hidden at that point, so without this the editor would keep describing a
+                        // folder that is no longer in play.
+                        personaFsWorkspace = null
+                    }
                 },
                 workspace = personaFsWorkspace,
                 onWorkspaceChange = { chosen ->
                     personaFsWorkspace = chosen
-                    service.setPersonaFsWorkspaceSetting(persona.name, chosen)
+                    service.setPersonaFsWorkspaceSetting(name, chosen)
                 },
                 service = service
             )

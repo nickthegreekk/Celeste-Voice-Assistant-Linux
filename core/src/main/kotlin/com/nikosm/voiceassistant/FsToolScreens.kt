@@ -234,7 +234,6 @@ internal fun FsWriteApprovalDialog(request: FsWriteRequest, onAnswer: (approve: 
  */
 @Composable
 internal fun PersonaFsSection(
-    personaName: String,
     personaMode: FsToolMode?,
     onModeChange: (FsToolMode?) -> Unit,
     workspace: String?,
