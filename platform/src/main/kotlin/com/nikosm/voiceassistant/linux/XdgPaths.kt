@@ -55,6 +55,14 @@ class XdgPaths(
      */
     val picturesDir: Path get() = picturesHome.resolve(PICTURES_APP_DIR)
 
+    /**
+     * Where per-persona `.desktop` entries are written: `$XDG_DATA_HOME/applications`, which is where
+     * every application menu reads them from. Deliberately **not** under [APP_DIR]: a `.desktop` file
+     * in a subdirectory of the data home is a file no menu looks at — the entry has to sit directly
+     * in `applications/`, beside the ones the user's other programs installed.
+     */
+    val applicationsDir: Path get() = dataHome.resolve("applications")
+
     companion object {
         const val APP_DIR = "celeste-linux"
 

@@ -65,6 +65,12 @@ interface AppEnv {
      */
     val picturesDir: Path
 
+    /**
+     * Where per-persona `.desktop` entries go: `$XDG_DATA_HOME/applications` — the menu's own
+     * directory, not this application's data directory (see `XdgPaths.applicationsDir`).
+     */
+    val applicationsDir: Path
+
 
     /**
      * Whether conversation-content logging is on — the port of `BuildConfig.DEBUG`.

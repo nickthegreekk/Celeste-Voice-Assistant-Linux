@@ -131,6 +131,7 @@ class AudioDeviceSelectionTest {
         override val stateDir: Path get() = Path.of("/nonexistent/state")
         override val cacheDir: Path get() = Path.of("/nonexistent/cache")
         override val picturesDir: Path get() = cacheDir.resolve("Pictures")
+    override val applicationsDir: Path get() = cacheDir.resolve("applications")
         override val debugLogging: Boolean get() = false
         override val logger: AppLogger get() = StderrLogger
         override val notifier: Notifier get() = throw UnsupportedOperationException("no selection test notifies")

@@ -1763,11 +1763,24 @@ class AssistantService(
                 // it rather than leave a dead icon; the user can re-add it from the persona
                 // list. Placed after the collision check so a REFUSED rename withdraws nothing.
                 //
-                // DEFERRED TO M4: `PersonaShortcuts.kt` is NEW and lands there, one `.desktop`
-                // entry per persona instead of a launcher shortcut (PLAN.md §7 and §9). The call
-                // is deleted rather than stubbed because it is vacuous here — M1 creates no entry
-                // to withdraw, so a stub would have nothing to do and no way to be wrong. This is
-                // the first of the two call-site deletions §9 records.
+                // M4 restored the call, and its shape is upstream's: the withdrawal rides the
+                // persona-update path, after the collision check, so a REFUSED rename withdraws
+                // nothing. What changed is the medium — a `.desktop` file the application wrote
+                // rather than a launcher shortcut it asked for — and the removal is therefore a
+                // file delete that reports whether it did anything.
+                serviceScope.launch(Dispatchers.IO) {
+                    // A shortcut that could not be withdrawn must not fail the rename: the persona
+                    // is renamed either way, and the worst case is a dead entry the user can see and
+                    // delete — the same shape upstream used for its launcher call, which it also
+                    // wrapped rather than let throw.
+                    runCatching { removePersonaShortcut(oldName, appEnv.applicationsDir) }
+                        .onSuccess { removed ->
+                            if (removed) Log.d("AssistantService", "persona shortcut for '$oldName' withdrawn")
+                        }
+                        .onFailure {
+                            Log.w("AssistantService", "could not withdraw the shortcut for '$oldName': ${it.message}")
+                        }
+                }
                 // Rename: move the persona's history to the new name-keyed storage
                 // entry (it would otherwise be orphaned on disk forever), and when
                 // the renamed persona is the active one, keep the selection pointing
@@ -2083,9 +2096,19 @@ class AssistantService(
             // otherwise outlive the persona it opens. Best-effort — a launcher that refuses
             // must not fail the deletion.
             //
-            // DEFERRED TO M4: the second of §9's two deletions, same reasoning as the rename
-            // above — `PersonaShortcuts.kt` is NEW and lands there, and there is no entry to
-            // withdraw until it does.
+            // The second of §9's two deletions, restored in M4 with the same reasoning as the
+            // rename: a deleted persona must not leave an entry that opens whichever persona the
+            // application happens to select. Deletion is already the path where "the name is the
+            // id" costs something, so this joins the history drop it sits beside.
+            serviceScope.launch(Dispatchers.IO) {
+                runCatching { removePersonaShortcut(removedName, appEnv.applicationsDir) }
+                    .onSuccess { removed ->
+                        if (removed) Log.d("AssistantService", "persona shortcut for '$removedName' withdrawn")
+                    }
+                    .onFailure {
+                        Log.w("AssistantService", "could not withdraw the shortcut for '$removedName': ${it.message}")
+                    }
+            }
             // Followup to Fix #4: the removal must also drop the persona's persisted
             // history — a genuine deletion leaves no persona_messages_<name> entry
             // behind on disk. (Rename is handled by migratePersonaHistory in

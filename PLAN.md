@@ -1034,7 +1034,21 @@ is why it stops with the session. §12's linger risk is answered where the user 
 `loginctl enable-linger`, and says why that is the user's decision rather than a package's. Its header also carries the
 one thing a unit cannot: how to point `ExecStart` at a build tree until M6 installs a binary.
 
-Still to come in M4: the `.desktop`
+**The per-persona entries followed, and the design came across whole.** Upstream's `PersonaShortcuts.kt` says the thing that
+matters about this feature in its own header — *a shortcut adds no launch path of its own* — and that survived the translation:
+an entry is another producer of the deep link (`--persona <name>` here, the same one-shot `MainScreen` already honours for the
+spontaneous notifications), so a tap inherits that path's properties: it interrupts an in-flight turn, it leaves room mode, and a
+persona deleted since is consumed harmlessly. **The name is the id**, as it was upstream, and the one sharp edge upstream named is
+handled where it handled it: a rename *withdraws* the old entry rather than leaving one that opens whichever persona is selected —
+the two `removePersonaShortcut` call sites the M1 markers deleted are restored at exactly those places, on the persona-update and
+persona-delete paths, best-effort and logged, because a shortcut that could not be withdrawn must not fail a rename. The medium is
+what changed: a `.desktop` entry written into `$XDG_DATA_HOME/applications`, with a hash of the exact name in the file name, because
+"Vicky" and "Vicky " slug identically and a file name cannot hold the difference — two names, two entries, no silent replacement.
+The launcher's confirmation dialog has no counterpart; the snackbar says where the entry went. `escapeForDesktopExec` is the
+desktop-entry specification's escaping rather than the shell's, which is the difference between an entry that opens the right
+persona and one that opens none.
+
+Still to come in M4: the rooms screens and the spontaneous controls in the persona editor.
 entries, the rooms screens, and the spontaneous controls in the persona editor.
 
 *Accept:* a spontaneous message arrives as a desktop notification while only the tray process runs;

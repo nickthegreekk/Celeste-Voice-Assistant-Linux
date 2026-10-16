@@ -164,15 +164,22 @@ fun PersonaSettings(
                             Text(persona.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                             Text(persona.model, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f), maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
-                        // Home-screen shortcut: a launcher icon that opens straight into this
-                        // DEFERRED TO M4: the "add to home screen" shortcut button. Upstream
-                        // called `requestPersonaShortcut(context, persona)` — the launcher's own
-                        // confirmation dialog, so it was a request rather than a placement — and
-                        // showed a Toast when the launcher refused. PLAN.md §9 replaces the
-                        // launcher shortcut with one `.desktop` entry per persona, which is
-                        // `PersonaShortcuts.kt` and M4's; its two `removePersonaShortcut` call
-                        // sites in `AssistantService.kt` carry the matching markers, so the
-                        // feature's three edges are counted in one place each.
+                        // Add to the application menu: one `.desktop` entry that opens straight
+                        // into this persona's chat (PLAN.md §9's replacement for the launcher
+                        // shortcut). Upstream *requested* a shortcut and the launcher asked the
+                        // user; here the file is written directly and the snackbar says where it
+                        // went, which is the same shape the gallery save uses. Idempotent: pressing
+                        // it twice rewrites the entry rather than adding a second one.
+                        IconButton(
+                            onClick = { service.createPersonaShortcut(persona.name) },
+                            modifier = Modifier.size(28.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.AddToHomeScreen,
+                                contentDescription = "Add to the application menu",
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
                         // Reorder controls — same up/down pattern as the server and
                         // cloud-API lists. Order is user-visible: the persona selector
                         // and the deletion fallback ("first remaining persona") follow it.

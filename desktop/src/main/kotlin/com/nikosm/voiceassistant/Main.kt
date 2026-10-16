@@ -54,8 +54,8 @@ import kotlinx.coroutines.launch
  * pin can still be perfectly usable, and a smoke test that fails for a reason unrelated to the
  * machine it is testing is worse than no smoke test.
  *
- * `--send-text` / `--send-file` arrived in M3 and `--headless` in M4; what remains unbuilt is
- * nothing, so there is no flag here that only pretends to work.
+ * The flags: `--selftest`, `--listen` (M2), `--send-text` / `--send-file` (M3), `--headless` and
+ * `--persona` (M4). There is no flag here that only pretends to work.
  */
 fun main(args: Array<String>) {
     if (args.contains("--selftest")) exitProcess(selfTest())
@@ -197,6 +197,14 @@ fun main(args: Array<String>) {
         // `user.home` rather than anything from `AppEnv`: the CLI is where a user types `~`, and a
         // `~` is a shell convention the application has to expand for itself — see parseShareArgs.
         val sharedRequest = parseShareArgs(args.toList(), Path.of(System.getProperty("user.home")))
+        // `--persona <name>`: what a per-persona `.desktop` entry runs (see PersonaShortcuts.kt).
+        // It feeds the same one-shot deep link the spontaneous notifications use, so a shortcut
+        // inherits that path's behaviour — including consuming a persona that has since been
+        // deleted without crashing.
+        val personaArg = args.toList().let { list ->
+            val index = list.indexOf("--persona")
+            list.getOrNull(index + 1)?.takeIf { index >= 0 && it.isNotBlank() }
+        }
         if (sharedRequest != null) {
             appEnv.logger.i("Main", "sharing into the composer: ${sharedRequest::class.simpleName}")
         }
@@ -249,10 +257,13 @@ fun main(args: Array<String>) {
                 }
 
                 var pendingShare by remember { mutableStateOf(sharedRequest) }
+                var pendingPersona by remember { mutableStateOf(personaArg) }
                 MainScreen(
                     service = service,
                     sharedRequest = pendingShare,
                     onSharedHandled = { pendingShare = null },
+                    deepLinkPersona = pendingPersona,
+                    onDeepLinkHandled = { pendingPersona = null },
                 )
             }
         }

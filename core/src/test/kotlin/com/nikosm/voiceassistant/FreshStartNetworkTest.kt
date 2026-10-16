@@ -262,6 +262,7 @@ class FreshStartNetworkTest {
         override val stateDir: Path get() = root.resolve("state")
         override val cacheDir: Path get() = root.resolve("cache")
         override val picturesDir: Path get() = cacheDir.resolve("Pictures")
+    override val applicationsDir: Path get() = cacheDir.resolve("applications")
         override val debugLogging: Boolean get() = false
         override val logger: AppLogger get() = StderrLogger
         // Both throw rather than no-op: a first run posts nothing and arms nothing, so a fake that
