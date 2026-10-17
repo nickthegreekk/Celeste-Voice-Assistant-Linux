@@ -63,6 +63,7 @@ class FreshStartNetworkTest {
     private lateinit var store: InMemoryStore
     private lateinit var service: AssistantService
     private lateinit var witnesses: WitnessingProxySelector
+    private var proxyBefore: ProxySelector? = null
 
     @Before
     fun setUp() {
@@ -73,10 +74,21 @@ class FreshStartNetworkTest {
 
         env = FakeAppEnv()
         store = InMemoryStore()
+        service = newService().also { started += it }
+
+        // Initialize AssistantServiceChatKt BEFORE the witness below is installed. That file
+        // holds `suggestionClient` as a top-level val — a JVM-global OkHttp client, and OkHttp
+        // captures ProxySelector.getDefault() when the client is BUILT. If this class ran first
+        // and built that client under the witness, the client would keep the witness for the
+        // rest of the JVM and reject every later connection; that is exactly how a later test
+        // failed with "this test refuses to open a connection to 127.0.0.1". With an empty
+        // transcript fetchSuggestedReplies returns before any I/O, so this only forces the
+        // file's static initializer.
+        kotlinx.coroutines.runBlocking { service.fetchSuggestedReplies(DEFAULT_PERSONAS[0]) }
+
+        proxyBefore = ProxySelector.getDefault()
         witnesses = WitnessingProxySelector()
         ProxySelector.setDefault(witnesses)
-
-        service = newService().also { started += it }
     }
 
     private val started = mutableListOf<AssistantService>()
@@ -108,7 +120,7 @@ class FreshStartNetworkTest {
         // same misattribution this teardown exists to remove.
         started.forEach { runCatching { it.shutdown() } }
         started.clear()
-        ProxySelector.setDefault(null)
+        ProxySelector.setDefault(proxyBefore)
         Dispatchers.resetMain()
     }
 

@@ -99,7 +99,7 @@ four socket fixtures this triage found portable.
 | `ComfyImageInstrumentedTest.kt` | ComfyUI submit → poll → download, cancel, no file on failure | Ported core + a ComfyUI stub fixture | 817 |
 | `Fix4StreamingDotsInstrumentedTest.kt` | Thinking dots hide once streamed text exists | UI half to the Compose runner; state via ported core | 547 |
 | `Fix6NumCtxOverflowInstrumentedTest.kt` | Over-budget requests refused before sending | Budget logic on the ported core; UI half to the runner | 837 |
-| `GatewayCredentialResolutionInstrumentedTest.kt` | Trailing-slash/name backend URLs resolve credentials; unresolvable sends nothing | Config resolution on the ported core | 551 |
+| `GatewayCredentialResolutionInstrumentedTest.kt` | Trailing-slash/name backend URLs resolve credentials; unresolvable sends nothing | **Ported** as `GatewayCredentialResolutionTest` (4): the header proves /transcribe and /synthesize carry it; the stray gateway receives nothing and the failure is visible | 551 |
 | `GatewayTestVoiceSupersedeInstrumentedTest.kt` | A superseded test-voice turn does not force IDLE or leak focus | **Ported in part** as `GatewayTestVoiceSupersedeTest` (2): the state-ownership case and its control. The focus case is dropped with its subject — §9 deletes the audio-focus stack, so there is no retained focus to leak | 499 |
 | `H3StaleStreamUnwindInstrumentedTest.kt` | A stale stream unwind does not blank the newer placeholder | **Ported** as `H3StaleStreamUnwindTest` (2) over `SteppedNdjsonServer`: the stale unwind and the lone-turn control | 540 |
 | `ImageGenAuthInstrumentedTest.kt` | Basic auth on generate/regenerate/test-connection | Image-gen flow + A1111 stub | 416 |
@@ -107,7 +107,7 @@ four socket fixtures this triage found portable.
 | `ImageGenSaveProbeInstrumentedTest.kt` | Save probes the backend-appropriate endpoint | Save path through the ported core | 210 |
 | `ImageGenSettingsComposeTest.kt` | Image-gen switch/sections; state restoration | Service state via the port; the rotation/restoration case drops | 167 |
 | `M2HandsFreeToggleFocusInstrumentedTest.kt` | Hands-free off mid-turn does not force IDLE or leak focus | Hands-free ownership in the ported core | 621 |
-| `MessageStampEchoInstrumentedTest.kt` | Echoed timestamp stripped; injected exactly once next request | History/stamp logic + fake server | 249 |
+| `MessageStampEchoInstrumentedTest.kt` | Echoed timestamp stripped; injected exactly once next request | **Ported** as `MessageStampEchoTest` (1) over a body-capturing `SteppedNdjsonServer` | 249 |
 | `MessageTimestampInstrumentedTest.kt` | Stamps in local history, not cloud; budgeted and rendered | Request assembly on the ported core; UI half to the runner | 634 |
 | `ModelCatalogCacheInstrumentedTest.kt` | Cache states, refresh, merge, stale-on-failure | Catalog cache in the ported core | 512 |
 | `ModelPickerInstrumentedTest.kt` | Favourites and selection through the service | Catalog/favourites on the ported core | 304 |
@@ -129,8 +129,8 @@ four socket fixtures this triage found portable.
 | `SpontaneousWorkerInstrumentedTest.kt` | WorkManager arming/disarming, state, date rollover | Scheduler seam 10 (coroutine in-process) | 601 |
 | `SpontaneousWriteGuardInstrumentedTest.kt` | Cloud personas stripped; eligible local ones armed | Guard in the ported core | 311 |
 | `Stage2RevealStateInstrumentedTest.kt` | Playback fraction/timestamps clear and arm per path | TTS sequencing/playback seams | 282 |
-| `SuggestedRepliesDirectOllamaAuthInstrumentedTest.kt` | Suggested replies reach `/api/chat` with Basic auth | Routing/credentials on the core | 190 |
-| `SuggestedRepliesInstrumentedTest.kt` | Default translator/image flags filter correctly | Portable; move to `:core` and drop the unused Compose rule | 31 |
+| `SuggestedRepliesDirectOllamaAuthInstrumentedTest.kt` | Suggested replies reach `/api/chat` with Basic auth | **Ported** as `SuggestedRepliesDirectOllamaAuthTest` (1) with the ported `OllamaSuggestionStub` | 190 |
+| `SuggestedRepliesInstrumentedTest.kt` | Default translator/image flags filter correctly | **Ported** as `SuggestedRepliesTest` (1); the unused Compose rule dropped | 31 |
 
 ### Portable fixtures (4)
 
@@ -139,7 +139,7 @@ four socket fixtures this triage found portable.
 | `ComfyUiStub.kt` | Loopback ComfyUI (`system_stats`, `prompt`, `history`, `queue`, `view`) | Reuse as a JVM fixture | 310 |
 | `ImageGenStub.kt` | Loopback A1111 requiring Basic auth | Reuse as a JVM fixture | 146 |
 | `ModelCatalogStub.kt` | Loopback Ollama catalogue (`/api/tags`, `/api/show`, `/v1/models`) | Reuse as a JVM fixture | 156 |
-| `OllamaSuggestionStub.kt` | Loopback Ollama `/api/chat` for suggestions | Reuse as a JVM fixture | 136 |
+| `OllamaSuggestionStub.kt` | Loopback Ollama `/api/chat` for suggestions | **Ported** as a JVM fixture; the credentials are constructor parameters, not hardcoded | 136 |
 
 ### Drop with a written reason (10)
 
@@ -231,9 +231,12 @@ Since that table, M7 has landed the desktop Compose runner and its six ports (65
 identity group (`PersonaNameGuardTest`, `PersonaNameUniquenessTest`), room persistence
 (`RoomPersistenceTest`), server identity (`ServerIdentityTest` byte-identical plus
 `ServerIdentityServiceTest`), the conversation-state group (`H3StaleStreamUnwindTest`,
-`AssistantServiceConcurrencyTest`, `GatewayTestVoiceSupersedeTest`) and the room loop
-(`RoomRoundLoopTest`, 8). Their fixtures (`SteppedNdjsonServer`, `RoomTurnServer`) are JVM
-loopback stubs; no instrumented runner is involved.
+`AssistantServiceConcurrencyTest`, `GatewayTestVoiceSupersedeTest`), the provider/credential
+group (`GatewayCredentialResolutionTest` (4), `MessageStampEchoTest`, the ported
+`OllamaSuggestionStub` behind `SuggestedRepliesDirectOllamaAuthTest`, and the pure
+`SuggestedRepliesTest`) and the room loop (`RoomRoundLoopTest`, 8). Their fixtures
+(`SteppedNdjsonServer`, `RoomTurnServer`, `OllamaSuggestionStub`) are JVM loopback stubs; no
+instrumented runner is involved.
 
 **Still open in M7, with the reason:**
 

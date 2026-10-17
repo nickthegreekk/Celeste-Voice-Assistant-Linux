@@ -76,6 +76,11 @@ internal class SteppedConnection(private val client: Socket) {
     val requestArrived = CountDownLatch(1)
     val clientDisconnected = CountDownLatch(1)
 
+    /** The request body this connection carried, valid once [requestArrived] has fired. */
+    @Volatile
+    var requestBody: String = ""
+        private set
+
     private val responseReady = CountDownLatch(1)
 
     @Volatile
@@ -148,14 +153,17 @@ internal class SteppedConnection(private val client: Socket) {
             .firstOrNull { it.startsWith("Content-Length:", ignoreCase = true) }
             ?.substringAfter(':')?.trim()?.toIntOrNull() ?: 0
         // Drain the request body: leaving it unread makes the client see a reset connection
-        // instead of a response.
+        // instead of a response. The text is kept for tests that inspect what the app sent.
         var remaining = contentLength
+        val body = StringBuilder()
         val buffer = ByteArray(8_192)
         while (remaining > 0) {
             val read = input.read(buffer, 0, minOf(buffer.size, remaining))
             if (read <= 0) break
+            body.append(String(buffer, 0, read, Charsets.UTF_8))
             remaining -= read
         }
+        requestBody = body.toString()
     }
 
     private fun readAsciiLine(input: InputStream): String? {
