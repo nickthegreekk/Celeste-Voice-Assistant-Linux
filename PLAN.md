@@ -1748,7 +1748,8 @@ nothing posts.
 
 **M15 — Scheduled skills (new scope, not a port; not counted in the total below).** The user picked it from the
 post-M9 list. A skill can run on a clock: every day at a chosen time, as a chosen persona, producing one message in
-that persona's chat and a per-persona notification. **Built 2026-10-17; live run pending.**
+that persona's chat and a per-persona notification. **Built 2026-10-17; the Arch run is green the same day, and the
+Debian run is deferred to the end of the Debian test batch.**
 
 - **A schedule is its own record, not a field on `Skill`.** `Models.kt` is a COPY file and may not grow one, so
   `ScheduledSkill` lives in its own file and its own settings key. It references the skill by id and the persona by
