@@ -22,6 +22,7 @@ is adapted on purpose, and it is recorded here — the same demotion rule that a
 | `ComfyPromptFillingTest.kt` | m0 | 10 | unchanged; JUnit 4 + kotlinx-serialization |
 | `ComfyFixtures.kt` | m0 | — | not a test class; the shared fixture both of the above build from |
 | `ScriptLanguageDetectionTest.kt` | m0 (arrived in M1) | 12 | unchanged; JUnit 4 only. The group is about what compiles together, not which milestone it belongs to: this one tests a pure function and needs no service. It is the executable specification for the detector that decides which voice a reply is spoken in. |
+| `ServerIdentityTest.kt` | m7 | 15 | unchanged; Color + JUnit only. An upstream JVM test that arrived after the M0/M1 harvest and was missed until the instrumented triage pointed at its service-side sibling; its subject (`ServerIdentity.kt`) has been a COPY file since m0. Added to `TEST_SOURCES` in the m7 group, so `--check` covers it. |
 
 ## Ported JVM tests — retargeted
 
@@ -117,9 +118,9 @@ four socket fixtures this triage found portable.
 | `PersonaSwitchStopsPlaybackInstrumentedTest.kt` | Switch/clear stops chunked playback | Playback + sequencer seams | 654 |
 | `RoomAutoScrollInstrumentedTest.kt` | Opens at newest, follows streaming, stable identity | UI half to the runner; room state via the core | 377 |
 | `RoomEditorUiPersistenceInstrumentedTest.kt` | Room name/cap/reorder persist on close/Done/back | Editor commit to the settings seam | 387 |
-| `RoomPersistenceInstrumentedTest.kt` | Room edits survive a write-read cycle | Settings seam (JSON store) | 238 |
+| `RoomPersistenceInstrumentedTest.kt` | Room edits survive a write-read cycle | **Ported** as `RoomPersistenceTest` (5) | 238 |
 | `RoomRoundLoopInstrumentedTest.kt` | Order, cap, local-only autonomy, stop, supersede | Room loop + fake servers | 919 |
-| `ServerIdentityInstrumentedTest.kt` | Server rename rewrites favourites/personas/cache | Identity/rename + settings store | 351 |
+| `ServerIdentityInstrumentedTest.kt` | Server rename rewrites favourites/personas/cache | **Ported** as `ServerIdentityServiceTest` (10), with the pure half as the byte-identical `ServerIdentityTest` (15) | 351 |
 | `SkillInjectionInstrumentedTest.kt` | Skills reach the prompt in order, do not persist, count against budget | Prompt assembly on the core | 699 |
 | `SkillUiInstrumentedTest.kt` | Toggle survives edit+rename; screenshots | Regression half via the core; screenshot halves drop | 369 |
 | `SpontaneousDeepLinkInstrumentedTest.kt` | Deep link selects the persona, ignores a missing one, leaves a room | Notifier/tray seam + selection | 178 |
