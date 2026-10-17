@@ -550,17 +550,8 @@ private fun claimTheWindowClass(logger: AppLogger) {
         .onFailure { logger.w("Main", "could not name the window class $WINDOW_CLASS: ${it.message}") }
 }
 
-private const val PIN_RESOURCE = "upstream-commit.txt"
-
-/**
- * The application's version, shown in About.
- *
- * Kept in step by hand with `allprojects { version = "0.1.0" }` and the packaging files — the
- * same discipline `PKGBUILD` documents for `pkgver`. There is no manifest entry to read: a
- * jpackage app image does not install one, and inventing a resource for a constant that changes
- * once a release would be more machinery than the field is worth.
- */
-private const val APP_VERSION = "0.1.0"
+// APP_VERSION and upstreamPin() live in :core (AppInfo.kt): Settings renders the same information
+// in its About section, and :core may not import this module.
 
 /**
  * M17: the main window's native menu bar.
@@ -636,24 +627,6 @@ private fun selfTest(): Int {
     println()
 
     return reportSettingsDir(appEnv.configDir)
-}
-
-/**
- * Reads the upstream revision the ported files were copied from. The resource lives in `:core`
- * beside the copied sources rather than here, so that the pin travels with the files it describes
- * and cannot be shipped without them.
- */
-private fun upstreamPin(): String {
-    val pin = AssistantService::class.java.classLoader
-        .getResourceAsStream(PIN_RESOURCE)
-        ?.use { it.readBytes().decodeToString() }
-        ?.trim()
-
-    if (pin.isNullOrEmpty()) {
-        // Deliberately still exit 0. See the note on main.
-        return "UNKNOWN — $PIN_RESOURCE missing from the classpath (warning; does not affect the exit code)"
-    }
-    return pin
 }
 
 /**

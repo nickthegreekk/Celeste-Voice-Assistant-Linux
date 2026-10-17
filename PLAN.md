@@ -1983,6 +1983,15 @@ sha256 `52a20cce2b92f69cb69870c49acda9c2dbb429235336bbb16cd4b1df1db9daf4`) plus 
 sidebar at a maximised width, the two-pane Settings window — is the user's run; nothing in this pass was
 judged by the installed package yet.]
 
+[Follow-up, 2026-10-17 — the About section in Settings, asked for by the user. `SettingsCategoryList` now
+ends with `SettingsAboutSection`: name, version, upstream commit and licence, drawn in the list's own card
+language — so it sits at the very bottom of the one-pane list and at the bottom of the two-pane category
+rail. `APP_VERSION` and `upstreamPin()` moved from `:desktop`'s `Main.kt` into `:core`'s new `AppInfo.kt`,
+and the About window now reads the same two, so the window and the section cannot disagree; the pin's
+resource was already on `:core`'s classpath, beside the files it describes. `SettingsAboutSectionTest`
+proves both halves of "at the bottom": in a short list the section is below the fold, and scrolling to it
+reveals the four facts.]
+
 **Total: 33–50 focused days** (about 4–8 weeks full time, 3–5 months at evenings and weekends).
 A first usable milestone is **M2**: roughly **15–23 days**.
 

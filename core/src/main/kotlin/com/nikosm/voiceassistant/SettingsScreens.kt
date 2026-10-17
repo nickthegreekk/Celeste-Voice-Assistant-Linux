@@ -378,6 +378,13 @@ internal fun SettingsCategoryList(
                 )
             }
         }
+
+        // M17 follow-up: the About section at the very bottom of the Settings list (and of the
+        // category rail in the two-pane layout). Rendered from the same values as the About
+        // window, so the two cannot drift.
+        item(key = "settings-about") {
+            SettingsAboutSection(accentColor = accentColor)
+        }
     }
 }
 
