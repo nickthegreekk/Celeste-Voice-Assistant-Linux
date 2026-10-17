@@ -14,7 +14,10 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.VerticalScrollbar
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.hoverable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsHoveredAsState
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -89,10 +92,16 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.PointerButton
+import androidx.compose.ui.input.pointer.PointerEventType
+import androidx.compose.ui.input.pointer.PointerIcon
+import androidx.compose.ui.input.pointer.pointerHoverIcon
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -101,6 +110,7 @@ import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import java.io.File
 
+@OptIn(ExperimentalComposeUiApi::class)
 @Composable
 fun ChatMessageBubble(
     message: ChatMessage,
@@ -113,6 +123,9 @@ fun ChatMessageBubble(
     // Null → plain text (no highlight). Text is never hidden.
     highlightRange: IntRange? = null,
     highlightColor: Color? = null,
+    // M17: the actions menu. Long-press was the touch gesture; on the desktop it opens on a
+    // right-click (secondary button), which is where a Linux user looks for it. The name stays
+    // because the call site and this parameter are the same seam as before.
     onLongClick: (() -> Unit)? = null,
     onReplayAudio: (() -> Unit)? = null,
     onRegenerateImage: (() -> Unit)? = null,
@@ -216,37 +229,57 @@ fun ChatMessageBubble(
             )
         }
 
+        // M17: a hoverable, selectable bubble. `combinedClickable` is gone from this text
+        // deliberately: it made the message a button (press ripple, click swallowing drags), and
+        // a message is not a button — it is text with a context menu. Selection is the primary
+        // pointer gesture now, and the secondary button opens the actions menu.
+        val interactionSource = remember { MutableInteractionSource() }
+        val hovered by interactionSource.collectIsHoveredAsState()
         val textModifier = if (!isCompact) {
             Modifier
                 .background(
-                    if (isUser) personaColor.copy(alpha = 0.1f) else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f),
+                    when {
+                        isUser -> personaColor.copy(alpha = if (hovered) 0.16f else 0.1f)
+                        else -> MaterialTheme.colorScheme.onSurface.copy(alpha = if (hovered) 0.08f else 0.05f)
+                    },
                     MaterialTheme.shapes.medium
                 )
-                .combinedClickable(
-                    onClick = { },
-                    onLongClick = onLongClick
-                )
+                .hoverable(interactionSource)
+                .pointerHoverIcon(PointerIcon.Text)
+                .pointerInput(onLongClick) {
+                    if (onLongClick == null) return@pointerInput
+                    awaitPointerEventScope {
+                        while (true) {
+                            val event = awaitPointerEvent()
+                            if (event.type == PointerEventType.Press && event.button == PointerButton.Secondary) {
+                                event.changes.forEach { it.consume() }
+                                onLongClick()
+                            }
+                        }
+                    }
+                }
                 .padding(12.dp)
         } else {
             Modifier.fillMaxWidth().padding(bottom = 6.dp)
         }
 
-        Text(
-            text = highlightedAnnotated(
-                displayText,
-                if (isUser) null else highlightRange,
-                highlightColor
-            ),
-            color = when {
-                isUser && isCompact -> personaColor
-                isUser -> MaterialTheme.colorScheme.onSurface
-                else -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f)
-            },
-            fontSize = fontSize.sp,
-            style = if (isUser && isCompact) MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold) else MaterialTheme.typography.bodyMedium,
-            textAlign = if (isCompact) TextAlign.Center else TextAlign.Start,
-            modifier = textModifier
-        )
+        SelectionContainer(modifier = textModifier) {
+            Text(
+                text = highlightedAnnotated(
+                    displayText,
+                    if (isUser) null else highlightRange,
+                    highlightColor
+                ),
+                color = when {
+                    isUser && isCompact -> personaColor
+                    isUser -> MaterialTheme.colorScheme.onSurface
+                    else -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f)
+                },
+                fontSize = fontSize.sp,
+                style = if (isUser && isCompact) MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold) else MaterialTheme.typography.bodyMedium,
+                textAlign = if (isCompact) TextAlign.Center else TextAlign.Start
+            )
+        }
 
         if (isUser && message.imagePath != null) {
             Spacer(modifier = Modifier.height(8.dp))
@@ -417,9 +450,13 @@ fun ChatList(
                 } else null
 
                 Box(
-                    modifier = Modifier.fillMaxWidth(), 
+                    modifier = Modifier.fillMaxWidth(),
                     contentAlignment = if (isUser) Alignment.CenterEnd else Alignment.CenterStart
                 ) {
+                    // The inner Box is sized to the bubble, so the menu anchors at the message
+                    // rather than at the row's full width. (It used to anchor on the outer Box,
+                    // which on a wide window put a right-aligned user's menu at the window edge.)
+                    Box {
                     ChatMessageBubble(
                         message = message,
                         displayText = displayText,
@@ -440,6 +477,20 @@ fun ChatList(
                         expanded = menuMessageIndex == index,
                         onDismissRequest = { menuMessageIndex = null }
                     ) {
+                        // M17: the reply's inline speaker button is easy to miss in a wide
+                        // window; the context menu is where a desktop user looks. Image replies
+                        // get Regenerate here for the same reason. Both call the same service
+                        // paths as the inline controls — this is a second door, not new logic.
+                        if (!isUser) {
+                            DropdownMenuItem(
+                                text = { Text("Speak") },
+                                leadingIcon = { Icon(Icons.AutoMirrored.Filled.VolumeUp, null, modifier = Modifier.size(18.dp)) },
+                                onClick = {
+                                    onReplayAudio(message)
+                                    menuMessageIndex = null
+                                }
+                            )
+                        }
                         DropdownMenuItem(
                             text = { Text("Copy") },
                             leadingIcon = { Icon(Icons.Default.ContentCopy, null, modifier = Modifier.size(18.dp)) },
@@ -470,9 +521,11 @@ fun ChatList(
                         // is the clipboard, and handing a file to another application is `xdg-open`,
                         // which docs/BEYOND-THE-PORT.md keeps outside M0–M7 by §2's rule.
                         //
-                        // So the menu keeps Copy, Edit and Delete, and this comment is why there is no
-                        // third substitute to write: a Share entry with nothing behind it is worse
-                        // than its absence, which is what the M1 marker said while it waited.
+                        // So the menu keeps Copy, Edit and Delete — plus Speak and Regenerate,
+                        // which M17 surfaced here from the inline controls — and this comment is
+                        // why there is no third substitute to write: a Share entry with nothing
+                        // behind it is worse than its absence, which is what the M1 marker said
+                        // while it waited.
                         DropdownMenuItem(
                             text = { Text("Edit") },
                             leadingIcon = { Icon(Icons.Default.Edit, null, modifier = Modifier.size(18.dp)) },
@@ -482,6 +535,16 @@ fun ChatList(
                                 menuMessageIndex = null
                             }
                         )
+                        if (message.generatedImagePath != null && onRegenerateImage != null) {
+                            DropdownMenuItem(
+                                text = { Text("Regenerate image") },
+                                leadingIcon = { Icon(Icons.Default.Refresh, null, modifier = Modifier.size(18.dp)) },
+                                onClick = {
+                                    onRegenerateImage(index)
+                                    menuMessageIndex = null
+                                }
+                            )
+                        }
                         DropdownMenuItem(
                             text = { Text("Delete") },
                             leadingIcon = { Icon(Icons.Default.Delete, null, tint = Color.Red, modifier = Modifier.size(18.dp)) },
@@ -490,6 +553,7 @@ fun ChatList(
                                 menuMessageIndex = null
                             }
                         )
+                    }
                     }
                 }
             }

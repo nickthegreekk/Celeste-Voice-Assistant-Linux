@@ -919,10 +919,17 @@ fun MainScreen(
             currentPersona.requestRouting(service.ollamaServerNames(), service.cloudProviderNames()).isDirectOllama
         Scaffold(
             modifier = Modifier.fillMaxSize().onPreviewKeyEvent { event ->
+                // M17: Ctrl+K opens the persona/room picker from anywhere on the screen, the
+                // desktop's usual "jump to something" chord. Preview-phase so it works while the
+                // composer has focus too; the picker is a window of its own and takes focus from
+                // there. Ctrl is required and the bare K is not touched, so typing "k" is safe.
+                if (event.type == KeyEventType.KeyDown && event.isCtrlPressed && !event.isAltPressed && event.key == Key.K) {
+                    showPersonaPicker = true
+                    true
                 // M17: Escape is the desktop "get me out or stop" key. Dialogs close first;
                 // otherwise a live turn is stopped, exactly as the Stop button does. An idle
                 // screen does nothing, so Escape never becomes a surprise.
-                if (event.type == KeyEventType.KeyDown && event.key == Key.Escape) {
+                } else if (event.type == KeyEventType.KeyDown && event.key == Key.Escape) {
                     when {
                         showTranscriptSearch -> { showTranscriptSearch = false; true }
                         showSettings -> { showSettings = false; true }

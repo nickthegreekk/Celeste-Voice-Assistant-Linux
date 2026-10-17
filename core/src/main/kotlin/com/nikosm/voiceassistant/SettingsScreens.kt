@@ -63,15 +63,17 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.DialogProperties
+import androidx.compose.ui.window.DialogWindow
+import androidx.compose.ui.window.rememberDialogState
 import com.nikosm.voiceassistant.ui.theme.VoiceAssistantTheme
 import com.nikosm.voiceassistant.ui.theme.isDynamicColorSupported
 import kotlinx.coroutines.*
 import androidx.compose.foundation.gestures.scrollBy
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PersonaSelector(
     personaList: List<Persona>,
@@ -85,40 +87,41 @@ fun PersonaSelector(
     activeRoomId: String? = null,
     onRoomSelected: ((Room) -> Unit)? = null
 ) {
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    // Square, and deliberately not `BottomSheetDefaults.ExpandedShape`: the sheet is not sliding up
-    // from the bottom edge of a phone here, it is a desktop window's list of personas, and the
-    // rounded top corners were the one part of this screen that still read as a phone. Asked for by
-    // the user on 2026-10-16, with the same request for the header frame below it.
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState = sheetState,
-        containerColor = MaterialTheme.colorScheme.surface,
-        shape = RectangleShape,
+    // M17: this was the port's one `ModalBottomSheet` — the sheet sliding up from the bottom edge
+    // is a phone gesture, and it was already squared off for the desktop. It is now a small modal
+    // window of its own, opened by the header's persona button or Ctrl+K, closed by its title-bar
+    // button, Escape, or choosing a row. The list is unchanged.
+    DialogWindow(
+        onCloseRequest = onDismiss,
+        title = "Select Persona",
+        state = rememberDialogState(size = DpSize(460.dp, 640.dp)),
+        resizable = false,
     ) {
-        val scrollState = rememberScrollState()
-        Column(modifier = Modifier.fillMaxWidth().padding(16.dp).verticalScroll(scrollState)) {
-            Text("Select Persona", style = MaterialTheme.typography.titleLarge)
-            Spacer(modifier = Modifier.height(16.dp))
-            personaList.forEach { persona ->
-                Row(
-                    modifier = Modifier.fillMaxWidth().clickable { onPersonaSelected(persona) }.padding(12.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    ProviderLogo(icon = persona.providerIcon, isCloud = persona.isCloud, imagePath = persona.iconImageUri)
-                    Spacer(modifier = Modifier.width(16.dp))
-                    Text(persona.name, style = MaterialTheme.typography.bodyLarge, color = if (persona.name == currentPersona.name) personaColor else MaterialTheme.colorScheme.onSurface)
+        Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.surface) {
+            val scrollState = rememberScrollState()
+            Column(modifier = Modifier.fillMaxSize().padding(16.dp).verticalScroll(scrollState)) {
+                Text("Select Persona", style = MaterialTheme.typography.titleLarge)
+                Spacer(modifier = Modifier.height(16.dp))
+                personaList.forEach { persona ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth().clickable { onPersonaSelected(persona) }.padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        ProviderLogo(icon = persona.providerIcon, isCloud = persona.isCloud, imagePath = persona.iconImageUri)
+                        Spacer(modifier = Modifier.width(16.dp))
+                        Text(persona.name, style = MaterialTheme.typography.bodyLarge, color = if (persona.name == currentPersona.name) personaColor else MaterialTheme.colorScheme.onSurface)
+                    }
                 }
+                if (onRoomSelected != null) {
+                    RoomPickerRows(
+                        rooms = rooms,
+                        activeRoomId = activeRoomId,
+                        accentColor = personaColor,
+                        onRoomSelected = onRoomSelected
+                    )
+                }
+                Spacer(modifier = Modifier.height(24.dp))
             }
-            if (onRoomSelected != null) {
-                RoomPickerRows(
-                    rooms = rooms,
-                    activeRoomId = activeRoomId,
-                    accentColor = personaColor,
-                    onRoomSelected = onRoomSelected
-                )
-            }
-            Spacer(modifier = Modifier.height(24.dp))
         }
     }
 }

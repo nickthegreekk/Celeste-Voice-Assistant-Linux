@@ -7,6 +7,7 @@ package com.nikosm.voiceassistant.ui.theme
 //
 // The file lands in :desktop rather than :core for the same reason (AGENTS.md §2): it is Compose
 // UI, and :core must not depend on Compose. Its three siblings land there too.
+import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme
@@ -14,6 +15,8 @@ import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
 
@@ -101,13 +104,23 @@ fun VoiceAssistantTheme(
     content: @Composable () -> Unit
 ) {
     val colorScheme = baseColorScheme(darkTheme)
+    // M17: hover, press and focus feedback for every plain `clickable` row. Provided INSIDE
+    // MaterialTheme because MaterialTheme installs its own LocalIndication for descendants; this
+    // replaces that one rather than being shadowed by it. Material buttons keep their ripple.
+    val indication = remember(colorScheme.primary) {
+        DesktopIndication(
+            hoverColor = colorScheme.primary.copy(alpha = 0.08f),
+            focusColor = colorScheme.primary.copy(alpha = 0.7f)
+        )
+    }
 
     MaterialTheme(
         colorScheme = colorScheme,
         typography = Typography.withFontFamily(fontFamily),
         shapes = Shapes,
-        content = content
-    )
+    ) {
+        CompositionLocalProvider(LocalIndication provides indication, content = content)
+    }
 }
 
 /**

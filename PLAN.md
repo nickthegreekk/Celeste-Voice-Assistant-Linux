@@ -1948,6 +1948,18 @@ its list behind them, and both the window's close button and the editor's Done/C
 server/image-gen add and edit forms are still the `AlertDialog`s inside the Settings window and move with the
 interaction slice.]
 
+[Progress, 2026-10-17 — slice 4, the interaction pass. A message's text is now selectable (`SelectionContainer`) and
+its actions menu opens on a **right-click**; the old `combinedClickable` is gone, because it made the text behave like
+a button and swallow selection drags. The menu gains Speak for replies and Regenerate image for image replies — a
+second door onto the same callbacks, so the inline controls are not the only way to reach them. `DesktopIndication`,
+installed once in `VoiceAssistantTheme` as `LocalIndication`, gives every plain `clickable` row a hover tint, a press
+tint and a 2 dp focus ring; Material components that draw their own ripple keep it. Ctrl+K opens the persona/room
+picker from anywhere on the main screen, and the picker itself is no longer a `ModalBottomSheet` (the port's only
+one) but a 460×640 modal dialog window. `MessageContextMenuTest` proves the gesture: a secondary press reaches the
+bubble's callback, a primary press (selection) does not, and the compact HUD body has none. The menu's own rendering
+is a popup window the desktop test runner cannot see into — the same boundary as `DialogWindow` — so its items are
+judged in the live run. Next: the wide-window layouts.]
+
 **Total: 33–50 focused days** (about 4–8 weeks full time, 3–5 months at evenings and weekends).
 A first usable milestone is **M2**: roughly **15–23 days**.
 
