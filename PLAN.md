@@ -1545,7 +1545,9 @@ the pure `SuggestedRepliesTest`), the image-gen group (`ComfyImageTest` (24) ove
 `ImageGenBackendMismatchTest` (7), `ImageGenSaveProbeTest` (2) on the runner, `ModelCatalogCacheTest` (18) and
 `ModelPickerServiceTest` (4)), the persona/editor group (`PersonaEditorCommitTest`, `PersonaEditorEmptyListsTest`,
 `PersonaSelectionTest` (15), `PersonaSwitchStopsPlaybackTest` (3), `HandsFreeToggleTest` (2) — its focus assertions
-dropped with §9), the replay/reveal pair (`AssistantReplayRoutingTest`, `Stage2RevealStateTest` (4)) and the room loop
+dropped with §9), the replay/reveal pair (`AssistantReplayRoutingTest`, `Stage2RevealStateTest` (4)), the spontaneous group
+(`SpontaneousWriteGuardTest` (8), `SpontaneousTurnServiceTest` (4), `SpontaneousDeepLinkTest` (3), `SpontaneousEditorUiTest`
+(4), `SpontaneousDeliveryTest` (10) — the unique-work cases dropped with WorkManager) and the room loop
 (`RoomRoundLoopTest` (8): order and
 attribution, the cap exactly, local-only rotating autonomy, Stop removing the blank placeholder, supersede, and the
 three editor-parser cap cases, all against `RoomTurnServer`). The rest of the table decides their fate and belongs with

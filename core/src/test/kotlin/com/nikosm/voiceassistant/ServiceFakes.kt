@@ -100,6 +100,43 @@ internal object ThrowingScheduler : Scheduler {
     override fun isArmed(personaName: String): Boolean = false
 }
 
+/**
+ * Records what was armed and disarmed, without starting any timer.
+ *
+ * The spontaneous tests need to observe SCHEDULING decisions — "addPersona armed the persona it
+ * just created" — which WorkManager used to answer through `isSpontaneouslyArmed`. This keeps the
+ * same observable (`isArmed`) and adds the history, so a test can also assert the slot and the
+ * delay when that is the point.
+ */
+internal class RecordingScheduler : Scheduler {
+    data class Armed(val personaName: String, val slot: Int, val delayMillis: Long)
+
+    private val lock = Any()
+    private val armHistory = mutableListOf<Armed>()
+    private val disarmHistory = mutableListOf<String>()
+    private val currentlyArmed = mutableSetOf<String>()
+
+    val arms: List<Armed> get() = synchronized(lock) { armHistory.toList() }
+    val disarms: List<String> get() = synchronized(lock) { disarmHistory.toList() }
+
+    override fun arm(personaName: String, slot: Int, delayMillis: Long) {
+        synchronized(lock) {
+            armHistory += Armed(personaName, slot, delayMillis)
+            currentlyArmed += personaName
+        }
+    }
+
+    override fun disarm(personaName: String) {
+        synchronized(lock) {
+            disarmHistory += personaName
+            currentlyArmed -= personaName
+        }
+    }
+
+    override fun isArmed(personaName: String): Boolean =
+        synchronized(lock) { personaName in currentlyArmed }
+}
+
 /** The whole store, in a map. No file, no `~/.config`, nothing to restore afterwards. */
 internal class InMemoryStore : SettingsStore {
     private val values = mutableMapOf<String, Any>()

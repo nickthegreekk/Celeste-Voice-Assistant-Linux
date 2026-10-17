@@ -122,11 +122,11 @@ four socket fixtures this triage found portable.
 | `ServerIdentityInstrumentedTest.kt` | Server rename rewrites favourites/personas/cache | **Ported** as `ServerIdentityServiceTest` (10), with the pure half as the byte-identical `ServerIdentityTest` (15) | 351 |
 | `SkillInjectionInstrumentedTest.kt` | Skills reach the prompt in order, do not persist, count against budget | Prompt assembly on the core | 699 |
 | `SkillUiInstrumentedTest.kt` | Toggle survives edit+rename; screenshots | Regression half via the core; screenshot halves drop | 369 |
-| `SpontaneousDeepLinkInstrumentedTest.kt` | Deep link selects the persona, ignores a missing one, leaves a room | Notifier/tray seam + selection | 178 |
-| `SpontaneousEditorUiInstrumentedTest.kt` | Gate reads live lists on the first frame; switch reaches the service | Gate against the state seam; UI half to the runner | 289 |
-| `SpontaneousTurnInstrumentedTest.kt` | Output lands in that persona's history; silence writes nothing | Turn execution on the core | 258 |
-| `SpontaneousWorkerInstrumentedTest.kt` | WorkManager arming/disarming, state, date rollover | Scheduler seam 10 (coroutine in-process) | 601 |
-| `SpontaneousWriteGuardInstrumentedTest.kt` | Cloud personas stripped; eligible local ones armed | Guard in the ported core | 311 |
+| `SpontaneousDeepLinkInstrumentedTest.kt` | Deep link selects the persona, ignores a missing one, leaves a room | **Ported** as `SpontaneousDeepLinkTest` (3) at the service layer | 178 |
+| `SpontaneousEditorUiInstrumentedTest.kt` | Gate reads live lists on the first frame; switch reaches the service | **Ported** as `SpontaneousEditorUiTest` (4), frozen clock and all | 289 |
+| `SpontaneousTurnInstrumentedTest.kt` | Output lands in that persona's history; silence writes nothing | **Ported** as `SpontaneousTurnServiceTest` (4) over `OllamaSuggestionStub` | 258 |
+| `SpontaneousWorkerInstrumentedTest.kt` | WorkManager arming/disarming, state, date rollover | **Ported in part** as `SpontaneousDeliveryTest` (10): the run's cancel/not-due paths, delivery-state rollover, deletion/rename cleanup and import reconciliation. Unique-work replacement, chain ids and the null-input run are dropped with WorkManager (the in-process scheduler has no work names) | 601 |
+| `SpontaneousWriteGuardInstrumentedTest.kt` | Cloud personas stripped; eligible local ones armed | **Ported** as `SpontaneousWriteGuardTest` (8) with `RecordingScheduler` | 311 |
 | `Stage2RevealStateInstrumentedTest.kt` | Playback fraction/timestamps clear and arm per path | **Ported** as `Stage2RevealStateTest` (4): stopAudio clears, the device-voice replay arms a fresh token, System TTS clears, the gateway replay arms nothing | 282 |
 | `SuggestedRepliesDirectOllamaAuthInstrumentedTest.kt` | Suggested replies reach `/api/chat` with Basic auth | **Ported** as `SuggestedRepliesDirectOllamaAuthTest` (1) with the ported `OllamaSuggestionStub` | 190 |
 | `SuggestedRepliesInstrumentedTest.kt` | Default translator/image flags filter correctly | **Ported** as `SuggestedRepliesTest` (1); the unused Compose rule dropped | 31 |
@@ -234,14 +234,16 @@ identity group (`PersonaNameGuardTest`, `PersonaNameUniquenessTest`), room persi
 `AssistantServiceConcurrencyTest`, `GatewayTestVoiceSupersedeTest`), the provider/credential
 group (`GatewayCredentialResolutionTest` (4), `MessageStampEchoTest`, the ported
 `OllamaSuggestionStub` behind `SuggestedRepliesDirectOllamaAuthTest`, and the pure
-`SuggestedRepliesTest`) and the room loop (`RoomRoundLoopTest`, 8), and the image-gen group
+`SuggestedRepliesTest`), the room loop (`RoomRoundLoopTest`, 8), the image-gen group
 (`ComfyImageTest` (24) over `ComfyUiStub`, `ImageGenAuthTest` (8) over `ImageGenStub`,
 `ImageGenBackendMismatchTest` (7), `ImageGenSaveProbeTest` (2) on the runner, and the catalog
 pair `ModelCatalogCacheTest` (18) over `ModelCatalogStub` and `ModelPickerServiceTest` (4)), the
 persona/editor group (`PersonaEditorCommitTest`, `PersonaEditorEmptyListsTest`,
 `PersonaSelectionTest` (15), `PersonaSwitchStopsPlaybackTest` (3) over `FakeAudioPlayback`, and
-`HandsFreeToggleTest` (2)), and the replay/reveal pair (`AssistantReplayRoutingTest`,
-`Stage2RevealStateTest` (4)). Their fixtures (`SteppedNdjsonServer`, `RoomTurnServer`,
+`HandsFreeToggleTest` (2)), the replay/reveal pair (`AssistantReplayRoutingTest`,
+`Stage2RevealStateTest` (4)), the spontaneous group (`SpontaneousWriteGuardTest` (8),
+`SpontaneousTurnServiceTest` (4), `SpontaneousDeepLinkTest` (3), `SpontaneousEditorUiTest` (4),
+`SpontaneousDeliveryTest` (10)). Their fixtures (`SteppedNdjsonServer`, `RoomTurnServer`,
 `OllamaSuggestionStub`, `ComfyUiStub`, `ImageGenStub`, `ModelCatalogStub`) are JVM loopback
 stubs; no instrumented runner is involved beyond the Compose one.
 
