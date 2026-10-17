@@ -13,6 +13,32 @@ not stop for it. Stop only for the four cases listed in AGENTS.md §10.
 
 ---
 
+## 2026-10-17 — Session model override: in memory, copy-on-entry, Ollama first
+
+The user picked the header model picker from the post-M9 list. **Decided: an in-memory, per-persona override, applied
+by copying the persona at the two manual-turn entry points, offered for direct-Ollama personas and never persisted.**
+
+**Why not persisted.** A stored override is a model edit with fewer steps and no way to tell afterwards which one the
+user meant; it would also need migration, a backup field and an explanation in the editor. The header says "session",
+the picker says the persona is not changed, and the process ending is the reset. Rejected: a `session_model` setting.
+
+**Why the persona is copied rather than the model string patched.** The whole turn derives from the `Persona` —
+routing, the tool contract, voice mode, the apply guards. Swapping the model on a copy at `sendTextMessageToServer` and
+`sendAudioToServer` means every consumer sees one consistent persona, and the file is not sprinkled with effective-model
+lookups that could drift. Rooms and spontaneous turns never enter those functions, which is also why they keep their
+configured models — the override is a chat affordance, not a global switch.
+
+**Why Ollama first.** The picker lists models from the same shared catalog the editor and the models screen use, so the
+three cannot disagree. A cloud persona's model lives in a different namespace and would need its provider list in the
+header, plus a routing decision (switching a local persona to a cloud model is a privacy and cost change, not a model
+change). That is a later slice; a fake list now would be worse than no control. Rejected: cross-route switching.
+
+**Capabilities are display only** — the same rule the persona picker records. A "no tools" hint and one warning
+sentence, nothing hidden or disabled: a filter that hid a model would put the model the user wants out of reach, and
+the app does not gate on capability data anywhere else.
+
+→ PLAN.md §10 (M11), `SessionModels.kt`, `SessionModelScreens.kt`, `AssistantServiceChat.kt`, `MainVoiceScreen.kt`
+
 ## 2026-10-17 — Long-term memory: opt-in per persona, app-owned, unconfirmed
 
 The user picked memory from the post-M9 additions. **Decided: a per-persona list of notes in the settings file,

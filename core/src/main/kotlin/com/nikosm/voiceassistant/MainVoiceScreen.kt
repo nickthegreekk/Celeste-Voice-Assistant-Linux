@@ -417,6 +417,9 @@ fun MainScreen(
     var pendingFsWrite by remember { mutableStateOf<FsWriteRequest?>(null) }
     // M9: the tool confirmation, held the same way.
     var pendingMcpApproval by remember { mutableStateOf<McpApprovalRequest?>(null) }
+    // M11: the session model overrides and the headline picker's visibility.
+    var sessionModels by remember { mutableStateOf(emptyMap<String, String>()) }
+    var showSessionModelPicker by remember { mutableStateOf(false) }
     // M8: `notifyUser` has published `transientMessage` since M1 and **nothing has ever rendered
     // it** — every "Saved to…", "Shortcut added", "Import failed" the application has raised has
     // gone nowhere. The tool refusals and the write timeouts need a destination, so this is it, and
@@ -448,6 +451,7 @@ fun MainScreen(
             // instead of losing it.
             launch { service.fsWriteGate.pending.collect { pendingFsWrite = it } }
             launch { service.mcpApprovalGate.pending.collect { pendingMcpApproval = it } }
+            launch { service.sessionModelOverrides.collect { sessionModels = it } }
             launch { service.transientMessage.collect { transientMessage = it } }
             launch { service.rooms.collect { rooms = it } }
             launch { service.activeRoomId.collect { activeRoomId = it } }
@@ -856,6 +860,16 @@ fun MainScreen(
         // action) instead of the persona; currentPersona is left alone so the persona
         // chat underneath is exactly as it was.
         val activeRoom = rooms.find { it.id == activeRoomId }
+        // M11: the session's model for this persona, if one was chosen in the header, and whether
+        // the header offers the picker at all. The list is Ollama's, so the control is shown only
+        // where the persona is a direct Ollama session — a cloud, gateway or image-generator
+        // persona keeps its configured model (its namespace is not this picker's).
+        val sessionModelOverride = sessionModels[currentPersona.name]
+        val sessionEffectiveModel = sessionModelOverride ?: currentPersona.model
+        val canOverrideSessionModel = service != null &&
+            !currentPersona.isCloud &&
+            !currentPersona.isImageGenerator &&
+            currentPersona.requestRouting(service.ollamaServerNames(), service.cloudProviderNames()).isDirectOllama
         Scaffold(
             modifier = Modifier.fillMaxSize(),
             containerColor = MaterialTheme.colorScheme.background,
@@ -906,7 +920,14 @@ fun MainScreen(
                         textModeOpen = textModeOpen,
                         onTextModeToggle = { textModeOpen = !textModeOpen },
                         silenced = silenced,
-                        onSilenceToggle = { service?.toggleSilence() }
+                        onSilenceToggle = { service?.toggleSilence() },
+                        sessionModelLabel = if (canOverrideSessionModel) {
+                            sessionEffectiveModel.substringAfter("] ").take(28)
+                        } else null,
+                        sessionModelOverridden = canOverrideSessionModel && sessionModelOverride != null,
+                        onSessionModelClick = if (canOverrideSessionModel) {
+                            { showSessionModelPicker = true }
+                        } else null
                     )
                 }
             }
@@ -1193,6 +1214,23 @@ fun MainScreen(
         }
     }
 
+    // M11: the session's model picker. In-memory by design — the persona is not edited — and the
+    // dialog says so, so a choice that disappears on the next launch is announced rather than
+    // discovered.
+    val sessionService = service
+    if (showSessionModelPicker && sessionService != null) {
+        SessionModelDialog(
+            service = sessionService,
+            persona = currentPersona,
+            currentOverride = sessionModels[currentPersona.name],
+            onDismiss = { showSessionModelPicker = false },
+            onSelect = { model ->
+                sessionService.setSessionModel(currentPersona.name, model)
+                showSessionModelPicker = false
+            }
+        )
+    }
+
     if (pendingCert != null) {
         AlertDialog(
             onDismissRequest = { service?.denyCertificate() },
@@ -1329,7 +1367,12 @@ fun Header(
     textModeOpen: Boolean = false,
     onTextModeToggle: () -> Unit = {},
     silenced: Boolean = false,
-    onSilenceToggle: () -> Unit = {}
+    onSilenceToggle: () -> Unit = {},
+    /** The session's model label, or null to hide the picker (cloud, gateway, image personas). */
+    sessionModelLabel: String? = null,
+    /** True when the label is an override rather than the persona's own model. */
+    sessionModelOverridden: Boolean = false,
+    onSessionModelClick: (() -> Unit)? = null
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
 
@@ -1400,6 +1443,41 @@ fun Header(
                         Text(text = if (currentPersona.isCloud) "session: $${String.format(java.util.Locale.US, "%.5f", sessionUsage.cost)}" else "free / local", color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.4f), style = MaterialTheme.typography.labelSmall)
                     }
                 }
+            }
+
+            if (sessionModelLabel != null && onSessionModelClick != null) {
+                Row(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .clickable(onClick = onSessionModelClick)
+                        .padding(horizontal = 8.dp, vertical = 6.dp)
+                        .semantics { contentDescription = "Session model: $sessionModelLabel" },
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = sessionModelLabel,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = if (sessionModelOverridden) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f)
+                        },
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.widthIn(max = 120.dp)
+                    )
+                    Icon(
+                        Icons.Default.ArrowDropDown,
+                        contentDescription = null,
+                        tint = if (sessionModelOverridden) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f)
+                        },
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+                Spacer(Modifier.width(4.dp))
             }
 
             Box {

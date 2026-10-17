@@ -248,6 +248,24 @@ class AssistantService(
     internal val mcpApprovalGate = McpApprovalGate()
 
     /**
+     * M11: the model overrides chosen for this run, keyed by persona name. In memory only — see
+     * `SessionModels.kt` — and consulted by the two manual-turn entry points, which copy the
+     * persona so routing, tools, voice and the apply guards all see one effective persona.
+     */
+    private val _sessionModelOverrides = MutableStateFlow<Map<String, String>>(emptyMap())
+    internal val sessionModelOverrides = _sessionModelOverrides.asStateFlow()
+
+    internal fun sessionModelOverrideFor(personaName: String): String? =
+        sessionModelOverrideFor(_sessionModelOverrides.value, personaName)
+
+    internal fun setSessionModel(personaName: String, model: String?) {
+        _sessionModelOverrides.value = updatedSessionModels(_sessionModelOverrides.value, personaName, model)
+    }
+
+    internal fun withSessionModel(persona: Persona): Persona =
+        withSessionModel(_sessionModelOverrides.value, persona)
+
+    /**
      * Set by the first [shutdown]. Two callers now reach that teardown on an ordinary close — the
      * window's close handler and the process-exit hook — and a second pass would re-release the
      * TTS engine and re-close the VAD detector, which are only safe once.

@@ -221,7 +221,10 @@ internal fun AssistantService.isServerHealthyForRetry(url: String): Boolean {
 
 internal const val FAILED_COOLDOWN_MS = 60_000L // 60 seconds
 
-internal fun AssistantService.sendAudioToServer(file: Path, currentPersona: Persona) {
+internal fun AssistantService.sendAudioToServer(file: Path, requestedPersona: Persona) {
+    // M11: the session's model, if one was chosen in the header. The copy carries every other
+    // field of the persona; the stored one is untouched.
+    val currentPersona = withSessionModel(requestedPersona)
     if (currentPersona.model.isBlank()) {
         _messages.value = _messages.value + ChatMessage("assistant", "Please choose a model for this persona in its settings.", isError = true).stampedAt()
         _state.value = AssistantState.IDLE
@@ -777,8 +780,11 @@ private suspend fun encodeImageToBase64(path: String?): String? {
     }
 }
 
-internal fun AssistantService.sendTextMessageToServer(inputText: String, currentPersona: Persona, attachments: List<Path> = emptyList(), imagePath: String? = null, turnContext: TurnContext = TurnContext.Default) {
+internal fun AssistantService.sendTextMessageToServer(inputText: String, requestedPersona: Persona, attachments: List<Path> = emptyList(), imagePath: String? = null, turnContext: TurnContext = TurnContext.Default) {
     if (inputText.isBlank() && attachments.isEmpty() && imagePath == null) return
+    // M11: the session's model, if one was chosen in the header. Everything else — routing for
+    // the turn, tools, voice, the apply guards — derives from this same copy.
+    val currentPersona = withSessionModel(requestedPersona)
     val startTime = System.currentTimeMillis()
     _voiceDuration.value = 0
 

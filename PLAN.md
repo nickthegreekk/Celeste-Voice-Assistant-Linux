@@ -1650,6 +1650,27 @@ trimming; a 128k window is context, not memory. **Built 2026-10-17; live run pen
 the editor shows the note and "Forget" removes it; with memory off the request declares no `remember` tool; a room and a
 gateway turn never carry the notes.
 
+**M11 — Session model override in the chat header (new scope, not a port; not counted in the total below).** The user
+picked it from the post-M9 list: try a model for a conversation without editing the persona. **Built 2026-10-17; live
+run pending.**
+
+- **Session only, in memory.** The override lives in a map keyed by persona name for the life of the process and is not
+  persisted, migrated or backed up. The header chip shows the model and marks an override in the accent colour; the
+  picker's "Use the persona's model" row clears it. Storing a model is what the persona editor is for.
+- **Applied by copying the persona at the two manual-turn entry points** (`sendTextMessageToServer`,
+  `sendAudioToServer`), so routing for the turn, tools, voice and the apply guards all see one effective persona and the
+  stored persona is untouched. Rooms and spontaneous turns do not go through those entry points and keep their
+  configured models.
+- **Ollama first, because that list is real.** The picker reads the same shared catalog as the persona editor and the
+  models screen, and it is offered only where the persona's routing is direct Ollama — not cloud, not gateway, not an
+  image generator. Cloud sessions need their own model namespace and provider list: a later slice, not a fake list.
+- **Capabilities are display only**, as in the persona picker: a model that does not advertise tools carries a
+  "no tools" hint, and when it is the selected one a sentence says file, MCP and memory tools may be unavailable this
+  session. Nothing is hidden or disabled; the choice stays the user's.
+
+*Accept:* pick a model in the header, send a turn and see the Ollama request use it; pick another and it changes; use
+"Use the persona's model" and the persona's own returns; restart and the override is gone while the persona is unchanged.
+
 **Total: 33–50 focused days** (about 4–8 weeks full time, 3–5 months at evenings and weekends).
 A first usable milestone is **M2**: roughly **15–23 days**.
 
