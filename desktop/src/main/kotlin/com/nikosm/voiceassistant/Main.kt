@@ -221,16 +221,35 @@ fun main(args: Array<String>) {
         // Hoisted so the tray's Open can raise the same window the composition draws: two
         // `rememberWindowState()` calls would be two states, and the tray would be nudging one
         // nothing is listening to.
-        val windowState = rememberWindowState(width = 460.dp, height = 880.dp)
+        //
+        // **The size is remembered** (Settings → General, 2026-10-17, by request): restored in dp —
+        // the unit `rememberWindowState` takes — and read through a tolerant parser, so a stored value
+        // this build cannot read is the default window rather than a crash. The *placement* is not
+        // stored: a maximized window saves nothing, so un-maximizing later still finds the last
+        // normal size.
+        val savedWindowSize = if (settingsManager.getRememberWindowSize()) settingsManager.getWindowSize() else null
+        val windowState = rememberWindowState(
+            width = (savedWindowSize?.first ?: 460).dp,
+            height = (savedWindowSize?.second ?: 880).dp,
+        )
+
+        /** What Close and the tray's Quit both do: remember the size, then tear down. */
+        fun closeTheApplication() {
+            if (settingsManager.getRememberWindowSize() && windowState.placement == WindowPlacement.Floating) {
+                val width = windowState.size.width.value.toInt()
+                val height = windowState.size.height.value.toInt()
+                if (width > 0 && height > 0) settingsManager.saveWindowSize(width, height)
+            }
+            // Persist and tear down before the process goes: the settings write is debounced, so an
+            // unflushed window close would lose the last edit. The same call has to be the one Stop
+            // uses, so there is one teardown path rather than two that can drift. The tray's Quit
+            // used to skip it and could lose whatever the debounce had not written.
+            service.shutdown()
+            exitApplication()
+        }
 
         Window(
-            onCloseRequest = {
-                // Persist and tear down before the process goes: the settings write is debounced,
-                // so an unflushed window close would lose the last edit. The same call has to be
-                // the one Stop uses, so there is one teardown path rather than two that can drift.
-                service.shutdown()
-                exitApplication()
-            },
+            onCloseRequest = ::closeTheApplication,
             title = "Celeste",
             state = windowState,
             // The taskbar and alt-tab icon, from the same PNG the packages install into hicolor and
@@ -254,7 +273,7 @@ fun main(args: Array<String>) {
                                     windowState.isMinimized = false
                                     windowState.placement = WindowPlacement.Floating
                                 },
-                                onQuit = ::exitApplication,
+                                onQuit = ::closeTheApplication,
                             )
                         },
                         logger = appEnv.logger,

@@ -1334,8 +1334,10 @@ thing that evaporates if it is only said out loud:
   the reply at apply, so a user turn sitting in the transcript with no reply after it is a text turn.
 - **The two screens still have no test**, which is the bill item 6 names. Compose UI tests are M7's, and the source-scan in
   `SettingsCategoriesTest` covers the one crash shape a test could reach.
-- **Created files land mode 0600** — an atomic write's temp file, kept as-is for a *new* file (overwrites copy the target's
-  permissions, which is tested). Defensible for an assistant, different from a shell's 644; a decision, not a bug.
+- **Created files landed mode 0600** — an atomic write's temp file, kept as-is for a *new* file (overwrites copy the
+  target's permissions, which is tested). **Chosen against on 2026-10-17**: the user asked for a shell's 0644, and
+  `DEFAULT_FILE_PERMISSIONS` now applies it to created files while overwrites keep copying the target's mode. A
+  *umask*-aware default is what everyone actually wants and the JVM cannot read the umask, so it is a fixed 0644.
 - **The app's log lines do not carry their tag.** `logger.i("FsTools", …)` prints as `INFO: write_file …` because JUL's
   default formatter prints the source class, not the logger name — so journald has the line but nothing to filter on, and
   a live monitor has to match by message shape. A one-line `Formatter` would fix it.

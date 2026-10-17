@@ -136,6 +136,20 @@ class SettingsManager(
          * rather than by keeping the value out of storage.
          */
         const val TRUSTED_FS_ROOTS = "trusted_fs_roots"
+
+        /**
+         * The window's size in **dp**, as the user left it — "WIDTHxHEIGHT", the shape a person can
+         * read in the settings file and a test can write by hand (2026-10-17, by request).
+         *
+         * dp rather than pixels because that is what Compose's `rememberWindowState` takes, so a
+         * restored size cannot drift when the display's scaling changes. A value this build cannot
+         * parse is `null`, which falls back to the default window — the tolerant-decoder shape every
+         * other setting here uses.
+         */
+        const val WINDOW_SIZE = "window_size"
+
+        /** Whether the size above is kept. On by default: a resize the app forgets is the surprise. */
+        const val REMEMBER_WINDOW_SIZE = "remember_window_size"
     }
 
     // The shared production Json, not a second copy of it — see [SettingsJson].
@@ -1316,6 +1330,29 @@ class SettingsManager(
             .remove(PERSONA_FS_MODE_PREFIX + personaName)
             .remove(PERSONA_FS_WORKSPACE_PREFIX + personaName)
             .commit()
+    }
+
+    // ------------------------------------------------------------------ the window (2026-10-17)
+
+    fun getWindowSize(): Pair<Int, Int>? {
+        val raw = store.getString(WINDOW_SIZE)?.trim() ?: return null
+        val (w, h) = raw.split('x').takeIf { it.size == 2 } ?: return null
+        val width = w.trim().toIntOrNull() ?: return null
+        val height = h.trim().toIntOrNull() ?: return null
+        // A window smaller than this is unusable, and one larger than any real screen is a save from
+        // a monitor this launch does not have; both fall back rather than open something broken.
+        if (width < 320 || height < 320 || width > 10_000 || height > 10_000) return null
+        return width to height
+    }
+
+    fun saveWindowSize(width: Int, height: Int) {
+        store.edit().putString(WINDOW_SIZE, "${width}x${height}").commit()
+    }
+
+    fun getRememberWindowSize(): Boolean = store.getBoolean(REMEMBER_WINDOW_SIZE, true)
+
+    fun saveRememberWindowSize(remember: Boolean) {
+        store.edit().putBoolean(REMEMBER_WINDOW_SIZE, remember).commit()
     }
 
     fun saveUserLocation(location: String) {

@@ -337,6 +337,29 @@ class FsToolExecutorTest {
     }
 
     @Test
+    fun `a created file is world-readable, and an overwrite keeps whatever mode it had`() = runBlocking {
+        // The user's choice, 2026-10-17: a file the assistant creates should look like one a shell
+        // would have made. 0600 was the atomic write's temp file leaking through, not a decision.
+        val created = executor().execute(call(TOOL_WRITE, "path" to "fresh.txt", "content" to "hello"))
+        assertTrue(created.ok)
+        assertEquals(
+            "a created file is 0644, not the temp file's private 0600",
+            PosixFilePermissions.fromString("rw-r--r--"),
+            Files.getPosixFilePermissions(root.resolve("fresh.txt")),
+        )
+
+        // And the other half, which must not change: an overwrite copies the target's own mode.
+        val existing = root.resolve("private.txt").also { Files.writeString(it, "before") }
+        Files.setPosixFilePermissions(existing, PosixFilePermissions.fromString("rw-------"))
+        executor().execute(call(TOOL_WRITE, "path" to "private.txt", "content" to "after"))
+        assertEquals(
+            "an overwrite does not silently make a private file public",
+            PosixFilePermissions.fromString("rw-------"),
+            Files.getPosixFilePermissions(existing),
+        )
+    }
+
+    @Test
     fun `a write over the size cap is refused before the user is asked`() = runBlocking {
         val huge = "x".repeat(FsToolExecutor.MAX_WRITE_BYTES + 1)
 

@@ -13,6 +13,29 @@ not stop for it. Stop only for the four cases listed in AGENTS.md §10.
 
 ---
 
+## 2026-10-17 — Two post-acceptance choices: a created file is 0644, and the window remembers its size
+
+Both came out of the first day of real use, and both are the user's calls rather than judgements of mine.
+
+**A file the assistant creates is mode 0644.** It was 0600, which was not a decision: the atomic write keeps the
+permissions of its temp file, and `createTempFile` makes them private. The plan's own note called 0600 defensible and
+different from a shell, and left it at that; the user asked for the shell's answer. Overwrites still copy the target's
+mode — a private file does not silently become public — and the test pins both halves. A *umask*-aware default would be
+better than either and is not reachable from the JVM, which is why this is a fixed 0644 rather than a guess.
+
+**The window size is remembered across launches, with a switch.** Requested after a day of resizing it back. Persisted
+in `window_size` as "WIDTHxHEIGHT" **in dp** — the unit `rememberWindowState` takes, so a restored size cannot drift
+when the display's scaling changes — parsed tolerantly, and falling back to the default window for anything this build
+cannot read. The *position* is deliberately not stored: a position saved on one monitor arrangement opens off-screen on
+another, and a window the user cannot see is worse than one they have to move. A maximized window saves nothing, so
+un-maximizing later still finds the last normal size. The switch defaults to on, because an app that forgets a resize
+is the surprise; it is there because the failure mode of remembering is silent and annoying.
+
+The same edit fixed a small pre-existing leak: the **tray's Quit** called `exitApplication` without `service.shutdown()`,
+so whatever the debounced settings write had not flushed was lost. Close and Quit now share one path.
+
+→ PLAN.md §10 (M8's note), `SettingsManager.kt` (`WINDOW_SIZE`), `Main.kt`, `FsToolExecutor.kt`
+
 ## 2026-10-17 — Trust persists, and the backup is why that is safe
 
 The write confirmation's "always allow" lasted one session. The design said so in as many words — *"a root can be

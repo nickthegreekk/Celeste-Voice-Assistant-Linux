@@ -31,6 +31,10 @@ internal class FsToolExecutor(
 ) {
 
     internal companion object {
+        /** What a file this tool *creates* is allowed to be, matching a shell's usual default. */
+        val DEFAULT_FILE_PERMISSIONS: Set<java.nio.file.attribute.PosixFilePermission> =
+            java.nio.file.attribute.PosixFilePermissions.fromString("rw-r--r--")
+
         const val MAX_READ_BYTES = 128 * 1024
         /**
          * How much of one file a single read may look at — the bound that keeps a 20 GB file from
@@ -297,6 +301,11 @@ internal class FsToolExecutor(
      * The target's permissions are copied across first when it already exists — an overwrite that
      * silently turned a 0644 file into a 0600 one (or the reverse) would be a change nobody asked for
      * and nobody would notice.
+     *
+     * **A created file gets 0644** (the user's choice, 2026-10-17). It used to keep the temp file's
+     * 0600, which is private by default and unlike anything a shell would make — the user asked for
+     * the shell's answer. A *umask*-aware default is the thing everyone actually wants and the JVM
+     * cannot read the umask, so this is a fixed 0644 rather than a guess at the caller's.
      */
     private fun writeAtomically(target: Path, bytes: ByteArray, existed: Boolean) {
         val parent = target.parent
@@ -308,6 +317,8 @@ internal class FsToolExecutor(
                     val perms = view?.readAttributes()?.permissions()
                     if (perms != null) Files.setPosixFilePermissions(temp, perms)
                 }
+            } else {
+                runCatching { Files.setPosixFilePermissions(temp, DEFAULT_FILE_PERMISSIONS) }
             }
             Files.write(temp, bytes)
             try {

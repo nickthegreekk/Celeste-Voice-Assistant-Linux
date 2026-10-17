@@ -1028,6 +1028,37 @@ Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
         }
     }
 
+    // The window's size, remembered across launches (2026-10-17, by request). A switch rather than
+    // something automatic, because the failure mode of remembering is silent and annoying — an app
+    // that reopens at a size chosen by accident, on a screen that is no longer attached — and a person
+    // should be able to turn that off without editing a settings file.
+    var rememberWindowSize by remember { mutableStateOf(service.settingsManager.getRememberWindowSize()) }
+    SettingsSectionHeader(title = "Window", icon = Icons.Default.OpenInFull)
+    SettingsSection {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text("Remember window size", style = MaterialTheme.typography.titleMedium)
+                Text(
+                    "The window reopens at the size you left it. Off means it always starts at the " +
+                        "default. Moving it is never remembered.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
+                )
+            }
+            Switch(
+                checked = rememberWindowSize,
+                onCheckedChange = {
+                    rememberWindowSize = it
+                    service.settingsManager.saveRememberWindowSize(it)
+                },
+            )
+        }
+    }
+
     // Upstream's section held the Quick Settings tile row and hid itself below API 33, where the
     // tile had to be pinned by hand. §9 drops the tile; the tray is its equivalent, so this section
     // comes back saying where one-tap listening actually lives on this platform — which is the thing
