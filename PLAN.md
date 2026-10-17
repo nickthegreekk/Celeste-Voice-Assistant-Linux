@@ -1651,8 +1651,8 @@ the editor shows the note and "Forget" removes it; with memory off the request d
 gateway turn never carry the notes.
 
 **M11 — Session model override in the chat header (new scope, not a port; not counted in the total below).** The user
-picked it from the post-M9 list: try a model for a conversation without editing the persona. **Built 2026-10-17; live
-run pending.**
+picked it from the post-M9 list: try a model for a conversation without editing the persona. **Built 2026-10-17; the
+Arch run is green the same day, and the Debian run is deferred to the end of the Debian test batch.**
 
 - **Session only, in memory.** The override lives in a map keyed by persona name for the life of the process and is not
   persisted, migrated or backed up. The header chip shows the model and marks an override in the accent colour; the
