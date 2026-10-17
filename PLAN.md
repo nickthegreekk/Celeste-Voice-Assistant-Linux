@@ -2025,7 +2025,9 @@ is lazy (a Celeste user never starts it), bounded at 3 s, and failure simply lea
 theme changed while the application runs applies at the next launch. Material's own component geometry —
 pill buttons, switches, sliders — is unchanged: this is a palette-and-radii pass, not a widget toolkit, and
 D2 stands. Tests: `GtkThemeProbeTest` (4, parser), `GtkThemeTest` (4, role mapping), `DesktopStyleSettingTest`
-(3, persistence). The visual result is judged in the live run.]
+(3, persistence). The visual result is judged in the live run. Both packages were rebuilt at `0c72de8`:
+Arch sha256 `039fb91bc47001464856e5b82c020dc50fdb0b60f0f66921cc74337b048fdfad` (112,163,271 bytes), Debian
+`celeste-linux_0.1.0_amd64.deb` sha256 `e0afe207dbba6c13c90e59790447167ef641dcc0c0d9490eab3af5bc72c7b1aa` (100,341,820 bytes).]
 
 [Correction, 2026-10-17 — the intermittent `FsToolTurnTest` failure recorded at slice 5 is fixed, in the
 test rather than in the service. `shutdown()` cancels the scope and returns; a child still unwinding from
