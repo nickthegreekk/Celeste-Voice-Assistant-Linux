@@ -137,3 +137,28 @@ the gateway), and a **spoken turn on the direct-Ollama route carrying the tools*
 persona editor) need a display — M8's live run is their verification, and M7 owns the desktop UI tests that
 would cover them. The editor's fs callbacks are the same case: `PersonaFsSection`'s wiring is a Compose
 callback, so the policy half is tested in `FsToolSettingsTest` and the name it writes under is not.
+
+## M7 — hardening, started (2026-10-17)
+
+Two of the milestone's four deliverables have a test now; the other two are named here with their
+blockers rather than left implied.
+
+| Test | Tests | What it proves |
+|---|---:|---|
+| `ServiceSoakTest` | 1 | Repeated `start()`/`shutdown()` over one fixture leaks no service-named threads and no file descriptors. Default 25 cycles in the suite; `CELESTE_SOAK_CYCLES=50000` ran 50,000 cycles green on 2026-10-17 (40 s), which is far more start/stop cycles than the acceptance's hour would exercise at human speed. The descriptor check reads `/proc/self/fd` and skips on systems without procfs; the thread check counts only names the service owns (`celeste`, `spontaneous`, `commandrunner`, `mcp-`, `pw-`, audio helpers) and deliberately excludes the JVM-wide `Dispatchers.IO` pool, which grows to load and stays. |
+| `VoiceErrorPathTest` | 1 | The gateway being down when the user speaks produces a **readable error bubble** in the transcript and leaves the application running — the failure a user meets first. The URL is a closed loopback port, so the refusal is immediate and no real service is involved. The exact sentence is deliberately not pinned beyond "it names the connection": which layer reports the refusal depends on whether the transcription call throws or returns null, and both are honest. |
+
+**Still open in M7, with the reason:**
+
+- **Desktop UI tests** need Compose's test runtime on the classpath (`runComposeUiTest`), which is a
+  new dependency. AGENTS.md §10 makes that a stop-and-ask, so it is not added by this hardening
+  pass.
+- **No microphone**: the capture-open failure path lives in the VAD loop and needs the audio-device
+  fakes extended to a device that refuses to open. It is a small test once that fake exists.
+- **ComfyUI restarted mid-job**: needs a scriptable ComfyUI history endpoint (the job poller is the
+  code under test); `FakeProviderServer` is generic enough to grow one.
+- **No Secret Service**: moot rather than missing — seam 8 is not in v1 (PLAN.md §5a), so
+  credentials are the 0600 settings file and there is no daemon whose absence can fail a start.
+- **The 59 instrumented tests** still have no per-file triage. The categories are written down above;
+  turning them into per-file verdicts means reading each test, which belongs with the milestone that
+  reaches its area rather than with a soak pass.

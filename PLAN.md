@@ -1519,6 +1519,16 @@ loop, a soak test for start/stop/restart leaks, error paths (gateway down, no mi
 Service, ComfyUI restarted mid-job), `docs/TEST-MAP.md`.
 *Accept:* the soak test runs an hour of start/stop cycles with no leaked processes or file handles.
 
+[Progress, 2026-10-17 — the hardening pass the user asked for after M16. **The soak harness exists and runs green at
+50,000 cycles in 40 s** (`ServiceSoakTest`; the suite default is 25, `CELESTE_SOAK_CYCLES` is the long run), asserting no
+service-named thread growth and no descriptor growth on `/proc/self/fd`. The first error path — **the gateway being down
+when the user speaks** — is covered by `VoiceErrorPathTest`: a readable error bubble in the transcript, no crash, against
+a closed loopback port. "No Secret Service" is recorded as moot (seam 8 is not in v1; credentials are the 0600 file).
+Still open, with reasons in `docs/TEST-MAP.md`: desktop UI tests need Compose's test runtime, a new dependency and
+therefore a stop-and-ask; the no-microphone path needs a refusing audio-device fake; the ComfyUI-mid-job path needs a
+scriptable history endpoint; and the 59 instrumented tests still need their per-file triage. The one-hour acceptance is
+not claimed: the cycle count is the thing that grows, and 50,000 cycles is more start/stop than an hour of manual use.]
+
 **M8 — Filesystem tools (new scope, not a port; not counted in the total below).** The user wants Celeste to read and write
 files on this machine so the assistant can be used as a local agent, **and the app's user chooses where and how**: a
 workspace path, picked through seam 13's file dialogs, and a mode. So the capability is configuration rather than a
