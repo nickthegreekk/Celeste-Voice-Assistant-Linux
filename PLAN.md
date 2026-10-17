@@ -1323,6 +1323,23 @@ page. The screen now scrolls the way `AudioSettings` does, on the shell's list, 
 at the shell where content is put inside that lazy item, and `SettingsCategoriesTest` — beside the registry rule it
 already pins — scans the page's source for the call, which is a narrow guard and says so.
 
+**Noted during the live run, recorded rather than fixed** — each is small, none is a defect, and all four are the kind of
+thing that evaporates if it is only said out loud:
+
+- **A spoken turn carrying tools is the one acceptance case still unmeasured.** JVM-tested (`FsToolTurnTest`, on
+  `FakeProviderServer`'s `/transcribe`), but no real microphone has exercised it. So: every live attempt so far was typed,
+  and the tells are worth keeping — a voice turn leaves `recording_*.wav` or `vad_recording_*.wav` in
+  `~/.cache/celeste-linux/`, and the voice flow appends the user message *with* the reply at apply, so a user turn sitting
+  in the transcript with no reply after it is a text turn.
+- **The two screens still have no test**, which is the bill item 6 names. Compose UI tests are M7's, and the source-scan in
+  `SettingsCategoriesTest` covers the one crash shape a test could reach.
+- **Created files land mode 0600** — an atomic write's temp file, kept as-is for a *new* file (overwrites copy the target's
+  permissions, which is tested). Defensible for an assistant, different from a shell's 644; a decision, not a bug.
+- **The app's log lines do not carry their tag.** `logger.i("FsTools", …)` prints as `INFO: write_file …` because JUL's
+  default formatter prints the source class, not the logger name — so journald has the line but nothing to filter on, and
+  a live monitor has to match by message shape. A one-line `Formatter` would fix it.
+- **The `.deb` has not been rebuilt** since 2026-10-17's fixes; the Arch package is current and installed.
+
 **Fixed, with the adjacent gap the check turned up.** The refusal is now asked through `requestRouting` (the same
 classification Rooms and the history stamps use) on both entry points: a text turn and a **spoken** turn for a persona
 with a workspace on the gateway route answer with a sentence and send nothing at all — the voice one *before* it
@@ -1483,7 +1500,15 @@ A first usable milestone is **M2**: roughly **15–23 days**.
 
 6. The Files settings screen crashes the application on composition. (2026-10-16, found by running the installed package — not by a test, and not by review.) celeste-linux at 23:16, dead on the AWT event thread: IllegalStateException: Vertically scrollable component was measured with an infinity maximum height constraints. The frames name the shape rather than the file — ScrollNode → FillNode → LazyListMeasuredItemProvider → LazyListMeasureKt → Column → AnimatedEnterExitMeasurePolicy → AnimatedContent: a verticalScroll container composed inside an item of the settings LazyColumn, under the category routing's AnimatedContent. A lazy list measures its items with infinite max height in the scroll direction and verticalScroll refuses that; it throws at measure time, so the window dies instead of reporting anything. Look in FsToolScreens.kt first, then the Files branch of SettingsScreens.kt — grep verticalScroll/rememberScrollState and ask whether its holder sits inside item { }. Fix by letting the outer LazyColumn scroll (content into its own items, which is the exception's own advice), or bounding the inner block's height, or hoisting the block out of the list.
 
-Open, and not yet a finding — the same run created no file. Keep it separate until the crash is gone. If the write confirmation is hosted inside this hierarchy, the gate is never answered, times out to deny after its 120 s, and says nothing — item 4's notifier branch is dead code and a timeout is audited as denied. Otherwise: ~/.local/state/celeste-linux/files.log (no record = the tool never ran; denied = refused at the gate), which route the persona uses (a cloud persona cannot reach a tool at all until item 1 lands, and voice/room turns offer none by design), and whether the workspace resolved to null — a non-absolute or renamed-persona key fails silently.
+**Answered by the live run of 2026-10-17, and the answer is the good one.** The write confirmation is *not* hosted in the
+crashing hierarchy: the crash was the Settings screen (`FsToolScreens.kt`, fixed as item 6), while the dialog lives at the
+window root. A real write was asked for, approved with "trust for the session", and landed — the audit records
+`write_file action_list.md 707 bytes ok confirmed=session-trust`, so the gate was answered, not timed out, and the
+notifier branch's invisibility (item 4) never came into it. Two corrections to the note as it was written: the audit file
+is `~/.local/state/celeste-linux/fs-tool-audit.jsonl` (not `files.log`), and **voice turns now do offer the tools**
+(2026-10-17, docs/DECISIONS.md) — only room and spontaneous turns still offer none, and that is by design. What *did*
+turn out to explain "the same run created no file" was none of the hypotheses above: the Ollama stream reader was dropping
+the call itself (item 10).
 
 This is the third measure-time crash in this milestone (the window icon, then this), and it is the bill for the two screens having no test between them. A Compose test that composes the Files screen is the fix for that gap, not just for this exception.
 
