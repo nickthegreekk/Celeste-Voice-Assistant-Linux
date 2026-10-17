@@ -1693,6 +1693,14 @@ pending.**
 *Accept:* with the services up, Check now shows OK with latencies and details (an Ollama version, a ComfyUI queue);
 stop one and it shows Failed with a reason; the page makes no request until the button is pressed.
 
+**The first live run found the one defect the loopback tests could not.** The user's Voice Gateway reported **Failed**
+while chat to it worked. Measured: the gateway is HTTPS with a self-signed certificate (`curl -k` answers 401; without
+`-k` the handshake fails), and the health page used a bare `OkHttpClient`, bypassing the certificate-trust seam every
+conversation request goes through. The service now exposes `healthClient`, born from its pinned client with the
+four-second health timeouts on top, and `checkHealth` takes the client as a **required** parameter — a default is how
+the wrong client gets back in. The row now reads "reachable, authentication required". Same lesson as M8's wire format,
+one layer up: a status page must ask the same client the traffic uses, or it reports on a different connection.
+
 **Total: 33–50 focused days** (about 4–8 weeks full time, 3–5 months at evenings and weekends).
 A first usable milestone is **M2**: roughly **15–23 days**.
 

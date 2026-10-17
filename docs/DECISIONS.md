@@ -38,6 +38,12 @@ almost nothing.
 behind basic auth reports reachable instead of 401. Rejected: skipping auth to keep the checker simple — that is the
 same wrong-signal problem in the other direction.
 
+**And the first live run found the second half of the same rule: the check must use the same TLS trust too.** The
+user's Voice Gateway is HTTPS with a self-signed certificate; chat works because the ported certificate-trust seam
+pins it, while the health page built a bare `OkHttpClient` and reported Failed. Fixed by exposing a `healthClient`
+born from the service's pinned client, and making `checkHealth` take the client as a **required** parameter so no
+default can reintroduce the wrong connection. The gateway now reports "reachable, authentication required".
+
 → PLAN.md §10 (M12), `ServerHealth.kt`, `ServerHealthScreens.kt`, `SettingsScreens.kt`
 
 ## 2026-10-17 — Session model override: in memory, copy-on-entry, Ollama first
