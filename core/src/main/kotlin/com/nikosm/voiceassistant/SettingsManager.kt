@@ -138,6 +138,13 @@ class SettingsManager(
         const val PERSONA_FS_WORKSPACE_PREFIX = "persona_fs_workspace_"
 
         /**
+         * M16: a persona's terminal-command override. One key, unlike the filesystem pair — a
+         * command policy has no folder of its own; the working directory is the same workspace
+         * path resolved by `commandWorkspaceFor`.
+         */
+        const val PERSONA_COMMAND_MODE_PREFIX = "persona_command_mode_"
+
+        /**
          * The workspaces the user has told the write gate to stop asking about (2026-10-17).
          *
          * **Not a `BackupData` field, deliberately** — which is what makes persisting it safe. The
@@ -660,6 +667,7 @@ class SettingsManager(
         migrateSpontaneousState(oldName, newName)
         migratePersonaOutputDevice(oldName, newName)
         migratePersonaFs(oldName, newName)
+        migratePersonaCommandMode(oldName, newName)
         migratePersonaMcp(oldName, newName)
         migratePersonaMemory(oldName, newName)
         val data = store.getString("persona_messages_$oldName") ?: return
@@ -862,6 +870,7 @@ class SettingsManager(
         // reach again.
         store.edit().remove(PERSONA_OUTPUT_DEVICE_PREFIX + personaName).commit()
         removePersonaFs(personaName)
+        removePersonaCommandMode(personaName)
         removePersonaMcp(personaName)
         removePersonaMemory(personaName)
     }
@@ -1084,6 +1093,7 @@ class SettingsManager(
             listOf(
                 PERSONA_FS_MODE_PREFIX,
                 PERSONA_FS_WORKSPACE_PREFIX,
+                PERSONA_COMMAND_MODE_PREFIX,
                 MCP_PERSONA_PREFIX,
             ).forEach { prefix ->
                 store.allKeys()
@@ -1416,6 +1426,47 @@ class SettingsManager(
 
     fun getPersonaFsWorkspace(personaName: String): String? =
         store.getString(PERSONA_FS_WORKSPACE_PREFIX + personaName)?.takeIf { it.isNotBlank() }
+
+    // ------------------------------------------------------------------ Terminal commands (M16)
+
+    internal fun saveCommandMode(mode: CommandToolMode) {
+        store.edit().putString("command_mode", mode.name).commit()
+    }
+
+    internal fun getCommandMode(): CommandToolMode = CommandToolMode.fromName(store.getString("command_mode"))
+
+    /**
+     * Null removes the key, which means "follow the global". A value this build cannot read
+     * resolves to OFF (the decoder's rule), so a corrupted persona entry can only ever narrow
+     * access — never widen it to whatever the global happens to be.
+     */
+    internal fun savePersonaCommandMode(personaName: String, mode: CommandToolMode?) {
+        if (personaName.isBlank()) return
+        val key = PERSONA_COMMAND_MODE_PREFIX + personaName
+        if (mode == null) store.edit().remove(key).commit()
+        else store.edit().putString(key, mode.name).commit()
+    }
+
+    internal fun getPersonaCommandMode(personaName: String): CommandToolMode? =
+        store.getString(PERSONA_COMMAND_MODE_PREFIX + personaName)
+            ?.takeIf { it.isNotBlank() }
+            ?.let(CommandToolMode::fromName)
+
+    /** The rename half: one key, the same synchronous contract as the filesystem pair. */
+    fun migratePersonaCommandMode(oldName: String, newName: String) {
+        if (oldName == newName || oldName.isBlank()) return
+        val mode = getPersonaCommandMode(oldName) ?: return
+        store.edit()
+            .putString(PERSONA_COMMAND_MODE_PREFIX + newName, mode.name)
+            .remove(PERSONA_COMMAND_MODE_PREFIX + oldName)
+            .commit()
+    }
+
+    /** The delete half: a grant left behind would be inherited by a future persona of that name. */
+    fun removePersonaCommandMode(personaName: String) {
+        if (personaName.isBlank()) return
+        store.edit().remove(PERSONA_COMMAND_MODE_PREFIX + personaName).commit()
+    }
 
     /** The roots the write gate does not ask about, as absolute paths. Unreadable JSON reads as none. */
     fun getTrustedFsRoots(): List<String> {

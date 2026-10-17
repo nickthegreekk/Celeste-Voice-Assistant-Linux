@@ -417,6 +417,8 @@ fun MainScreen(
     var pendingFsWrite by remember { mutableStateOf<FsWriteRequest?>(null) }
     // M9: the tool confirmation, held the same way.
     var pendingMcpApproval by remember { mutableStateOf<McpApprovalRequest?>(null) }
+    // M16: the terminal command waiting for the user's yes.
+    var pendingCommand by remember { mutableStateOf<CommandApprovalRequest?>(null) }
     // M11: the session model overrides and the headline picker's visibility.
     var sessionModels by remember { mutableStateOf(emptyMap<String, String>()) }
     var showSessionModelPicker by remember { mutableStateOf(false) }
@@ -453,6 +455,7 @@ fun MainScreen(
             // instead of losing it.
             launch { service.fsWriteGate.pending.collect { pendingFsWrite = it } }
             launch { service.mcpApprovalGate.pending.collect { pendingMcpApproval = it } }
+            launch { service.commandGate.pending.collect { pendingCommand = it } }
             launch { service.sessionModelOverrides.collect { sessionModels = it } }
             launch { service.transientMessage.collect { transientMessage = it } }
             launch { service.rooms.collect { rooms = it } }
@@ -1214,6 +1217,14 @@ fun MainScreen(
     pendingMcpApproval?.let { request ->
         McpApprovalDialog(request = request) { approve, trustServer ->
             service?.mcpApprovalGate?.answer(approve, trustServer)
+        }
+    }
+
+    // M16: and the same for a command, which is the one tool whose effects cannot be contained to
+    // a folder — the exact line, the directory, and a session grant for that command only.
+    pendingCommand?.let { request ->
+        CommandApprovalDialog(request = request) { allow, trustForSession ->
+            service?.commandGate?.answer(request.id, allow, trustForSession)
         }
     }
 

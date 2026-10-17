@@ -1778,6 +1778,40 @@ Debian run is green with the M11–M15 batch.**
 with its notification at the time; move the time and the next run follows it; switch the schedule off and nothing runs;
 restart Celeste after a scheduled time and confirm it is not replayed.
 
+**M16 — Terminal commands (new scope, not a port; not counted in the total below).** The user asked how to give the
+models terminal and code execution and chose a first-party tool over an MCP server. **Built 2026-10-17; live run
+pending.**
+
+- **A `run_command` tool, offered beside the filesystem ones, off by default.** One declaration through the same
+  `ToolSpec`/`toolsJsonFor` path, so all four provider dialects carry it with no per-provider work. The policy is
+  global with a per-persona override (follow global / off / ask), stored like the filesystem mode and **not in a
+  backup** — a grant to run commands is not conversation content.
+- **The workspace is the working directory, not a jail.** Commands start in the filesystem workspace folder, resolved
+  from the same stored path but independently of the filesystem tools' off/read-only/read-write mode, so a user can
+  have a terminal without file reads. A shell cannot be path-contained; the screen says so, and the confirmation is the
+  boundary that actually exists.
+- **Every command asks, and the dialog shows the exact line and directory.** Allow once, or trust that exact command in
+  that directory for this session; dismissal, a superseded turn and a timeout all deny. There is no "trust this
+  folder": that would grant every command anyone can write into it, which is the prompt-injection shape this feature
+  must not create. Session grants never survive a restart.
+- **The process seam lives in `:platform`** (`ProcessBuilder` may appear nowhere else): `/bin/sh -c`, stdin closed,
+  stderr merged, a 5–300 s timeout (default 60) that kills the whole process tree, and output capped at 64 KiB while
+  still draining the pipe. A per-turn byte budget stops a turn from running commands until it fills the model's
+  context.
+- **Code execution is a use case, not a second tool**: `write_file` then `run_command("python3 script.py")`, with the
+  same confirmation. A one-step `run_code` can be added later as sugar; it would carry identical permission and risk.
+- **Main chat (and voice) only.** Rooms have no single person to answer the dialog, spontaneous turns must never run a
+  command, and the Voice Gateway cannot carry a tool declaration — the same structural narrowing M8 and M9 recorded.
+  Cloud and direct-Ollama routes both carry the tool.
+- **Audited without output:** `command-audit.jsonl` records the command line, directory, exit code, duration and how
+  it was approved (`user` / `session-trust` / `denied` / `timeout`), never what the command printed. The settings page
+  shows the recent records.
+
+*Accept:* set Terminal to Ask first and choose a workspace; ask for `echo hello`; the dialog shows that exact command
+and folder; Run returns its output in the chat; ask for something destructive and Cancel — the model says it did not
+run; switch the policy off and the tool is absent from the persona's next request; the audit lists both, and a restart
+asks again for a command trusted in the previous session.
+
 **Total: 33–50 focused days** (about 4–8 weeks full time, 3–5 months at evenings and weekends).
 A first usable milestone is **M2**: roughly **15–23 days**.
 

@@ -69,8 +69,10 @@ internal fun allToolsJsonFor(
     fsMode: FsToolMode,
     mcpTools: List<McpTool>,
     memoryEnabled: Boolean = false,
+    commandsEnabled: Boolean = false,
 ): org.json.JSONArray? {
-    val specs = fsToolSpecs(fsMode) + mcpToolSpecs(mcpTools)
+    val specs = fsToolSpecs(fsMode) + mcpToolSpecs(mcpTools) +
+        (if (commandsEnabled) listOf(commandToolSpec()) else emptyList())
     return toolsJsonFor(provider, if (memoryEnabled) specs + memoryToolSpec() else specs)
 }
 
@@ -79,8 +81,14 @@ internal fun allToolContractFor(
     fsMode: FsToolMode,
     mcpTools: List<McpTool>,
     memoryEnabled: Boolean = false,
+    commandsEnabled: Boolean = false,
 ): String? =
-    listOfNotNull(fsToolContractFor(fsMode), mcpToolContractFor(mcpTools), memoryContractFor(memoryEnabled))
+    listOfNotNull(
+        fsToolContractFor(fsMode),
+        mcpToolContractFor(mcpTools),
+        memoryContractFor(memoryEnabled),
+        commandToolContractFor(commandsEnabled),
+    )
         .joinToString("\n\n")
         .ifBlank { null }
 
@@ -90,7 +98,8 @@ internal fun toolDeclarationsText(
     fsMode: FsToolMode,
     mcpTools: List<McpTool>,
     memoryEnabled: Boolean = false,
-): String = allToolsJsonFor(provider, fsMode, mcpTools, memoryEnabled)?.toString().orEmpty()
+    commandsEnabled: Boolean = false,
+): String = allToolsJsonFor(provider, fsMode, mcpTools, memoryEnabled, commandsEnabled)?.toString().orEmpty()
 
 /** A tool call's arguments as JSON, or an empty object when the model sent something unusable. */
 internal fun toolArgumentsOf(call: FsToolCall): JSONObject =

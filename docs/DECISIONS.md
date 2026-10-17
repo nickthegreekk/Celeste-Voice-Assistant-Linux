@@ -13,6 +13,48 @@ not stop for it. Stop only for the four cases listed in AGENTS.md §10.
 
 ---
 
+## 2026-10-17 — Terminal commands: the confirmation is the boundary, because a shell cannot be contained
+
+The user asked how to give the models terminal and code execution and chose a first-party tool over an MCP server.
+**Decided: a `run_command` tool off by default, a per-turn confirmation showing the exact command and directory, a
+session grant for that command only, and the process seam in `:platform`.**
+
+**Why not "trust this folder".** The filesystem tools can contain a write with a path check; a shell cannot be
+contained by one — `cd ..`, an absolute path, a program with its own file access. The only boundary that actually
+exists is a person reading the command before it runs, so every command asks, and the grant offered is one exact
+command line in one directory for the session. The filesystem root trust (which the user asked to persist) is
+deliberately not the model here: a folder grant would authorise every command anyone could write into it, which is
+exactly the prompt-injection shape this feature must not create. Nothing is persisted, so a restart asks again.
+
+**Why the tool is a twin of the file tools rather than an MCP server.** An MCP server can expose a shell today with no
+code, but its trust model is per-server: approve once and it runs everything thereafter without a dialog. For
+commands, the per-call dialog is the whole safety argument, so the interaction has to be first-party. The tool rides
+the existing loop, `ToolSpec` and four dialects unchanged; only the executor and the dialog are new.
+
+**Why the working directory is the filesystem workspace but its mode is not consulted.** One folder concept the user
+already picked, but a separate grant: wanting a terminal is not wanting the assistant reading files, and wanting
+read-only file access is not refusing commands. The path resolves independently of `FsToolMode`, validated by the same
+`workspaceRootRefusal` (real directory, not an always-excluded path).
+
+**Code execution is the same tool.** `write_file` + `run_command("python3 script.py")` carries the same permission and
+the same risk as a `run_code` wrapper, so the wrapper is sugar rather than a milestone; it is recorded as a later
+option, not built.
+
+**Bounds, and why each one exists.** The timeout (5–300 s, default 60) kills the process *tree* — `npm run dev` starts
+children, and killing the shell alone leaves a port bound and the application's descriptors open. Stdin is closed so an
+interactive prompt gets EOF instead of hanging. Stderr is merged so the model reads one transcript. Output is capped at
+64 KiB while still draining the pipe (a stopped reader blocks the child), with a per-turn budget so a turn cannot
+run commands until it fills the context. The platform seam defaults to a refusing `CommandRunner.NONE`, so no test or
+unwired build can spawn a process by accident.
+
+**The audit keeps the command and not the output.** Output is what a command happened to print and can hold secrets; the
+question the audit answers is "what was run on my machine, and did I agree?", which the command line and the approval
+answer (`user` / `session-trust` / `denied` / `timeout`) already do. Refusals and timeouts are recorded, because those
+are the interesting half.
+
+→ PLAN.md §10 (M16), `CommandRunner.kt`, `CommandTools.kt`, `CommandAudit.kt`, `CommandScreens.kt`,
+`LinuxCommandRunner.kt`, `AssistantServiceFsTools.kt`, `AssistantServiceChat.kt`, `SettingsManager.kt`
+
 ## 2026-10-17 — Scheduled skills: a record beside the library, a poll against the wall clock
 
 The user picked scheduled skills from the post-M9 list — *"run this skill at 08:00 and notify me"*. **Decided: a

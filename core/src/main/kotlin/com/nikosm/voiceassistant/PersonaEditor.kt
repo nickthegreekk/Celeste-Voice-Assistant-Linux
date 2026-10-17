@@ -41,6 +41,7 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarBorder
+import androidx.compose.material.icons.filled.Terminal
 import androidx.compose.material.icons.filled.NotificationsActive
 import androidx.compose.material.icons.filled.Translate
 import androidx.compose.material.icons.filled.Tune
@@ -417,6 +418,8 @@ fun PersonaEditor(
     // it lives in the settings blob under the persona's name, not in the `Persona`.
     var personaFsMode by remember(persona) { mutableStateOf(service.settingsManager.getPersonaFsMode(persona.name)) }
     var personaFsWorkspace by remember(persona) { mutableStateOf(service.settingsManager.getPersonaFsWorkspace(persona.name)) }
+    // M16: this persona's terminal policy. Null is "follow the global", like the filesystem pair.
+    var personaCommandMode by remember(persona) { mutableStateOf(service.settingsManager.getPersonaCommandMode(persona.name)) }
     var outputDevices by remember { mutableStateOf<List<AudioDevice>?>(null) }
     LaunchedEffect(Unit) {
         outputDevices = withContext(Dispatchers.IO) { service.audioDevices.outputs() }.orEmpty()
@@ -1160,6 +1163,23 @@ fun PersonaEditor(
                     service.setPersonaFsWorkspaceSetting(name, chosen)
                 },
                 service = service
+            )
+        }
+
+        // M16: beside Filesystem — the same question ("what may this persona do"), a different
+        // grant. The working directory is the filesystem workspace; this controls only whether the
+        // persona may propose a command at all.
+        SettingsSectionHeader(title = "Terminal", icon = Icons.Default.Terminal)
+        SettingsSection {
+            PersonaCommandSection(
+                personaMode = personaCommandMode,
+                onModeChange = { chosen ->
+                    personaCommandMode = chosen
+                    // Keyed by the editor's LIVE name, like the filesystem pair above: the
+                    // autosave's rename migration runs off the same local state.
+                    service.setPersonaCommandModeSetting(name, chosen)
+                },
+                service = service,
             )
         }
 

@@ -392,7 +392,7 @@ class FsToolExecutorTest {
 
         val tooManyCalls = fsToolRoundRefusal(rounds = 0, callsMade = MAX_TOOL_CALLS_PER_TURN, callsThisRound = 1)
         assertNotNull(tooManyCalls)
-        assertTrue("a round that would exceed the call cap is refused whole", tooManyCalls!!.contains("file operations"))
+        assertTrue("a round that would exceed the call cap is refused whole", tooManyCalls!!.contains("tool operations"))
     }
 
     @Test

@@ -62,6 +62,9 @@ internal fun AssistantService.setFsModeSetting(mode: FsToolMode) {
 internal fun AssistantService.setFsWorkspaceSetting(path: String?) {
     settingsManager.saveFsWorkspace(path)
     forgetFsWriteTrust()
+    // M16: the commands' working directory is the same path, so a session grant was made about an
+    // arrangement that just changed.
+    forgetCommandTrust()
     logger.i("FsTools", if (path.isNullOrBlank()) "workspace cleared" else "workspace set")
 }
 
@@ -74,6 +77,8 @@ internal fun AssistantService.setPersonaFsModeSetting(personaName: String, mode:
 internal fun AssistantService.setPersonaFsWorkspaceSetting(personaName: String, path: String?) {
     settingsManager.savePersonaFsWorkspace(personaName, path)
     forgetFsWriteTrust()
+    // M16: same reason as the global folder above.
+    forgetCommandTrust()
 }
 
 /** Why this folder cannot be the workspace, or null when it can — asked where the user picks it. */
@@ -162,6 +167,8 @@ internal class ToolRouter(
     private val callMcp: suspend (McpTool, JSONObject) -> McpCallOutcome,
     /** M10: the application's own `remember` tool, or null when the persona has memory off. */
     private val remember: (suspend (FsToolCall) -> FsToolResult)? = null,
+    /** M16: the terminal tool, or null when commands are off or have no workspace. */
+    private val commands: ToolCallExecutor? = null,
 ) : ToolCallExecutor {
 
     override suspend fun execute(call: FsToolCall): FsToolResult {
@@ -169,6 +176,17 @@ internal class ToolRouter(
             val remember = remember
                 ?: return FsToolResult(call.id, call.name, "There is no tool named '${call.name}'.", ok = false)
             return remember(call)
+        }
+        // M16: the command name is checked before MCP. It is a fixed name with no `mcp_` prefix, so
+        // the namespaces cannot collide; the order only makes the refusal for a disabled command
+        // name the feature rather than the generic sentence.
+        if (call.name == TOOL_RUN_COMMAND) {
+            val commands = commands
+                ?: return FsToolResult(
+                    call.id, call.name,
+                    "There is no tool named '${call.name}'.", ok = false,
+                )
+            return commands.execute(call)
         }
         val tool = mcpTools[call.name]
         if (tool != null) {
@@ -204,13 +222,15 @@ internal suspend fun AssistantService.performOllamaChatWithTools(
     workspace: FsWorkspace?,
     mcpTools: List<McpTool> = emptyList(),
     memoryEnabled: Boolean = false,
+    /** M16: the terminal working directory, or null when the persona has no command access. */
+    commandWorkspace: Path? = null,
 ): Triple<String, String?, ByteArray?> {
     val excluded = fsExcludedPaths()
     var context = turnContext
     var rounds = 0
     var callsMade = 0
     val touched = LinkedHashSet<String>()
-    val executor = toolExecutorFor(workspace, excluded, persona, mcpTools, memoryEnabled)
+    val executor = toolExecutorFor(workspace, excluded, persona, mcpTools, memoryEnabled, commandWorkspace)
 
     while (true) {
         var captured: JSONObject? = null
@@ -275,12 +295,14 @@ internal suspend fun AssistantService.performCloudChatWithTools(
     workspace: FsWorkspace?,
     mcpTools: List<McpTool> = emptyList(),
     memoryEnabled: Boolean = false,
+    /** M16: the terminal working directory, or null when the persona has no command access. */
+    commandWorkspace: Path? = null,
 ): Job {
     val excluded = fsExcludedPaths()
     var context = turnContext
     var rounds = 0
     var callsMade = 0
-    val executor = toolExecutorFor(workspace, excluded, persona, mcpTools, memoryEnabled)
+    val executor = toolExecutorFor(workspace, excluded, persona, mcpTools, memoryEnabled, commandWorkspace)
 
     return serviceScope.launch {
         // M8: **the loop holds THINKING, not the round** — the rounds pass `ownsThinkingState =
@@ -384,6 +406,7 @@ private fun AssistantService.toolExecutorFor(
     persona: Persona,
     mcpTools: List<McpTool>,
     memoryEnabled: Boolean,
+    commandWorkspace: Path? = null,
 ): ToolCallExecutor = ToolRouter(
     fs = workspace?.let { FsToolAdapter(fsExecutorFor(it, excluded, persona)) },
     mcpTools = mcpTools.associateBy { it.declaredName },
@@ -392,6 +415,17 @@ private fun AssistantService.toolExecutorFor(
         { call -> rememberTool(call, persona.name) }
     } else {
         null
+    },
+    // M16: one executor for the whole turn, so its per-turn output budget means a turn rather
+    // than a round — the same reason the filesystem executor is built here and not per round.
+    commands = commandWorkspace?.let { root ->
+        CommandToolExecutor(
+            runner = commandRunner,
+            workingDirectory = root,
+            personaName = persona.name,
+            approve = { command, workingDirectory -> requestCommandApproval(persona.name, command, workingDirectory) },
+            audit = ::auditCommand,
+        )
     },
 )
 
@@ -454,7 +488,7 @@ internal fun fsToolRoundRefusal(rounds: Int, callsMade: Int, callsThisRound: Int
     rounds >= MAX_TOOL_ROUNDS ->
         "I stopped after $rounds rounds of using files without reaching an answer. Ask again with a narrower request."
     callsMade + callsThisRound > MAX_TOOL_CALLS_PER_TURN ->
-        "I stopped after $callsMade file operations in one turn. Ask again with a narrower request."
+        "I stopped after $callsMade tool operations in one turn. Ask again with a narrower request."
     else -> null
 }
 

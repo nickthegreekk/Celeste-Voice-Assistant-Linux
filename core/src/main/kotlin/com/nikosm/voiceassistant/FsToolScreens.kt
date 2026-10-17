@@ -68,7 +68,8 @@ internal fun FsToolSettings(service: AssistantService, contentPadding: Int = 16)
         Text("Filesystem tools", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
         Text(
             "Celeste can list and read files in one folder you choose, and — in read-write mode — write " +
-                "them. It cannot run programs, and it never reaches outside this folder.",
+                "them. It never reaches outside this folder. (Terminal commands are a separate setting: " +
+                "Settings → Terminal.)",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
         )

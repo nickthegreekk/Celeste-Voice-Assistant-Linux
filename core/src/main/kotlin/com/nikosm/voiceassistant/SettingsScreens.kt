@@ -163,6 +163,9 @@ internal val SETTINGS_CATEGORIES = listOf(
     // M8. After Skills, in the same section: both answer "what may this persona do", and a user who
     // has just given a persona instructions is the one thinking about what else it may touch.
     SettingsCategory("Filesystem", Icons.Default.Folder, SettingsGroup.ASSISTANTS),
+    // M16. After Filesystem because its working directory is that workspace folder, but a separate
+    // page because it is a different grant: files are contained by a path, a shell is not.
+    SettingsCategory("Terminal", Icons.Default.Terminal, SettingsGroup.ASSISTANTS),
     // M9. Beside Filesystem: both answer "what may this persona reach", and a user configuring
     // one is the user thinking about the other.
     SettingsCategory("MCP", Icons.Default.Extension, SettingsGroup.ASSISTANTS)
@@ -295,6 +298,7 @@ internal fun settingsCategorySummaries(
                 "Rooms" -> roomsSummary(rooms)
                 "Skills" -> skillsSummary(skills)
                 "Filesystem" -> FS_SETTINGS_SUMMARY
+                "Terminal" -> COMMAND_SETTINGS_SUMMARY
                 "MCP" -> MCP_SETTINGS_SUMMARY
                 else -> ""
             }
@@ -779,6 +783,7 @@ fun SettingsDialog(
                                 "Audio" -> AudioSettings(service = svc)
                                 "Health" -> ServerHealthSettings(service = svc)
                                 "Filesystem" -> FsToolSettings(service = svc)
+                                "Terminal" -> CommandSettings(service = svc)
                                 "MCP" -> McpSettings(service = svc)
                                 "Servers" -> ServerSettings(
                                     service = svc,

@@ -207,6 +207,13 @@ class AssistantService(
      * process or open a socket by accident, and a build without the implementation still compiles.
      */
     internal val mcpTransportFactory: McpTransportFactory = McpTransportFactory.NONE,
+    /**
+     * M16: the terminal seam. Defaulted to [CommandRunner.NONE], which refuses in words — the same
+     * rule as [mcpTransportFactory]: a test that never configures commands cannot spawn a process by
+     * accident, and a build without the platform implementation still compiles. Commands are also
+     * off by default in settings, so reaching the refusal at all means the wiring is wrong.
+     */
+    internal val commandRunner: CommandRunner = CommandRunner.NONE,
 ) {
 
     /**
@@ -549,6 +556,7 @@ class AssistantService(
     internal fun nextChatRequestSeq(): Long {
         fsWriteGate.denyPending()
         mcpApprovalGate.denyPending()
+        commandGate.denyPending()
         return ++chatRequestSeq
     }
     internal fun isChatRequestCurrent(seq: Long): Boolean = seq == chatRequestSeq
@@ -2580,6 +2588,11 @@ class AssistantService(
      */
     internal val fsWriteGate = FsWriteApprovalGate()
 
+    /**
+     * M16: the confirmation a terminal command may need, and the state the dialog reads. Session
+     * only, and one exact command per grant — see [CommandApprovalGate].
+     */
+    internal val commandGate = CommandApprovalGate()
     private var backupPasswordDeferred: CompletableDeferred<String?>? = null
     private val _backupPasswordRequested = MutableStateFlow(false)
     val backupPasswordRequested = _backupPasswordRequested.asStateFlow()

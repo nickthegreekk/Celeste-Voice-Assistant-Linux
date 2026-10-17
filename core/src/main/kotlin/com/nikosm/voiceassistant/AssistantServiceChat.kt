@@ -234,7 +234,9 @@ internal fun AssistantService.sendAudioToServer(file: Path, requestedPersona: Pe
     // M8: the same refusal the text path gives, and it matters more here — this is the route where
     // the user is *listening*. Said before the transcription is even attempted, so a gateway that is
     // answering slowly does not turn "read my notes" into a long pause and then an invented summary.
-    if ((fsWorkspaceFor(currentPersona) != null || mcpServersEnabledFor(currentPersona)) && !fsToolsReachableFor(currentPersona)) {
+    if ((fsWorkspaceFor(currentPersona) != null || mcpServersEnabledFor(currentPersona) ||
+        commandWorkspaceFor(currentPersona) != null) && !fsToolsReachableFor(currentPersona)
+    ) {
         refuseFsToolsOnGatewayRoute(currentPersona) { _messages.value = _messages.value + it.stampedAt() }
         return
     }
@@ -329,7 +331,9 @@ internal fun AssistantService.sendAudioToServer(file: Path, requestedPersona: Pe
                     val mcpTools = resolveMcpTools(currentPersona)
                     // M10: the `remember` tool is the third reason a turn needs the loop.
                     val memoryEnabled = settingsManager.isPersonaMemoryEnabled(currentPersona.name)
-                    if (fsWorkspace != null || mcpTools.isNotEmpty() || memoryEnabled) {
+                    // M16: the terminal tool is the fourth, and it brings its own working directory.
+                    val commandWorkspace = commandWorkspaceFor(currentPersona)
+                    if (fsWorkspace != null || mcpTools.isNotEmpty() || memoryEnabled || commandWorkspace != null) {
                         performCloudChatWithTools(
                             text = transcribedText,
                             persona = currentPersona,
@@ -343,10 +347,12 @@ internal fun AssistantService.sendAudioToServer(file: Path, requestedPersona: Pe
                                 fsToolMode = fsWorkspace?.mode ?: FsToolMode.OFF,
                                 mcpTools = mcpTools,
                                 memoryEnabled = memoryEnabled,
+                                commandEnabled = commandWorkspace != null,
                             ),
                             workspace = fsWorkspace,
                             mcpTools = mcpTools,
                             memoryEnabled = memoryEnabled,
+                            commandWorkspace = commandWorkspace,
                         )
                     } else {
                         performCloudChat(transcribedText, currentPersona, useDeviceVoice, startTime, currentTurnInHistory = true, generation = generation, turnContext = voiceTurnContext)
@@ -438,7 +444,8 @@ internal fun AssistantService.sendAudioToServer(file: Path, requestedPersona: Pe
                          // M9: the same two reasons for a tool loop as the cloud voice branch.
                          val mcpTools = resolveMcpTools(currentPersona)
                          val memoryEnabled = settingsManager.isPersonaMemoryEnabled(currentPersona.name)
-                         val directRes = if (fsWorkspace != null || mcpTools.isNotEmpty() || memoryEnabled) {
+                         val commandWorkspace = commandWorkspaceFor(currentPersona)
+                         val directRes = if (fsWorkspace != null || mcpTools.isNotEmpty() || memoryEnabled || commandWorkspace != null) {
                              performOllamaChatWithTools(
                                  baseUrl = ollamaBase, model = actualModel, text = transcribedText,
                                  persona = currentPersona, currentTurnInHistory = false,
@@ -447,10 +454,12 @@ internal fun AssistantService.sendAudioToServer(file: Path, requestedPersona: Pe
                                      fsToolMode = fsWorkspace?.mode ?: FsToolMode.OFF,
                                      mcpTools = mcpTools,
                                      memoryEnabled = memoryEnabled,
+                                     commandEnabled = commandWorkspace != null,
                                  ),
                                  workspace = fsWorkspace,
                                  mcpTools = mcpTools,
                                  memoryEnabled = memoryEnabled,
+                                 commandWorkspace = commandWorkspace,
                              )
                          } else {
                              performDirectOllamaChat(ollamaBase, actualModel, transcribedText, currentPersona, currentTurnInHistory = false, generation = generation, turnContext = voiceTurnContext)
@@ -829,7 +838,9 @@ internal fun AssistantService.sendTextMessageToServer(inputText: String, request
         // to summarise a file it cannot read answers fluently and wrongly. Checked here, before the
         // request, so nothing is sent and no THINKING state is entered; the user's own turn stays in
         // the transcript, because they did say it.
-        if ((fsWorkspaceFor(currentPersona) != null || mcpServersEnabledFor(currentPersona)) && !fsToolsReachableFor(currentPersona)) {
+        if ((fsWorkspaceFor(currentPersona) != null || mcpServersEnabledFor(currentPersona) ||
+                commandWorkspaceFor(currentPersona) != null) && !fsToolsReachableFor(currentPersona)
+        ) {
             refuseFsToolsOnGatewayRoute(currentPersona) { sink.append(it) }
             return@launch
         }
@@ -858,7 +869,12 @@ internal fun AssistantService.sendTextMessageToServer(inputText: String, request
             // independent, and both ride the same loop.
             val mcpToolsForCloud = resolveMcpTools(currentPersona)
             val memoryEnabledForCloud = settingsManager.isPersonaMemoryEnabled(currentPersona.name)
-            if (fsWorkspaceForCloud != null || mcpToolsForCloud.isNotEmpty() || memoryEnabledForCloud) {
+            // M16: commands are the fourth reason a turn needs the loop; their working directory
+            // comes from the same workspace path, independent of the filesystem tool's mode.
+            val commandWorkspaceForCloud = commandWorkspaceFor(currentPersona)
+            if (fsWorkspaceForCloud != null || mcpToolsForCloud.isNotEmpty() || memoryEnabledForCloud ||
+                commandWorkspaceForCloud != null
+            ) {
                 performCloudChatWithTools(
                     text = inputText,
                     persona = currentPersona,
@@ -872,10 +888,12 @@ internal fun AssistantService.sendTextMessageToServer(inputText: String, request
                         fsToolMode = fsWorkspaceForCloud?.mode ?: FsToolMode.OFF,
                         mcpTools = mcpToolsForCloud,
                         memoryEnabled = memoryEnabledForCloud,
+                        commandEnabled = commandWorkspaceForCloud != null,
                     ),
                     workspace = fsWorkspaceForCloud,
                     mcpTools = mcpToolsForCloud,
                     memoryEnabled = memoryEnabledForCloud,
+                    commandWorkspace = commandWorkspaceForCloud,
                 )
             } else {
                 performCloudChat(inputText, currentPersona, useDeviceVoice, startTime, currentTurnInHistory = true, generation = generation, imagePath = imagePath, turnContext = turnContext)
@@ -914,6 +932,7 @@ internal fun AssistantService.sendTextMessageToServer(inputText: String, request
                          // M9: MCP tools are the second, independent reason a turn needs the loop.
                          val mcpToolsForText = resolveMcpTools(currentPersona)
                          val memoryEnabledForText = settingsManager.isPersonaMemoryEnabled(currentPersona.name)
+                         val commandWorkspaceForText = commandWorkspaceFor(currentPersona)
                          // The mode rides with the turn so the *request builders* can declare the
                          // tools; a turn with no tools of either kind declares none and its bytes
                          // are unchanged.
@@ -921,8 +940,11 @@ internal fun AssistantService.sendTextMessageToServer(inputText: String, request
                              fsToolMode = fsWorkspace?.mode ?: FsToolMode.OFF,
                              mcpTools = mcpToolsForText,
                              memoryEnabled = memoryEnabledForText,
+                             commandEnabled = commandWorkspaceForText != null,
                          )
-                         val directRes = if (fsWorkspace != null || mcpToolsForText.isNotEmpty() || memoryEnabledForText) {
+                         val directRes = if (fsWorkspace != null || mcpToolsForText.isNotEmpty() || memoryEnabledForText ||
+                             commandWorkspaceForText != null
+                         ) {
                              performOllamaChatWithTools(
                                  baseUrl = ollamaBase, model = actualModel, text = inputText,
                                  persona = currentPersona, currentTurnInHistory = true,
@@ -930,6 +952,7 @@ internal fun AssistantService.sendTextMessageToServer(inputText: String, request
                                  turnContext = toolTurnContext, workspace = fsWorkspace,
                                  mcpTools = mcpToolsForText,
                                  memoryEnabled = memoryEnabledForText,
+                                 commandWorkspace = commandWorkspaceForText,
                              )
                          } else {
                              performDirectOllamaChat(ollamaBase, actualModel, inputText, currentPersona, attachments = attachments, imagePath = imagePath, currentTurnInHistory = true, generation = generation, turnContext = turnContext)
@@ -1668,6 +1691,14 @@ internal data class TurnContext(
      * grows it and a persona with memory switched off is byte-identical to before the feature.
      */
     val memoryEnabled: Boolean = false,
+    /**
+     * M16: whether this turn offers the terminal tool. Defaulted off, for the same reason every
+     * other tool flag is: an ordinary request must not grow a `tools` field, and a persona whose
+     * commands are off is byte-identical to before the feature. The working directory itself is
+     * passed separately to the tool loop (`commandWorkspace`), because a declaration does not need
+     * a path and the context is copied into requests.
+     */
+    val commandEnabled: Boolean = false,
 ) {
     /**
      * Phase 2: true when this turn writes into the single-chat transcript, i.e. exactly
@@ -1712,7 +1743,7 @@ internal suspend fun AssistantService.performDirectOllamaChat(baseUrl: String, m
     // is never told a tool exists, so a conforming model answers in prose and the loop above never
     // sees a call. It was missing in the first cut: the four dialect functions existed and the cloud
     // builders called them, while this builder called none.
-    allToolsJsonFor(FsToolProvider.OLLAMA, turnContext.fsToolMode, turnContext.mcpTools, turnContext.memoryEnabled)?.let { json.put("tools", it) }
+    allToolsJsonFor(FsToolProvider.OLLAMA, turnContext.fsToolMode, turnContext.mcpTools, turnContext.memoryEnabled, turnContext.commandEnabled)?.let { json.put("tools", it) }
     // Stage-1 streaming: NDJSON deltas so the UI can render the response as it
     // is generated. Each line carries message.content (and message.thinking
     // for reasoning models); the final line carries done=true plus usage stats.
@@ -1754,7 +1785,7 @@ internal suspend fun AssistantService.performDirectOllamaChat(baseUrl: String, m
                 }
                 // M8: the tool contract, on the channel the design names — the same `suffix` skills
                 // ride in, so it is counted by resolveHistoryBudget like every other fixed part.
-                allToolContractFor(turnContext.fsToolMode, turnContext.mcpTools, turnContext.memoryEnabled)?.let { add(it) }
+                allToolContractFor(turnContext.fsToolMode, turnContext.mcpTools, turnContext.memoryEnabled, turnContext.commandEnabled)?.let { add(it) }
             }.filter { it.isNotBlank() }.joinToString("\n\n")
         )
 
@@ -1775,7 +1806,7 @@ internal suspend fun AssistantService.performDirectOllamaChat(baseUrl: String, m
             // M8: this turn's earlier rounds ride in the request after the user turn, so the estimate
             // that decides whether it fits has to include them.
             extraFixed = fsToolTurnsText(turnContext.toolTurns) +
-                toolDeclarationsText(FsToolProvider.OLLAMA, turnContext.fsToolMode, turnContext.mcpTools, turnContext.memoryEnabled),
+                toolDeclarationsText(FsToolProvider.OLLAMA, turnContext.fsToolMode, turnContext.mcpTools, turnContext.memoryEnabled, turnContext.commandEnabled),
         )
 
         // A1: positional slice — the caller says whether the current user turn is
@@ -2083,7 +2114,7 @@ private suspend fun AssistantService.buildCloudRequest(api: CloudApiSetting, per
         // an ordinary cloud request are unchanged.
         suffix = buildList {
             add(turnContext.systemPromptSuffix)
-            allToolContractFor(turnContext.fsToolMode, turnContext.mcpTools, turnContext.memoryEnabled)?.let { add(it) }
+            allToolContractFor(turnContext.fsToolMode, turnContext.mcpTools, turnContext.memoryEnabled, turnContext.commandEnabled)?.let { add(it) }
         }.filter { it.isNotBlank() }.joinToString("\n\n")
     )
 
@@ -2102,7 +2133,7 @@ private suspend fun AssistantService.buildCloudRequest(api: CloudApiSetting, per
         extraFixed = fsToolTurnsText(turnContext.toolTurns) +
                 // OpenAI's declaration shape is the estimate for the budget: the four dialects
                 // differ by a few field names, and the schemas dominate.
-                toolDeclarationsText(FsToolProvider.OPENAI, turnContext.fsToolMode, turnContext.mcpTools, turnContext.memoryEnabled),
+                toolDeclarationsText(FsToolProvider.OPENAI, turnContext.fsToolMode, turnContext.mcpTools, turnContext.memoryEnabled, turnContext.commandEnabled),
     )
     
     // A1: positional slice — the caller says whether the current user turn is already
@@ -2122,7 +2153,7 @@ private suspend fun AssistantService.buildCloudRequest(api: CloudApiSetting, per
     return when (api.icon) {
         "A" -> {
             json.put("model", actualModel).put("max_tokens", persona.maxTokens).put("system", finalSystemPrompt)
-            allToolsJsonFor(FsToolProvider.ANTHROPIC, turnContext.fsToolMode, turnContext.mcpTools, turnContext.memoryEnabled)?.let { json.put("tools", it) }
+            allToolsJsonFor(FsToolProvider.ANTHROPIC, turnContext.fsToolMode, turnContext.mcpTools, turnContext.memoryEnabled, turnContext.commandEnabled)?.let { json.put("tools", it) }
             val msgArray = org.json.JSONArray()
             // Anthropic requires the conversation to start with 'user' and strictly
             // alternate roles. A1: same-role turns are MERGED (never silently
@@ -2191,7 +2222,7 @@ private suspend fun AssistantService.buildCloudRequest(api: CloudApiSetting, per
             history.forEach { appendGeminiTurn(it.role, it.text) }
             // A1: the current user turn always reaches the model.
             appendGeminiTurn("user", modelText, base64Image)
-            allToolsJsonFor(FsToolProvider.GEMINI, turnContext.fsToolMode, turnContext.mcpTools, turnContext.memoryEnabled)?.let { json.put("tools", it) }
+            allToolsJsonFor(FsToolProvider.GEMINI, turnContext.fsToolMode, turnContext.mcpTools, turnContext.memoryEnabled, turnContext.commandEnabled)?.let { json.put("tools", it) }
             turnContext.toolTurns.forEach { turn -> turn.messages.forEach { contents.put(it) } }
             json.put("contents", contents)
 
@@ -2226,7 +2257,7 @@ private suspend fun AssistantService.buildCloudRequest(api: CloudApiSetting, per
             }
             msgs.put(currentMsg)
             // M8: the tools, and this turn's earlier rounds against OpenAI's shape.
-            allToolsJsonFor(FsToolProvider.OPENAI, turnContext.fsToolMode, turnContext.mcpTools, turnContext.memoryEnabled)?.let { json.put("tools", it) }
+            allToolsJsonFor(FsToolProvider.OPENAI, turnContext.fsToolMode, turnContext.mcpTools, turnContext.memoryEnabled, turnContext.commandEnabled)?.let { json.put("tools", it) }
             turnContext.toolTurns.forEach { turn -> turn.messages.forEach { msgs.put(it) } }
             
             json.put("messages", msgs)
