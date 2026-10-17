@@ -94,20 +94,20 @@ four socket fixtures this triage found portable.
 |---|---|---|---:|
 | `AssistantReplayRoutingInstrumentedTest.kt` | Replay re-synthesises through the gateway voice | **Ported** as `AssistantReplayRoutingTest` (1): a loopback `/synthesize` proves the persona's own voice is asked and its bytes become chunk 0 | 346 |
 | `AssistantServiceConcurrencyInstrumentedTest.kt` | Overlapping model fetches preserve live statuses | **Ported** as `AssistantServiceConcurrencyTest` (3): live-map read-modify-write, the Cline double-decrement, and the Main hop for health writes | 427 |
-| `CloudVoiceHistoryInstrumentedTest.kt` | Cloud voice turns record the transcript and carry history to all three providers | Service chat core + `FakeProviderServer` | 479 |
+| `CloudVoiceHistoryInstrumentedTest.kt` | Cloud voice turns record the transcript and carry history to all three providers | **Ported** as `CloudVoiceHistoryTest` (3): the second turn's body carries the previous question and answer in alternating roles on OpenAI, Anthropic and Gemini | 480 |
 | `ComfyImageInstrumentedTest.kt` | ComfyUI submit → poll → download, cancel, no file on failure | **Ported** as `ComfyImageTest` (24) over `ComfyUiStub`, including the character precedence and queue-first cancel cases | 817 |
-| `Fix4StreamingDotsInstrumentedTest.kt` | Thinking dots hide once streamed text exists | UI half to the Compose runner; state via ported core | 547 |
-| `Fix6NumCtxOverflowInstrumentedTest.kt` | Over-budget requests refused before sending | Budget logic on the ported core; UI half to the runner | 837 |
+| `Fix4StreamingDotsInstrumentedTest.kt` | Thinking dots hide once streamed text exists | **Ported** as `Fix4StreamingDotsTest` (2): both the mini box and text mode, with the stream held open between phases | 547 |
+| `Fix6NumCtxOverflowInstrumentedTest.kt` | Over-budget requests refused before sending | **Ported** as `Fix6OverflowTest` (4): long prompt, large attachment, the cloud builder, and the under-budget control, with the token count recomputed independently | 837 |
 | `GatewayCredentialResolutionInstrumentedTest.kt` | Trailing-slash/name backend URLs resolve credentials; unresolvable sends nothing | **Ported** as `GatewayCredentialResolutionTest` (4): the header proves /transcribe and /synthesize carry it; the stray gateway receives nothing and the failure is visible | 551 |
 | `GatewayTestVoiceSupersedeInstrumentedTest.kt` | A superseded test-voice turn does not force IDLE or leak focus | **Ported in part** as `GatewayTestVoiceSupersedeTest` (2): the state-ownership case and its control. The focus case is dropped with its subject — §9 deletes the audio-focus stack, so there is no retained focus to leak | 499 |
 | `H3StaleStreamUnwindInstrumentedTest.kt` | A stale stream unwind does not blank the newer placeholder | **Ported** as `H3StaleStreamUnwindTest` (2) over `SteppedNdjsonServer`: the stale unwind and the lone-turn control | 540 |
 | `ImageGenAuthInstrumentedTest.kt` | Basic auth on generate/regenerate/test-connection | **Ported** as `ImageGenAuthTest` (8) over `ImageGenStub`; the A1111 body is asserted field-by-field (JVM `org.json` is hash-ordered) | 416 |
 | `ImageGenBackendMismatchInstrumentedTest.kt` | 404/405 diagnosed as the other backend only when its probe succeeds | **Ported** as `ImageGenBackendMismatchTest` (7): both directions on Test Connection and generation, plus the 404/401/right-type negatives | 355 |
 | `ImageGenSaveProbeInstrumentedTest.kt` | Save probes the backend-appropriate endpoint | **Ported** as `ImageGenSaveProbeTest` (2) on the desktop Compose runner: the real dialog is the call site under test | 210 |
-| `ImageGenSettingsComposeTest.kt` | Image-gen switch/sections; state restoration | Service state via the port; the rotation/restoration case drops | 167 |
+| `ImageGenSettingsComposeTest.kt` | Image-gen switch/sections; state restoration | **Ported in part** as `ImageGenSettingsTest` (1): both sections' entries, their own "+" buttons, and the hint following the switch. The rotation case drops — a desktop window is not recreated, and the active choice lives on the service anyway | 167 |
 | `M2HandsFreeToggleFocusInstrumentedTest.kt` | Hands-free off mid-turn does not force IDLE or leak focus | **Ported in part** as `HandsFreeToggleTest` (2): the ownership contract and the unowned-THINKING control. The focus assertions are dropped with §9's focus stack | 621 |
 | `MessageStampEchoInstrumentedTest.kt` | Echoed timestamp stripped; injected exactly once next request | **Ported** as `MessageStampEchoTest` (1) over a body-capturing `SteppedNdjsonServer` | 249 |
-| `MessageTimestampInstrumentedTest.kt` | Stamps in local history, not cloud; budgeted and rendered | Request assembly on the ported core; UI half to the runner | 634 |
+| `MessageTimestampInstrumentedTest.kt` | Stamps in local history, not cloud; budgeted and rendered | **Ported** as `MessageTimestampServiceTest` (5): prefixes on the wire for local, verbatim for cloud, counted by the budget, and both UI stamp forms | 634 |
 | `ModelCatalogCacheInstrumentedTest.kt` | Cache states, refresh, merge, stale-on-failure | **Ported** as `ModelCatalogCacheTest` (18) over `ModelCatalogStub`, including the "what no models means" distinctions | 512 |
 | `ModelPickerInstrumentedTest.kt` | Favourites and selection through the service | **Ported** as `ModelPickerServiceTest` (4); the composable half is `ModelPickerComposeTest` (27) | 304 |
 | `PersonaEditorCommitInstrumentedTest.kt` | Closing inside the debounce still commits a cloud identity | **Ported** as `PersonaEditorCommitTest` (1) on the desktop runner; read back from the store | 177 |
@@ -244,14 +244,16 @@ persona/editor group (`PersonaEditorCommitTest`, `PersonaEditorEmptyListsTest`,
 `Stage2RevealStateTest` (4)), the spontaneous group (`SpontaneousWriteGuardTest` (8),
 `SpontaneousTurnServiceTest` (4), `SpontaneousDeepLinkTest` (3), `SpontaneousEditorUiTest` (4),
 `SpontaneousDeliveryTest` (10)), the skills pair (`SkillInjectionTest` (7),
-`SkillUiTest`) and the room UI pair (`RoomEditorUiTest` (5), `RoomAutoScrollTest` (5)). Their fixtures (`SteppedNdjsonServer`, `RoomTurnServer`,
+`SkillUiTest`) and the room UI pair (`RoomEditorUiTest` (5), `RoomAutoScrollTest` (5)), and the
+closing five (`ImageGenSettingsTest` (1), `Fix4StreamingDotsTest` (2), `Fix6OverflowTest` (4),
+`MessageTimestampServiceTest` (5), `CloudVoiceHistoryTest` (3)). Their fixtures (`SteppedNdjsonServer`, `RoomTurnServer`,
 `OllamaSuggestionStub`, `ComfyUiStub`, `ImageGenStub`, `ModelCatalogStub`) are JVM loopback
 stubs; no instrumented runner is involved beyond the Compose one.
 
 **Still open in M7, with the reason:**
 
-- **The remaining triaged instrumented tests.** The per-file table above decides each one's
-  fate; the **Ported** rows are what has landed, and the rest land with the milestone that
-  reaches their area.
+- **The triaged instrumented tests are done.** Every row above is **Ported**, **Ported in
+  part** (with the dropped half named) or **Dropped** with a reason; no seam file remains
+  unported.
 - **No Secret Service**: moot rather than missing — seam 8 is not in v1 (PLAN.md §5a), so
   credentials are the 0600 settings file and there is no daemon whose absence can fail a start.

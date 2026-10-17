@@ -1549,8 +1549,9 @@ dropped with §9), the replay/reveal pair (`AssistantReplayRoutingTest`, `Stage2
 (`SpontaneousWriteGuardTest` (8), `SpontaneousTurnServiceTest` (4), `SpontaneousDeepLinkTest` (3), `SpontaneousEditorUiTest`
 (4), `SpontaneousDeliveryTest` (10) — the unique-work cases dropped with WorkManager), the skills pair
 (`SkillInjectionTest` (7), `SkillUiTest`), the room UI pair (`RoomEditorUiTest` (5), `RoomAutoScrollTest` (5) —
-which exposed and fixed a one-frame under-scroll in the auto-scroll refine) and the room loop
-(`RoomRoundLoopTest` (8): order and
+which exposed and fixed a one-frame under-scroll in the auto-scroll refine), the closing five (`ImageGenSettingsTest`,
+`Fix4StreamingDotsTest` (2), `Fix6OverflowTest` (4), `MessageTimestampServiceTest` (5), `CloudVoiceHistoryTest` (3))
+and the room loop (`RoomRoundLoopTest` (8): order and
 attribution, the cap exactly, local-only rotating autonomy, Stop removing the blank placeholder, supersede, and the
 three editor-parser cap cases, all against `RoomTurnServer`). The rest of the table decides their fate and belongs with
 the area's milestone. The one-hour acceptance is not claimed: the
