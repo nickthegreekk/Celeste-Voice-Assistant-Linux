@@ -1553,9 +1553,11 @@ which exposed and fixed a one-frame under-scroll in the auto-scroll refine), the
 `Fix4StreamingDotsTest` (2), `Fix6OverflowTest` (4), `MessageTimestampServiceTest` (5), `CloudVoiceHistoryTest` (3))
 and the room loop (`RoomRoundLoopTest` (8): order and
 attribution, the cap exactly, local-only rotating autonomy, Stop removing the blank placeholder, supersede, and the
-three editor-parser cap cases, all against `RoomTurnServer`). The rest of the table decides their fate and belongs with
-the area's milestone. The one-hour acceptance is not claimed: the
-cycle count is the thing that grows, and 50,000 cycles is more start/stop than an hour of manual use.]
+three editor-parser cap cases, all against `RoomTurnServer`). The triage table is EMPTY: 34 ported, 4 ported in part
+(each named), 0 remaining, 11 dropped with a reason. **The one-hour acceptance is met (2026-10-17):**
+`CELESTE_SOAK_SECONDS=3600` ran 3,600.27 seconds of real start/shutdown cycles and the final thread/descriptor checks
+passed — the test now has a duration mode for exactly this claim, and `CELESTE_SOAK_CYCLES` remains the bounded run
+used earlier (50,000 cycles in 40 s).]
 
 **M8 — Filesystem tools (new scope, not a port; not counted in the total below).** The user wants Celeste to read and write
 files on this machine so the assistant can be used as a local agent, **and the app's user chooses where and how**: a

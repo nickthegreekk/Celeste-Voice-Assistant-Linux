@@ -38,8 +38,10 @@ import org.junit.Test
  * ## The hour
  *
  * M7's acceptance names an hour of cycles. This test runs a bounded number by default
- * ([DEFAULT_CYCLES]) so the suite stays quick; `CELESTE_SOAK_CYCLES=3600` is the manual long run,
- * and each cycle prints nothing on success and fails with the cycle number when something grows.
+ * ([DEFAULT_CYCLES]) so the suite stays quick; `CELESTE_SOAK_CYCLES=3600` is a cycle-bounded
+ * long run, and `CELESTE_SOAK_SECONDS=3600` is the acceptance run itself — it cycles until the
+ * wall clock reaches the deadline and then applies the same assertions. Each cycle prints
+ * nothing on success and fails with the cycle number when something grows.
  */
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class ServiceSoakTest {
@@ -95,7 +97,19 @@ class ServiceSoakTest {
         )
 
     @Test
-    fun `repeated start and shutdown cycles leak no descriptors or service threads`() = runTest {
+    fun `repeated start and shutdown cycles leak no descriptors or service threads`() {
+        // The duration run is M7's literal acceptance: cycle for an hour, then measure. `runTest`
+        // times out on the wall clock, so its timeout has to cover the run rather than the default
+        // minute; `CELESTE_SOAK_SECONDS` unset keeps the quick suite behaviour.
+        val durationSeconds = System.getenv("CELESTE_SOAK_SECONDS")
+            ?.toLongOrNull()
+            ?.coerceIn(1, 6 * 60 * 60L)
+        val timeout = if (durationSeconds != null) {
+            kotlin.time.Duration.parse("${durationSeconds + 600}s")
+        } else {
+            kotlin.time.Duration.parse("60s")
+        }
+        runTest(timeout = timeout) {
         // Gradle's test JVM does not inherit the CLI's -D by default; the environment variable is
         // inherited, so it is the one the manual long run uses.
         val cycles = (System.getenv("CELESTE_SOAK_CYCLES") ?: System.getProperty("celeste.soak.cycles"))
@@ -122,7 +136,7 @@ class ServiceSoakTest {
         val threadsBefore = serviceThreads()
         val fdsBefore = openDescriptors()
 
-        repeat(cycles) { cycle ->
+        fun runOneCycle() {
             val service = newService(env, settings)
             try {
                 service.start()
@@ -131,26 +145,42 @@ class ServiceSoakTest {
                 service.shutdown()
                 runCurrent()
             }
-            // Let any IO-dispatched cancellation unwind before the next cycle reuses the pools.
-            if (cycle % 10 == 9) Thread.sleep(5)
+        }
+
+        var completed = 0
+        if (durationSeconds != null) {
+            val deadline = System.currentTimeMillis() + durationSeconds * 1_000
+            while (System.currentTimeMillis() < deadline) {
+                runOneCycle()
+                completed++
+                // Let any IO-dispatched cancellation unwind before the next cycle reuses the pools.
+                if (completed % 10 == 0) Thread.sleep(5)
+            }
+        } else {
+            repeat(cycles) { cycle ->
+                runOneCycle()
+                completed = cycle + 1
+                if (cycle % 10 == 9) Thread.sleep(5)
+            }
         }
         Thread.sleep(50)
 
         val leakedThreads = serviceThreads().filter { (name, count) ->
             count > (threadsBefore[name] ?: 0)
         }.keys
-        assertTrue("service threads leaked after $cycles cycles: $leakedThreads", leakedThreads.isEmpty())
+        assertTrue("service threads leaked after $completed cycles: $leakedThreads", leakedThreads.isEmpty())
 
         if (fdsSupported) {
             val fdsAfter = openDescriptors()
             if (fdsAfter != null && fdsBefore != null) {
                 val delta = fdsAfter - fdsBefore
                 assertTrue(
-                    "descriptors grew by $delta over $cycles start/shutdown cycles " +
+                    "descriptors grew by $delta over $completed start/shutdown cycles " +
                         "($fdsBefore -> $fdsAfter) — something is not being closed",
                     delta <= FD_DELTA_ALLOWANCE,
                 )
             }
+        }
         }
     }
 
