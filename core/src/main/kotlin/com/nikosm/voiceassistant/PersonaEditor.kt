@@ -1409,7 +1409,7 @@ fun PersonaEditor(
                 ParameterSlider(label = "Max Response Length", value = maxTokens.toFloat(), range = 100f..8192f, onValueChange = { maxTokens = it.toInt() }, format = { it.toInt().toString() }, lowLabel = "Fast (slow CPU / low RAM)", highLabel = "Long (needs fast hardware)")
                 // Continuous track, but state snaps to power-of-two detents so num_ctx
                 // always lands on values Ollama operators expect (2k → 32k).
-                ParameterSlider(label = "Context Window Size", value = numCtx.toFloat(), range = 2048f..32768f, onValueChange = { v -> numCtx = CTX_WINDOW_DETENTS.minByOrNull { kotlin.math.abs(it - v) } ?: v.toInt() }, format = { it.toInt().toString() }, lowLabel = "Smaller (less VRAM / faster)", highLabel = "Larger (more VRAM / memory-heavy)")
+                ParameterSlider(label = "Context Window Size", value = numCtx.toFloat(), range = 2048f..131072f, onValueChange = { v -> numCtx = CTX_WINDOW_DETENTS.minByOrNull { kotlin.math.abs(it - v) } ?: v.toInt() }, format = { it.toInt().toString() }, lowLabel = "Smaller (less VRAM / faster)", highLabel = "Larger (more VRAM / memory-heavy)")
 
                 Spacer(Modifier.height(8.dp))
                 Column {
@@ -1549,8 +1549,13 @@ fun PersonaEditor(
     }
 }
 
-// Sane num_ctx detents (Ollama convention): 2k → 32k. See the Context Window slider.
-private val CTX_WINDOW_DETENTS = listOf(2048, 4096, 8192, 16384, 32768)
+// Sane num_ctx detents (Ollama convention): 2k → 128k. See the Context Window slider.
+//
+// The ceiling was 32k until 2026-10-17. The request budget in resolveHistoryBudget is measured
+// against this number, so it is the real limit on how much of the conversation reaches the model —
+// not the transcript the app keeps. A desktop has the room (and a cloud persona a 128k window);
+// the slider's own labels still say what a larger window costs.
+private val CTX_WINDOW_DETENTS = listOf(2048, 4096, 8192, 16384, 32768, 65536, 131072)
 
 @Composable
 fun ParameterSlider(

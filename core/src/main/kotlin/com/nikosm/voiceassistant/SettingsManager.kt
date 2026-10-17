@@ -82,7 +82,11 @@ class SettingsManager(
     private companion object {
         const val TAG = "SettingsManager"
 
-        const val MAX_PERSONA_MESSAGES = 200
+        // C3's cap, raised from 200 to 2000 on 2026-10-17 at the user's request: the phone-sized
+        // number was trimming a desktop transcript that is a single JSON entry in an ordinary
+        // settings file. 2000 is 1000 exchanges, and eviction below still deletes the cache files
+        // of every message it drops.
+        const val MAX_PERSONA_MESSAGES = 2000
 
         // Same idea for room transcripts, which are separate entries entirely. A room
         // round can emit several messages per turn, so its cap is a little higher.
@@ -461,8 +465,8 @@ class SettingsManager(
     }
 
     fun savePersonaMessages(personaName: String, messages: List<ChatMessage>) {
-        // C3: cap persisted history at 200 messages per persona. Trim from the oldest
-        // end (keep most recent 200). Before discarding any evicted message, delete its
+        // C3: cap persisted history per persona. Trim from the oldest end (keep the most
+        // recent MAX_PERSONA_MESSAGES). Before discarding any evicted message, delete its
         // audio/image cache files if present — otherwise files become orphaned on disk.
         val capped = if (messages.size > MAX_PERSONA_MESSAGES) {
             val evicted = messages.subList(0, messages.size - MAX_PERSONA_MESSAGES)
