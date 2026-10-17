@@ -1531,10 +1531,11 @@ fails with "stopped responding" instead of waiting out the ten-minute budget). "
 audio + word timestamps, and the 200-JSON "no voice for this language" decision). The 59 instrumented tests are triaged
 per file in `docs/TEST-MAP.md` — 6 to the desktop Compose runner, 43 rewritten against the seams (39 tests + 4 portable
 loopback fixtures), 10 dropped with a reason. **The desktop UI runner is in** (`3c44026`): Compose's test runtime is
-pinned in the catalog and the runner is `runComposeUiTest`; **four of the six Compose-runner tests are ported** —
+pinned in the catalog and the runner is `runComposeUiTest`; **all six Compose-runner tests are ported** — 65 UI tests:
 SettingsCategoryList (6), HeaderPersonaTap (2), AdaptiveTheme (4, the dynamic-wallpaper cases dropped because the port
-has no dynamic branch), and the thumbnail half of FullScreenImageViewer (3, its cross-root dialog half dropped because
-`DialogWindow` is a separate OS window). ModelPicker and ModelsScreen remain. **The triaged seam tests are not started**
+has no dynamic branch), the thumbnail half of FullScreenImageViewer (3, its cross-root dialog half dropped because
+`DialogWindow` is a separate OS window), ModelPicker (27) and ModelsScreen (23). **The triaged seam tests are not
+started**
 — the table decides their fate; each belongs with the area's milestone. The one-hour acceptance is not claimed: the
 cycle count is the thing that grows, and 50,000 cycles is more start/stop than an hour of manual use.]
 
