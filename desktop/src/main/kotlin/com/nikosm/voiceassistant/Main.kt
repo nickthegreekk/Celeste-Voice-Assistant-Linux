@@ -2,6 +2,7 @@ package com.nikosm.voiceassistant
 
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -263,7 +264,12 @@ fun main(args: Array<String>) {
             // on the resource path). See `windowIcon` for why this is not `painterResource`.
             icon = remember { windowIcon() },
         ) {
-            VoiceAssistantTheme {
+            // The application's own dark/light choice, not the desktop's: Compose's
+            // `isSystemInDarkTheme()` cannot see an Xfce theme (Skiko returns UNKNOWN, mapped to
+            // light), so the setting is the source of truth. Collected here, at the root, so the
+            // Settings switch repaints the whole window immediately.
+            val darkTheme by service.darkTheme.collectAsState()
+            VoiceAssistantTheme(darkTheme = darkTheme) {
                 // Held in composition state so the landing can clear it. Nothing else clears it, and
                 // nothing needs to: the payload is a start-up argument, and this window is the only
                 // one there will be.

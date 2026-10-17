@@ -1334,6 +1334,13 @@ shown from a one-pixel `JWindow` anchor because a popup needs an owning `Compone
 offscreen before any of it was written: panel `#383c4a`, light text. Compose Desktop's own `Tray` menu was checked and
 rejected as a replacement — it is the same AWT `PopupMenu` under the hood.
 
+**The window itself opens dark by default on a fresh install** (2026-10-17, the same afternoon):
+`VoiceAssistantTheme` defaulted to `isSystemInDarkTheme()`, and on Linux that asks Skiko, whose system-theme probe
+returns UNKNOWN for an Xfce session — mapped to light — so following the system meant always opening white on a dark
+desktop. `dark_theme` is now a stored boolean defaulting to on, collected at the window root so the Settings switch
+repaints immediately, with a **Dark theme** switch in Settings → General → Appearance. It is a device preference and
+stays out of the backup allowlist, like the window size.
+
 **Chat memory is sized for a desktop: 2000 stored messages, and a 128k context ceiling.** The 200-message cap was the
 Android app's, and the persona slider stopped at 32768. Both were raised at the user's request; the second matters
 because the request budget is measured against `persona.numCtx`, so raising the transcript alone would still send the

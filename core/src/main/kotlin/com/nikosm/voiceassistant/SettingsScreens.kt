@@ -884,6 +884,12 @@ fun GeneralSettings(
         service.adaptiveTheme.collect { adaptiveTheme = it }
     }
 
+    // Dark theme: the application's own choice, default ON (see AssistantService.darkTheme).
+    var darkTheme by remember { mutableStateOf(true) }
+    LaunchedEffect(Unit) {
+        service.darkTheme.collect { darkTheme = it }
+    }
+
     var chatFontSize by remember { mutableStateOf(14f) }
     LaunchedEffect(Unit) {
         service.chatFontSize.collect { chatFontSize = it }
@@ -941,6 +947,31 @@ fun GeneralSettings(
 Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
     SettingsSectionHeader(title = "Appearance", icon = Icons.Default.Palette)
     SettingsSection {
+        // Dark theme: the application's own scheme, not the desktop's. It defaults ON because
+        // the desktop's preference cannot be read here (see AssistantService.darkTheme), and it
+        // repaints the whole window the moment it flips — the root theme collects the flow.
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text("Dark theme", style = MaterialTheme.typography.titleMedium)
+                Text(
+                    "Celeste's dark colours. Off switches the whole window to the light scheme.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                )
+            }
+            Switch(
+                checked = darkTheme,
+                onCheckedChange = { service.setDarkTheme(it) }
+            )
+        }
+        HorizontalDivider(
+            modifier = Modifier.padding(vertical = 12.dp),
+            color = Color.White.copy(alpha = 0.05f)
+        )
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,

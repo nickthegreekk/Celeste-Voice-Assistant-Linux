@@ -13,6 +13,26 @@ not stop for it. Stop only for the four cases listed in AGENTS.md §10.
 
 ---
 
+## 2026-10-17 — The window opens dark: the theme is a stored choice with a dark default
+
+The first desktop day ended with a white window on a dark desktop. The cause is not a styling choice:
+`VoiceAssistantTheme` defaulted to Compose's `isSystemInDarkTheme()`, and on Linux that path asks Skiko, whose
+system-theme probe returns UNKNOWN for an Xfce session — which the theme maps to light. Following the system therefore
+meant always opening light, whatever the desktop did.
+
+**Decided: `dark_theme` is a stored boolean, default ON, surfaced as `AssistantService.darkTheme` and collected at the
+root of the window; Settings → General → Appearance has the switch.** A fresh installation — and any installation that
+never set it — opens dark. The switch repaints the whole window immediately because the root theme collects the flow,
+unlike the window size, which is read at launch. It is a device preference like `window_size`, so it is **not** in the
+backup allowlist.
+
+**Rejected: `darkTheme = true` at the call site.** It gives the same first screen and takes the light scheme away for
+good, with no setting to bring it back. **Rejected: a "follow system" mode** — there is nothing reliable to follow on
+Linux: the platform probe returns UNKNOWN on this desktop, and the GTK theme is not reachable from Compose without a
+second detection path of our own. If that changes, it is a third value on this setting rather than a replacement.
+
+→ PLAN.md §10 (M8's note), `SettingsManager.kt`, `AssistantService.kt`, `SettingsScreens.kt`, `Main.kt`
+
 ## 2026-10-17 — Chat memory sized for a desktop: 2000 stored messages, and a 128k context ceiling
 
 The persisted persona transcript was capped at 200 messages (100 exchanges) and the Context Window Size slider stopped

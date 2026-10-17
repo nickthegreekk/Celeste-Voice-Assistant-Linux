@@ -1157,6 +1157,17 @@ class SettingsManager(
         store.edit().putBoolean("adaptive_theme", enabled).commit()
     }
 
+    // The application's own light/dark choice, default ON (2026-10-17). A fresh install opens
+    // dark because Compose's `isSystemInDarkTheme()` reports light on Linux — Skiko's system-theme
+    // probe returns UNKNOWN for an Xfce session, which the theme maps to light — so "follow the
+    // system" meant "always white" on a dark desktop. This is a device preference, like the window
+    // size: deliberately not in the backup allowlist.
+    fun getDarkTheme(): Boolean = store.getBoolean("dark_theme", true)
+
+    fun saveDarkTheme(enabled: Boolean) {
+        store.edit().putBoolean("dark_theme", enabled).commit()
+    }
+
     fun saveSearxngUrl(url: String) {
         store.edit().putString("searxng_url", url).commit()
     }

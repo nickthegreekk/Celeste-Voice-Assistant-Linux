@@ -603,6 +603,18 @@ class AssistantService(
         settingsManager.saveAdaptiveTheme(enabled)
     }
 
+    // The application's light/dark choice. Default ON, so a fresh installation opens dark; the
+    // root theme reads this flow, so flipping the Settings switch repaints the whole window at
+    // once. It replaces `isSystemInDarkTheme()`, which cannot see a dark desktop here: Compose's
+    // Linux path asks Skiko, whose probe returns UNKNOWN for an Xfce session (2026-10-17).
+    val _darkTheme = MutableStateFlow(true)
+    val darkTheme = _darkTheme.asStateFlow()
+
+    fun setDarkTheme(enabled: Boolean) {
+        _darkTheme.value = enabled
+        settingsManager.saveDarkTheme(enabled)
+    }
+
     val _chatFontSize = MutableStateFlow(14f)
     val chatFontSize = _chatFontSize.asStateFlow()
 
@@ -1270,6 +1282,7 @@ class AssistantService(
         _lastPriceSyncTimestamp.value = settingsManager.getLastPriceSyncTimestamp()
         _celestialUi.value = settingsManager.getCelestialUi()
         _adaptiveTheme.value = settingsManager.getAdaptiveTheme()
+        _darkTheme.value = settingsManager.getDarkTheme()
         _chatFontSize.value = settingsManager.getChatFontSize()
 
         // Fetch models for all enabled cloud providers
