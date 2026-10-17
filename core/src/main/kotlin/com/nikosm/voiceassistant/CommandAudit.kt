@@ -32,6 +32,8 @@ internal data class CommandAuditEntry(
      * the user approved had an input block.
      */
     val stdinChars: Int = 0,
+    /** M16.2: whether the call asked for a pseudo-terminal. */
+    val tty: Boolean = false,
     val exitCode: Int?,
     val timedOut: Boolean,
     val truncated: Boolean,
@@ -47,6 +49,7 @@ internal data class CommandAuditEntry(
         .put("command", command)
         .put("root", root)
         .put("stdinChars", stdinChars)
+        .put("tty", tty)
         .put("exit", exitCode ?: JSONObject.NULL)
         .put("timedOut", timedOut)
         .put("truncated", truncated)
@@ -62,6 +65,7 @@ internal data class CommandAuditEntry(
                 command = json.optString("command"),
                 root = json.optString("root"),
                 stdinChars = json.optInt("stdinChars"),
+                tty = json.optBoolean("tty"),
                 exitCode = json.opt("exit")?.takeIf { it != JSONObject.NULL }?.toString()?.toIntOrNull(),
                 timedOut = json.optBoolean("timedOut"),
                 truncated = json.optBoolean("truncated"),

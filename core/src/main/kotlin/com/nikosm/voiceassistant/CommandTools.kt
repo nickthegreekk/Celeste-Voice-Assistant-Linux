@@ -23,6 +23,8 @@ internal data class CommandApprovalRequest(
     val command: String,
     /** M16.1: the input the call supplies, shown with the command because it is part of what runs. */
     val stdin: String?,
+    /** M16.2: whether the call asked for a pseudo-terminal. */
+    val tty: Boolean,
     val workingDirectory: Path,
 )
 
@@ -57,11 +59,11 @@ internal class CommandApprovalGate {
     @Volatile
     private var nextId: Long = 0
 
-    private fun key(command: String, stdin: String?, workingDirectory: Path): String =
-        "${workingDirectory.toAbsolutePath().normalize()}\u0000$command\u0000${stdin.orEmpty()}"
+    private fun key(command: String, stdin: String?, tty: Boolean, workingDirectory: Path): String =
+        "${workingDirectory.toAbsolutePath().normalize()}\u0000$command\u0000${stdin.orEmpty()}\u0000$tty"
 
-    fun trusts(command: String, stdin: String?, workingDirectory: Path): Boolean =
-        trusted.contains(key(command, stdin, workingDirectory))
+    fun trusts(command: String, stdin: String?, tty: Boolean, workingDirectory: Path): Boolean =
+        trusted.contains(key(command, stdin, tty, workingDirectory))
 
     /** Forget every session grant. Called when the arrangement they were granted under changes. */
     fun forgetTrust() {
@@ -76,7 +78,9 @@ internal class CommandApprovalGate {
         val waiting = deferred ?: return
         val request = _pending.value ?: return
         if (request.id != id) return
-        if (approve && trustForSession) trusted.add(key(request.command, request.stdin, request.workingDirectory))
+        if (approve && trustForSession) {
+            trusted.add(key(request.command, request.stdin, request.tty, request.workingDirectory))
+        }
         waiting.complete(
             when {
                 !approve -> CommandDecision.DENIED
@@ -100,13 +104,14 @@ internal class CommandApprovalGate {
         personaName: String,
         command: String,
         stdin: String?,
+        tty: Boolean,
         workingDirectory: Path,
         timeoutMs: Long = COMMAND_APPROVAL_TIMEOUT_MS,
     ): CommandDecision {
-        if (trusts(command, stdin, workingDirectory)) return CommandDecision.SESSION
+        if (trusts(command, stdin, tty, workingDirectory)) return CommandDecision.SESSION
         val waiting = CompletableDeferred<CommandDecision>()
         deferred = waiting
-        _pending.value = CommandApprovalRequest(++nextId, personaName, command, stdin, workingDirectory)
+        _pending.value = CommandApprovalRequest(++nextId, personaName, command, stdin, tty, workingDirectory)
         return try {
             withTimeoutOrNull(timeoutMs) { waiting.await() } ?: CommandDecision.TIMEOUT
         } finally {
@@ -133,9 +138,10 @@ internal suspend fun AssistantService.requestCommandApproval(
     personaName: String,
     command: String,
     stdin: String?,
+    tty: Boolean,
     workingDirectory: Path
 ): CommandDecision {
-    val decision = commandGate.request(personaName, command, stdin, workingDirectory)
+    val decision = commandGate.request(personaName, command, stdin, tty, workingDirectory)
     if (decision == CommandDecision.TIMEOUT) {
         runCatching {
             appEnv.notifier.post(
@@ -216,7 +222,7 @@ internal class CommandToolExecutor(
     private val runner: CommandRunner,
     private val workingDirectory: Path,
     private val personaName: String,
-    private val approve: suspend (command: String, stdin: String?, workingDirectory: Path) -> CommandDecision,
+    private val approve: suspend (command: String, stdin: String?, tty: Boolean, workingDirectory: Path) -> CommandDecision,
     private val audit: (CommandAuditEntry) -> Unit,
 ) : ToolCallExecutor {
 
@@ -229,6 +235,7 @@ internal class CommandToolExecutor(
         // M16.1: the optional input. Blank means none, so a model that emits `"stdin": ""` is not
         // shown to the user as an input block that does nothing.
         val stdin = args.optString("stdin").takeIf { it.isNotEmpty() }
+        val tty = args.optBoolean("tty", false)
         val timeoutSeconds = resolveCommandTimeoutSeconds(
             if (args.has("timeout_seconds")) args.optInt("timeout_seconds", 0) else null
         )
@@ -253,7 +260,7 @@ internal class CommandToolExecutor(
             )
         }
 
-        val decision = approve(command, stdin, workingDirectory)
+        val decision = approve(command, stdin, tty, workingDirectory)
         if (decision == CommandDecision.DENIED || decision == CommandDecision.TIMEOUT) {
             audit(
                 CommandAuditEntry(
@@ -262,6 +269,7 @@ internal class CommandToolExecutor(
                     command = command,
                     root = workingDirectory.toString(),
                     stdinChars = stdin?.length ?: 0,
+                    tty = tty,
                     exitCode = null,
                     timedOut = false,
                     truncated = false,
@@ -280,7 +288,7 @@ internal class CommandToolExecutor(
 
         val started = System.currentTimeMillis()
         val run = try {
-            runner.run(CommandRunRequest(command, workingDirectory, timeoutSeconds, stdin = stdin))
+            runner.run(CommandRunRequest(command, workingDirectory, timeoutSeconds, stdin = stdin, tty = tty))
         } catch (cancelled: kotlinx.coroutines.CancellationException) {
             throw cancelled
         } catch (error: Throwable) {
@@ -292,6 +300,7 @@ internal class CommandToolExecutor(
                     command = command,
                     root = workingDirectory.toString(),
                     stdinChars = stdin?.length ?: 0,
+                    tty = tty,
                     exitCode = null,
                     timedOut = false,
                     truncated = false,
@@ -303,7 +312,10 @@ internal class CommandToolExecutor(
             return FsToolResult(call.id, call.name, text, ok = false)
         }
 
-        val (cappedOutput, cappedHere) = truncateCommandOutput(run.output)
+        // A PTY's output is screen-control instructions; the model gets the text a human would
+        // have read. Cleaning happens before the cap so the bytes kept are the useful ones.
+        val rawOutput = if (tty) sanitizeTtyOutput(run.output) else run.output
+        val (cappedOutput, cappedHere) = truncateCommandOutput(rawOutput)
         val finalRun = CommandRunResult(
             exitCode = run.exitCode,
             output = cappedOutput,
@@ -320,6 +332,7 @@ internal class CommandToolExecutor(
                 command = command,
                 root = workingDirectory.toString(),
                 stdinChars = stdin?.length ?: 0,
+                tty = tty,
                 exitCode = finalRun.exitCode,
                 timedOut = finalRun.timedOut,
                 truncated = finalRun.truncated,

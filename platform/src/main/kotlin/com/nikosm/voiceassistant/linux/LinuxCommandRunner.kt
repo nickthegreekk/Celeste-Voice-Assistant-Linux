@@ -18,12 +18,17 @@ import java.util.concurrent.TimeUnit
  * `ProcessBuilder` lives here because AGENTS.md §4 says it may live nowhere else. One command, run
  * by `/bin/sh -c` in the working directory the approval dialog showed, with:
  *
- *  - **stdin closed** — an interactive prompt must fail or time out rather than wait forever;
+ *  - **stdin written once, then closed** — with no input an interactive prompt gets EOF instead of
+ *    hanging; with input a single question can be answered;
  *  - **stderr merged into stdout**, so the model reads one ordered transcript of what happened;
  *  - **output capped while still draining** — the pipe must keep flowing or the child blocks on a
  *    full buffer, so bytes past the cap are read and discarded; `truncated` says they existed;
  *  - **the process tree killed on timeout** — `npm run dev` starts children, and killing only the
- *    shell leaves them running with the application's file descriptors and a port still bound.
+ *    shell leaves them running with the application's file descriptors and a port still bound;
+ *  - **an optional pseudo-terminal** through util-linux's `script` (M16.2), which is in the base
+ *    system on both target distributions. `-q` keeps its own header/footer out, `-e` returns the
+ *    child's exit code, `-f` flushes. The output is a terminal stream — the tool layer strips its
+ *    control codes before the model sees it.
  *
  * The command text is never logged: an argument can carry a secret, the audit file is the record
  * (`CommandAudit.kt`), and this line would be one more copy in journald.
@@ -34,7 +39,12 @@ class LinuxCommandRunner(
 
     override suspend fun run(request: CommandRunRequest): CommandRunResult = withContext(Dispatchers.IO) {
         val started = System.currentTimeMillis()
-        val process = ProcessBuilder("/bin/sh", "-c", request.command)
+        val argv = if (request.tty) {
+            listOf("script", "-q", "-e", "-f", "-c", request.command, "/dev/null")
+        } else {
+            listOf("/bin/sh", "-c", request.command)
+        }
+        val process = ProcessBuilder(argv)
             .directory(request.workingDirectory.toFile())
             .redirectErrorStream(true)
             .start()

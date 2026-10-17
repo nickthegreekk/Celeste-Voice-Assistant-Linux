@@ -34,13 +34,13 @@ class CommandToolExecutorTest {
         runner: CommandRunner,
         decision: CommandDecision = CommandDecision.ONCE,
         audits: MutableList<CommandAuditEntry>,
-        onApprove: (String, String?, Path) -> Unit = { _, _, _ -> },
+        onApprove: (String, String?, Boolean, Path) -> Unit = { _, _, _, _ -> },
     ) = CommandToolExecutor(
         runner = runner,
         workingDirectory = root,
         personaName = "Celeste",
-        approve = { command, stdin, dir ->
-            onApprove(command, stdin, dir)
+        approve = { command, stdin, tty, dir ->
+            onApprove(command, stdin, tty, dir)
             decision
         },
         audit = { audits += it },
@@ -50,11 +50,13 @@ class CommandToolExecutorTest {
         command: String = "echo hi",
         stdin: String? = null,
         timeoutSeconds: Int? = null,
+        tty: Boolean = false,
         id: String = "call-1",
     ): FsToolCall {
         val args = JSONObject().put("command", command)
         if (stdin != null) args.put("stdin", stdin)
         if (timeoutSeconds != null) args.put("timeout_seconds", timeoutSeconds)
+        if (tty) args.put("tty", true)
         return FsToolCall(id, TOOL_RUN_COMMAND, args.toString())
     }
 
@@ -170,7 +172,7 @@ class CommandToolExecutorTest {
         val runner = FakeRunner { CommandRunResult(0, "") }
         val seen = mutableListOf<String?>()
 
-        executor(runner, audits = mutableListOf(), onApprove = { _, stdin, _ -> seen += stdin })
+        executor(runner, audits = mutableListOf(), onApprove = { _, stdin, _, _ -> seen += stdin })
             .execute(call(stdin = ""))
 
         assertEquals(listOf<String?>(null), seen)
@@ -186,7 +188,7 @@ class CommandToolExecutorTest {
         executor(
             runner,
             audits = audits,
-            onApprove = { command, stdin, _ -> seen += command to stdin },
+            onApprove = { command, stdin, _, _ -> seen += command to stdin },
         ).execute(call(command = "read name; echo \"hello \$name\"", stdin = "Nikos\n"))
 
         assertEquals(listOf("read name; echo \"hello \$name\"" to "Nikos\n"), seen)
@@ -202,13 +204,52 @@ class CommandToolExecutorTest {
         val result = executor(
             runner,
             audits = mutableListOf(),
-            onApprove = { _, _, _ -> asked = true },
+            onApprove = { _, _, _, _ -> asked = true },
         ).execute(call(stdin = "x".repeat(COMMAND_MAX_STDIN_CHARS + 1)))
 
         assertFalse(result.ok)
         assertTrue(result.text.contains("limit"))
         assertFalse("nothing the user cannot read should be approved silently", asked)
         assertTrue(runner.requests.isEmpty())
+    }
+
+    @Test
+    fun `tty is shown to the approver and reaches the runner`() = runTest {
+        val runner = FakeRunner { CommandRunResult(0, "tty") }
+        val audits = mutableListOf<CommandAuditEntry>()
+        val seen = mutableListOf<Pair<String, Boolean>>()
+
+        executor(
+            runner,
+            audits = audits,
+            onApprove = { command, _, tty, _ -> seen += command to tty },
+        ).execute(call(command = "test -t 1 && echo tty", tty = true))
+
+        assertEquals(listOf("test -t 1 && echo tty" to true), seen)
+        assertTrue(runner.requests.single().tty)
+        assertTrue(audits.single().tty)
+    }
+
+    @Test
+    fun `tty output is stripped of terminal control codes before the model sees it`() = runTest {
+        val runner = FakeRunner { CommandRunResult(0, "\u001B[31mred\u001B[0m\r\n") }
+
+        val result = executor(runner, audits = mutableListOf()).execute(call(tty = true))
+
+        assertTrue(result.text.contains("red"))
+        assertFalse(result.text.contains("\u001B["))
+        assertFalse("the PTY's CRLF is a newline, not a stray CR", result.text.contains("\r"))
+    }
+
+    @Test
+    fun `non-tty output is left exactly as the command printed it`() = runTest {
+        // The cleaning is for a terminal's stream, not a general filter: a program writing an
+        // escape sequence to a pipe meant it.
+        val runner = FakeRunner { CommandRunResult(0, "raw \u001B[31mred\u001B[0m") }
+
+        val result = executor(runner, audits = mutableListOf()).execute(call(tty = false))
+
+        assertTrue(result.text.contains("\u001B[31m"))
     }
 
     @Test

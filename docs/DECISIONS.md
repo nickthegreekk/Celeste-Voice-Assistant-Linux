@@ -59,6 +59,14 @@ keystrokes rather than a command line, and a model driving a full-screen editor 
 A one-shot PTY (`script -qefc`, util-linux, no new dependency) stays a recorded later option if a tool that merely
 checks `isatty` turns out to need it.
 
+**Added (M16.2): the one-shot PTY, exactly as recorded.** `tty: true` wraps the command in util-linux's `script -qefc`
+(verified on this machine: the child sees a terminal on stdin and stdout, and `-e` returns its exit code). It is still
+one approved command line, still one `stdin` blob and then EOF — no session, no keystrokes. What the model receives is
+cleaned first: OSC/CSI/single-character escapes removed, CRLF collapsed, a bare-CR progress redraw reduced to its final
+state, bells and other C0 controls dropped. The cleaning applies **only** in tty mode; a program that writes an escape
+sequence to a pipe meant it. The session grant now includes the flag, because a PTY changes what a program does, and the
+dialog says so.
+
 **The audit keeps the command and not the output.** Output is what a command happened to print and can hold secrets; the
 question the audit answers is "what was run on my machine, and did I agree?", which the command line and the approval
 answer (`user` / `session-trust` / `denied` / `timeout`) already do. Refusals and timeouts are recorded, because those

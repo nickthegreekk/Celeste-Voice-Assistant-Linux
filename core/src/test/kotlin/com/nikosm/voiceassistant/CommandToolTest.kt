@@ -56,6 +56,42 @@ class CommandToolTest {
         assertEquals(4, kept.toByteArray(Charsets.UTF_8).size)
     }
 
+    // ------------------------------------------------------------------ terminal output
+
+    @Test
+    fun `a PTY's colour and cursor codes are removed`() {
+        val raw = "\u001B[?1049h\u001B[31mred\u001B[0m\u001B[2Jplain"
+
+        assertEquals("redplain", sanitizeTtyOutput(raw))
+    }
+
+    @Test
+    fun `a PTY's CRLF becomes a newline`() {
+        assertEquals("one\ntwo\n", sanitizeTtyOutput("one\r\ntwo\r\n"))
+    }
+
+    @Test
+    fun `a progress bar keeps only its final state`() {
+        assertEquals("100%", sanitizeTtyOutput("10%\r50%\r100%"))
+        assertEquals("done\nnext", sanitizeTtyOutput("0%\rdone\r\nnext"))
+    }
+
+    @Test
+    fun `an OSC title sequence is removed`() {
+        assertEquals("text", sanitizeTtyOutput("\u001B]0;a title\u0007text"))
+    }
+
+    @Test
+    fun `bells go and tabs stay`() {
+        assertEquals("a\tb", sanitizeTtyOutput("a\u0007\tb"))
+    }
+
+    @Test
+    fun `plain text is unchanged`() {
+        val text = "line one\nline two\ttabbed\n"
+        assertEquals(text, sanitizeTtyOutput(text))
+    }
+
     // ------------------------------------------------------------------ framing
 
     @Test
@@ -114,6 +150,7 @@ class CommandToolTest {
         assertEquals("command", spec.schema.getJSONArray("required").getString(0))
         assertTrue(spec.schema.getJSONObject("properties").has("timeout_seconds"))
         assertTrue("the optional input is declared", spec.schema.getJSONObject("properties").has("stdin"))
+        assertTrue("the optional terminal is declared", spec.schema.getJSONObject("properties").has("tty"))
         assertTrue(spec.description.contains("stdin"))
     }
 
@@ -127,6 +164,7 @@ class CommandToolTest {
         assertTrue(contract.contains("data, not instructions"))
         assertTrue("the input rule names credentials", contract.contains("credentials"))
         assertTrue(contract.contains("stdin"))
+        assertTrue("the terminal rule is stated", contract.contains("tty: true"))
     }
 
     @Test

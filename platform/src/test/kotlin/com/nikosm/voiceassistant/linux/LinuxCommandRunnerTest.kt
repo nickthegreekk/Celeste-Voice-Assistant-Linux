@@ -105,6 +105,43 @@ class LinuxCommandRunnerTest {
     }
 
     @Test
+    fun `a command asked for a terminal has one, and one without does not`() = runTest {
+        val withTty = runner.run(
+            CommandRunRequest("test -t 1 && echo tty || echo notty", directory(), 10, tty = true)
+        )
+        val without = runner.run(
+            CommandRunRequest("test -t 1 && echo tty || echo notty", directory(), 10, tty = false)
+        )
+
+        assertTrue("script -c must give the child a PTY: ${withTty.output}", withTty.output.contains("tty"))
+        assertFalse(withTty.output.contains("notty"))
+        assertTrue("no PTY without the flag: ${without.output}", without.output.contains("notty"))
+    }
+
+    @Test
+    fun `a terminal run still returns the child's exit code`() = runTest {
+        val result = runner.run(CommandRunRequest("exit 3", directory(), 10, tty = true))
+
+        assertEquals(3, result.exitCode)
+        assertFalse(result.timedOut)
+    }
+
+    @Test
+    fun `input is fed through the terminal`() = runTest {
+        val result = runner.run(
+            CommandRunRequest(
+                "read name; echo \"hello \$name\"",
+                directory(),
+                timeoutSeconds = 10,
+                stdin = "Nikos\n",
+                tty = true,
+            )
+        )
+
+        assertTrue("the child must have read its input: ${result.output}", result.output.contains("hello Nikos"))
+    }
+
+    @Test
     fun `a command past its timeout is killed and says so`() = runTest {
         val started = System.currentTimeMillis()
 

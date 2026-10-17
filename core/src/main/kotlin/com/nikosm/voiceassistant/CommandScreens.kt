@@ -238,6 +238,15 @@ internal fun CommandApprovalDialog(
                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
                     )
                 }
+                if (request.tty) {
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        "Runs with a pseudo-terminal. A program may behave differently (colour, " +
+                            "paging), and terminal control codes are stripped from its output.",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
+                    )
+                }
                 Spacer(Modifier.height(8.dp))
                 Text(
                     "In: ${request.workingDirectory}",

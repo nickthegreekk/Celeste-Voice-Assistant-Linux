@@ -1801,6 +1801,11 @@ input slice (M16.1); the Arch and Debian runs are both green the same day on the
   tool contract forbids passwords in it. A session grant includes the exact input, so approving `ask.sh` with "yes"
   never covers "no". A persistent PTY/session tool (interactive editors) is the recorded next step only if a real need
   appears; see docs/DECISIONS.md.
+- **A pseudo-terminal on request (M16.2).** `tty: true` runs the command through util-linux's `script` (no new
+  dependency, present on Arch and Debian), so a program that checks `isatty` works. It is still non-interactive — one
+  `stdin` blob, then EOF — and the terminal's stream is cleaned before the model sees it: OSC/CSI/single-character
+  escapes removed, CRLF collapsed, a progress bar reduced to its final state. The session grant includes the flag, and
+  the dialog says a PTY changes how a program behaves. A persistent PTY remains rejected.
 - **The process seam lives in `:platform`** (`ProcessBuilder` may appear nowhere else): `/bin/sh -c`, stdin closed,
   stderr merged, a 5–300 s timeout (default 60) that kills the whole process tree, and output capped at 64 KiB while
   still draining the pipe. A per-turn byte budget stops a turn from running commands until it fills the model's
