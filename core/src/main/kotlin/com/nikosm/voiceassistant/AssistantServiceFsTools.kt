@@ -115,9 +115,10 @@ internal fun AssistantService.fsToolsReachableFor(persona: Persona): Boolean {
  * listening rather than reading.
  */
 internal const val FS_GATEWAY_REFUSAL =
-    "Filesystem access is on for this persona, but this turn goes through the Voice Gateway, which " +
-        "assembles the prompt itself — so the file tools cannot be offered here. Rather than describe " +
-        "a file I cannot read, I stopped. Use the main chat, or a persona that talks to its model directly."
+    "Tools are on for this persona, but this turn goes through the Voice Gateway, which " +
+        "assembles the prompt itself — so the tools cannot be offered here. Rather than describe " +
+        "a file or a tool result I cannot see, I stopped. Use the main chat, or a persona that talks " +
+        "to its model directly."
 
 /**
  * Append the refusal, speak it, and let the caller end the turn.
@@ -131,15 +132,52 @@ internal fun AssistantService.refuseFsToolsOnGatewayRoute(persona: Persona, appe
     append(ChatMessage("assistant", FS_GATEWAY_REFUSAL))
     saveSettings()
     playResponse(persona, deviceText = cleanTextForTts(FS_GATEWAY_REFUSAL))
-    logger.i("FsTools", "turn refused: the persona has a workspace but this route cannot carry the tools")
+    logger.i("FsTools", "turn refused: the persona has tools but this route cannot carry them")
 }
 
 // ---------------------------------------------------------------------------- the loop
 
 /**
- * One text turn with tools, for a persona that has a workspace: ask, and while the model answers
- * with calls, carry them out and ask again — bounded, so a model that keeps calling forever stops
- * with a sentence rather than a hang.
+ * What one call is carried out by, whichever source offered it.
+ *
+ * The round runner only needs this much: the filesystem executor and the MCP router both answer
+ * with the same `FsToolResult`, so the loop, its caps and its provider dialects are untouched by
+ * where a tool came from.
+ */
+internal interface ToolCallExecutor {
+    suspend fun execute(call: FsToolCall): FsToolResult
+}
+
+/**
+ * Routes one call to the filesystem executor or to an MCP server (PLAN.md §10/M9).
+ *
+ * The declared name is the key: MCP tools are `mcp_<server>_<tool>`, the filesystem ones are three
+ * fixed names, so the two namespaces cannot collide. A name neither knows is the model inventing
+ * one — answered with a sentence, like every other tool failure, rather than a thrown exception
+ * that would end the turn.
+ */
+internal class ToolRouter(
+    private val fs: ToolCallExecutor?,
+    private val mcpTools: Map<String, McpTool>,
+    private val callMcp: suspend (McpTool, JSONObject) -> McpCallOutcome,
+) : ToolCallExecutor {
+
+    override suspend fun execute(call: FsToolCall): FsToolResult {
+        val tool = mcpTools[call.name]
+        if (tool != null) {
+            val outcome = callMcp(tool, toolArgumentsOf(call))
+            return FsToolResult(call.id, call.name, outcome.text, outcome.ok)
+        }
+        val fsExecutor = fs
+            ?: return FsToolResult(call.id, call.name, "There is no tool named '${call.name}'.", ok = false)
+        return fsExecutor.execute(call)
+    }
+}
+
+/**
+ * One text turn with tools, for a persona that has a workspace or MCP servers: ask, and while the
+ * model answers with calls, carry them out and ask again — bounded, so a model that keeps calling
+ * forever stops with a sentence rather than a hang.
  *
  * Each round is a fresh request through the **unchanged** single-turn function, with this turn's
  * calls and results carried in `TurnContext.toolTurns`. That is why the existing streaming,
@@ -156,14 +194,15 @@ internal suspend fun AssistantService.performOllamaChatWithTools(
     attachments: List<Path>,
     imagePath: String?,
     turnContext: TurnContext,
-    workspace: FsWorkspace,
+    workspace: FsWorkspace?,
+    mcpTools: List<McpTool> = emptyList(),
 ): Triple<String, String?, ByteArray?> {
     val excluded = fsExcludedPaths()
     var context = turnContext
     var rounds = 0
     var callsMade = 0
     val touched = LinkedHashSet<String>()
-    val executor = fsExecutorFor(workspace, excluded, persona)
+    val executor = toolExecutorFor(workspace, excluded, persona, mcpTools)
 
     while (true) {
         var captured: JSONObject? = null
@@ -225,13 +264,14 @@ internal suspend fun AssistantService.performCloudChatWithTools(
     attachments: List<Path>,
     imagePath: String?,
     turnContext: TurnContext,
-    workspace: FsWorkspace,
+    workspace: FsWorkspace?,
+    mcpTools: List<McpTool> = emptyList(),
 ): Job {
     val excluded = fsExcludedPaths()
     var context = turnContext
     var rounds = 0
     var callsMade = 0
-    val executor = fsExecutorFor(workspace, excluded, persona)
+    val executor = toolExecutorFor(workspace, excluded, persona, mcpTools)
 
     return serviceScope.launch {
         // M8: **the loop holds THINKING, not the round** — the rounds pass `ownsThinkingState =
@@ -292,7 +332,7 @@ internal suspend fun AssistantService.performCloudChatWithTools(
  * the executor, the approval gate and the audit cannot be wired differently in one of them.
  */
 private suspend fun AssistantService.fsRunToolRound(
-    executor: FsToolExecutor,
+    executor: ToolCallExecutor,
     provider: FsToolProvider,
     body: JSONObject,
     calls: List<FsToolCall>,
@@ -322,6 +362,32 @@ private fun AssistantService.fsExecutorFor(workspace: FsWorkspace, excluded: Lis
         approveWrite = { request -> requestFsWriteApproval(request, workspace) },
         audit = ::auditFsToolCall,
     )
+
+/**
+ * The turn's executor: the filesystem one when there is a workspace, the MCP router when the
+ * persona offers servers, and both behind one interface when it offers each. A turn with MCP tools
+ * and no workspace gets a router whose filesystem side is null — a file tool the model invents is
+ * answered with a sentence, not a crash.
+ */
+private fun AssistantService.toolExecutorFor(
+    workspace: FsWorkspace?,
+    excluded: List<Path>,
+    persona: Persona,
+    mcpTools: List<McpTool>,
+): ToolCallExecutor = ToolRouter(
+    fs = workspace?.let { FsToolAdapter(fsExecutorFor(it, excluded, persona)) },
+    mcpTools = mcpTools.associateBy { it.declaredName },
+    callMcp = { tool, arguments -> runMcpTool(tool, arguments, persona.name) },
+)
+
+/**
+ * `FsToolExecutor.execute` is internal (it is nobody else's business), and an internal method
+ * cannot implement an interface member; this adapter is the one place that gap is bridged, in the
+ * module and package where the method is visible.
+ */
+private class FsToolAdapter(private val executor: FsToolExecutor) : ToolCallExecutor {
+    override suspend fun execute(call: FsToolCall): FsToolResult = executor.execute(call)
+}
 
 /**
  * A turn that only ever called tools has no prose to show, and an **empty bubble is worse than a
