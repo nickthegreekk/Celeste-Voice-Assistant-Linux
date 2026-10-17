@@ -71,6 +71,15 @@ dependencies {
 
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)
+    // M7: Compose's UI test runtime, so the ported screens have a test between them and a
+    // measure-time crash (M8's Files page died on every open and no test could see it).
+    // The direct coordinate rather than the plugin's `compose.uiTest` accessor, which this
+    // Compose release deprecates in favour of exactly this; it still tracks `compose`, so it
+    // cannot drift from the UI it tests.
+    testImplementation(libs.compose.ui.test)
+    // The desktop runtime behind it: the UI test renders through Skiko, and without the
+    // host's native library the test fails while loading `org.jetbrains.skiko.Library`.
+    testImplementation(compose.desktop.currentOs)
 }
 
 // `assets/silero_vad.onnx` rides on this module's classpath rather than being copied into

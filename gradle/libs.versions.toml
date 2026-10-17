@@ -42,6 +42,13 @@ kotlinx-serialization-json = { module = "org.jetbrains.kotlinx:kotlinx-serializa
 # classpath, which fails at runtime and not at compile time. Do not give this its own version.
 compose-ui-graphics = { module = "org.jetbrains.compose.ui:ui-graphics", version.ref = "compose" }
 
+# Compose's UI test runtime (M7): the ported screens live in :core, so their tests do too.
+# The plugin's `compose.uiTest` accessor is deprecated in this release and asks for a direct
+# coordinate; `ui-test` carries `runComposeUiTest` and resolves to its desktop variant through
+# the same `compose` release as every other Compose artifact, which is why this tracks the
+# version rather than adding a second one.
+compose-ui-test = { module = "org.jetbrains.compose.ui:ui-test", version.ref = "compose" }
+
 # Coil 3 for desktop images: the persona list, message attachments and generated images.
 #
 # **Deliberately WITHOUT `coil-network-okhttp` or any other fetcher.** Coil 3 splits the loader
