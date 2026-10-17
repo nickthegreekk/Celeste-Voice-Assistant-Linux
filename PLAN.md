@@ -1779,8 +1779,8 @@ with its notification at the time; move the time and the next run follows it; sw
 restart Celeste after a scheduled time and confirm it is not replayed.
 
 **M16 — Terminal commands (new scope, not a port; not counted in the total below).** The user asked how to give the
-models terminal and code execution and chose a first-party tool over an MCP server. **Built 2026-10-17; live run
-pending.**
+models terminal and code execution and chose a first-party tool over an MCP server. **Built 2026-10-17, including the
+input slice (M16.1); the Arch run is green the same day, and the Debian run is pending on the 15:26 `.deb`.**
 
 - **A `run_command` tool, offered beside the filesystem ones, off by default.** One declaration through the same
   `ToolSpec`/`toolsJsonFor` path, so all four provider dialects carry it with no per-provider work. The policy is
