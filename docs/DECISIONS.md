@@ -41,11 +41,23 @@ the same risk as a `run_code` wrapper, so the wrapper is sugar rather than a mil
 option, not built.
 
 **Bounds, and why each one exists.** The timeout (5–300 s, default 60) kills the process *tree* — `npm run dev` starts
-children, and killing the shell alone leaves a port bound and the application's descriptors open. Stdin is closed so an
-interactive prompt gets EOF instead of hanging. Stderr is merged so the model reads one transcript. Output is capped at
+children, and killing the shell alone leaves a port bound and the application's descriptors open. Stdin is written and
+then closed — with no input the command sees EOF, so an interactive prompt cannot hang. Stderr is merged so the model
+reads one transcript. Output is capped at
 64 KiB while still draining the pipe (a stopped reader blocks the child), with a per-turn budget so a turn cannot
 run commands until it fills the context. The platform seam defaults to a refusing `CommandRunner.NONE`, so no test or
 unwired build can spawn a process by accident.
+
+**Input is one approved blob, and a session grant includes it.** A command that waits for an answer used to time out,
+so `run_command` gained an optional `stdin` field: written once, then closed, and shown with the command in the dialog
+because it is part of what runs. It is capped at 4000 characters — approving a *shortened* script would approve
+something other than what executes, so longer input is refused and the model is told to write a file instead. A
+session grant is keyed by command **and** input, so `ask.sh` approved with "yes" never covers "no". The audit records
+the input's length, not its text, for the output's reason: input is where a model tricked into using a credential
+would put it. A persistent PTY (`open`/`send`/`read`/`close`) is deliberately not built: its approvals become
+keystrokes rather than a command line, and a model driving a full-screen editor gets escape sequences it cannot parse.
+A one-shot PTY (`script -qefc`, util-linux, no new dependency) stays a recorded later option if a tool that merely
+checks `isatty` turns out to need it.
 
 **The audit keeps the command and not the output.** Output is what a command happened to print and can hold secrets; the
 question the audit answers is "what was run on my machine, and did I agree?", which the command line and the approval

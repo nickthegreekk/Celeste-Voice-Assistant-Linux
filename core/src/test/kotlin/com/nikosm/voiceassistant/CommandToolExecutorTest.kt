@@ -34,20 +34,26 @@ class CommandToolExecutorTest {
         runner: CommandRunner,
         decision: CommandDecision = CommandDecision.ONCE,
         audits: MutableList<CommandAuditEntry>,
+        onApprove: (String, String?, Path) -> Unit = { _, _, _ -> },
     ) = CommandToolExecutor(
         runner = runner,
         workingDirectory = root,
         personaName = "Celeste",
-        approve = { _, _ -> decision },
+        approve = { command, stdin, dir ->
+            onApprove(command, stdin, dir)
+            decision
+        },
         audit = { audits += it },
     )
 
     private fun call(
         command: String = "echo hi",
+        stdin: String? = null,
         timeoutSeconds: Int? = null,
         id: String = "call-1",
     ): FsToolCall {
         val args = JSONObject().put("command", command)
+        if (stdin != null) args.put("stdin", stdin)
         if (timeoutSeconds != null) args.put("timeout_seconds", timeoutSeconds)
         return FsToolCall(id, TOOL_RUN_COMMAND, args.toString())
     }
@@ -157,6 +163,52 @@ class CommandToolExecutorTest {
         assertFalse(third.ok)
         assertTrue(third.text.contains("narrower"))
         assertEquals("the third call must not reach the runner", 2, runner.requests.size)
+    }
+
+    @Test
+    fun `a blank stdin is no input at all`() = runTest {
+        val runner = FakeRunner { CommandRunResult(0, "") }
+        val seen = mutableListOf<String?>()
+
+        executor(runner, audits = mutableListOf(), onApprove = { _, stdin, _ -> seen += stdin })
+            .execute(call(stdin = ""))
+
+        assertEquals(listOf<String?>(null), seen)
+        assertEquals(null, runner.requests.single().stdin)
+    }
+
+    @Test
+    fun `stdin is shown to the approver and reaches the runner`() = runTest {
+        val runner = FakeRunner { CommandRunResult(0, "ok") }
+        val audits = mutableListOf<CommandAuditEntry>()
+        val seen = mutableListOf<Pair<String, String?>>()
+
+        executor(
+            runner,
+            audits = audits,
+            onApprove = { command, stdin, _ -> seen += command to stdin },
+        ).execute(call(command = "read name; echo \"hello \$name\"", stdin = "Nikos\n"))
+
+        assertEquals(listOf("read name; echo \"hello \$name\"" to "Nikos\n"), seen)
+        assertEquals("Nikos\n", runner.requests.single().stdin)
+        assertEquals(6, audits.single().stdinChars)
+    }
+
+    @Test
+    fun `input too long to show for approval is refused before asking`() = runTest {
+        val runner = FakeRunner { CommandRunResult(0, "") }
+        var asked = false
+
+        val result = executor(
+            runner,
+            audits = mutableListOf(),
+            onApprove = { _, _, _ -> asked = true },
+        ).execute(call(stdin = "x".repeat(COMMAND_MAX_STDIN_CHARS + 1)))
+
+        assertFalse(result.ok)
+        assertTrue(result.text.contains("limit"))
+        assertFalse("nothing the user cannot read should be approved silently", asked)
+        assertTrue(runner.requests.isEmpty())
     }
 
     @Test

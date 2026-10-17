@@ -1790,10 +1790,17 @@ pending.**
   from the same stored path but independently of the filesystem tools' off/read-only/read-write mode, so a user can
   have a terminal without file reads. A shell cannot be path-contained; the screen says so, and the confirmation is the
   boundary that actually exists.
-- **Every command asks, and the dialog shows the exact line and directory.** Allow once, or trust that exact command in
-  that directory for this session; dismissal, a superseded turn and a timeout all deny. There is no "trust this
-  folder": that would grant every command anyone can write into it, which is the prompt-injection shape this feature
-  must not create. Session grants never survive a restart.
+- **Every command asks, and the dialog shows the exact line and directory.** Allow once, or trust that exact command
+  (and its input, when it has one) in that directory for this session; dismissal, a superseded turn and a timeout all
+  deny. There is no "trust this folder": that would grant every command anyone can write into it, which is the
+  prompt-injection shape this feature must not create. Session grants never survive a restart.
+- **One approved input blob, not a terminal (M16.1).** An optional `stdin` field is fed to the process and then
+  closed, so a command that asks a single question can be answered. It is shown with the command in the dialog — it is
+  part of what runs — capped at 4000 characters (a longer script belongs in a file, which is reviewable on its own),
+  counted but **not stored** in the audit (input can carry a credential a model was tricked into using), and the
+  tool contract forbids passwords in it. A session grant includes the exact input, so approving `ask.sh` with "yes"
+  never covers "no". A persistent PTY/session tool (interactive editors) is the recorded next step only if a real need
+  appears; see docs/DECISIONS.md.
 - **The process seam lives in `:platform`** (`ProcessBuilder` may appear nowhere else): `/bin/sh -c`, stdin closed,
   stderr merged, a 5–300 s timeout (default 60) that kills the whole process tree, and output capped at 64 KiB while
   still draining the pipe. A per-turn byte budget stops a turn from running commands until it fills the model's
@@ -1809,8 +1816,9 @@ pending.**
 
 *Accept:* set Terminal to Ask first and choose a workspace; ask for `echo hello`; the dialog shows that exact command
 and folder; Run returns its output in the chat; ask for something destructive and Cancel — the model says it did not
-run; switch the policy off and the tool is absent from the persona's next request; the audit lists both, and a restart
-asks again for a command trusted in the previous session.
+run; ask for a command with one line of input and see the input in the dialog before approving; switch the policy off
+and the tool is absent from the persona's next request; the audit lists both, and a restart asks again for a command
+trusted in the previous session.
 
 **Total: 33–50 focused days** (about 4–8 weeks full time, 3–5 months at evenings and weekends).
 A first usable milestone is **M2**: roughly **15–23 days**.

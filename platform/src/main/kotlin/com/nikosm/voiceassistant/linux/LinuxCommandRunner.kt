@@ -39,9 +39,21 @@ class LinuxCommandRunner(
             .redirectErrorStream(true)
             .start()
         try {
-            // Nothing can read input. Closing the pipe gives an interactive command EOF instead of
-            // a hang, and is the desktop equivalent of running without a terminal.
-            runCatching { process.outputStream.close() }
+            // Feed the optional input, then close the pipe. A command given no input sees EOF
+            // immediately instead of hanging, and one given input can answer a single prompt.
+            // The input is capped by the tool layer well below the pipe buffer, so this write
+            // cannot block before the reader starts.
+            val stdin = request.stdin
+            runCatching {
+                if (stdin.isNullOrEmpty()) {
+                    process.outputStream.close()
+                } else {
+                    process.outputStream.use { input ->
+                        input.write(stdin.toByteArray(Charsets.UTF_8))
+                        input.flush()
+                    }
+                }
+            }
 
             // The reader runs beside waitFor: a single-threaded "wait then read" deadlocks the
             // moment the child fills the pipe buffer.

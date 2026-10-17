@@ -28,7 +28,7 @@ class CommandApprovalGateTest {
     fun `allow once answers once, and the next ask asks again`() = runTest {
         val gate = CommandApprovalGate()
         var decision: CommandDecision? = null
-        val job = launch { decision = gate.request("Celeste", "echo hi", root) }
+        val job = launch { decision = gate.request("Celeste", "echo hi", null, root) }
         runCurrent()
 
         val pending = gate.pending.value
@@ -40,7 +40,7 @@ class CommandApprovalGateTest {
 
         assertEquals(CommandDecision.ONCE, decision)
         assertNull("the question is withdrawn once answered", gate.pending.value)
-        assertFalse("once is not a session grant", gate.trusts("echo hi", root))
+        assertFalse("once is not a session grant", gate.trusts("echo hi", null, root))
         job.join()
     }
 
@@ -48,7 +48,7 @@ class CommandApprovalGateTest {
     fun `a session grant covers that exact command in that directory and nothing else`() = runTest {
         val gate = CommandApprovalGate()
         var first: CommandDecision? = null
-        launch { first = gate.request("Celeste", "echo hi", root) }
+        launch { first = gate.request("Celeste", "echo hi", null, root) }
         runCurrent()
         gate.answer(gate.pending.value!!.id, approve = true, trustForSession = true)
         runCurrent()
@@ -56,21 +56,42 @@ class CommandApprovalGateTest {
 
         // The same command later does not ask at all and reports itself as trusted.
         var second: CommandDecision? = null
-        launch { second = gate.request("Celeste", "echo hi", root) }
+        launch { second = gate.request("Celeste", "echo hi", null, root) }
         runCurrent()
         assertEquals(CommandDecision.SESSION, second)
         assertNull("a trusted command never opens the dialog", gate.pending.value)
 
         // A different command, or the same one elsewhere, asks again.
-        assertFalse(gate.trusts("echo bye", root))
-        assertFalse(gate.trusts("echo hi", Path.of("/tmp/other")))
+        assertFalse(gate.trusts("echo bye", null, root))
+        assertFalse(gate.trusts("echo hi", null, Path.of("/tmp/other")))
+    }
+
+    @Test
+    fun `a session grant does not cover the same command with different input`() = runTest {
+        val gate = CommandApprovalGate()
+        launch { gate.request("Celeste", "./ask.sh", "yes\n", root) }
+        runCurrent()
+        gate.answer(gate.pending.value!!.id, approve = true, trustForSession = true)
+        runCurrent()
+
+        assertTrue(gate.trusts("./ask.sh", "yes\n", root))
+        assertFalse("a different answer is a different action", gate.trusts("./ask.sh", "no\n", root))
+        assertFalse("and so is no input at all", gate.trusts("./ask.sh", null, root))
+
+        var decision: CommandDecision? = null
+        launch { decision = gate.request("Celeste", "./ask.sh", "no\n", root) }
+        runCurrent()
+        assertNotNull("the new input must ask again", gate.pending.value)
+        gate.answer(gate.pending.value!!.id, approve = false)
+        runCurrent()
+        assertEquals(CommandDecision.DENIED, decision)
     }
 
     @Test
     fun `a refusal denies and runs nothing`() = runTest {
         val gate = CommandApprovalGate()
         var decision: CommandDecision? = null
-        launch { decision = gate.request("Celeste", "rm -rf build", root) }
+        launch { decision = gate.request("Celeste", "rm -rf build", null, root) }
         runCurrent()
 
         gate.answer(gate.pending.value!!.id, approve = false)
@@ -84,7 +105,7 @@ class CommandApprovalGateTest {
     fun `an unanswered question denies itself on timeout`() = runTest {
         val gate = CommandApprovalGate()
         var decision: CommandDecision? = null
-        launch { decision = gate.request("Celeste", "sleep 10", root) }
+        launch { decision = gate.request("Celeste", "sleep 10", null, root) }
         runCurrent()
         assertNotNull(gate.pending.value)
 
@@ -99,7 +120,7 @@ class CommandApprovalGateTest {
     fun `a superseded turn denies the pending command`() = runTest {
         val gate = CommandApprovalGate()
         var decision: CommandDecision? = null
-        launch { decision = gate.request("Celeste", "make", root) }
+        launch { decision = gate.request("Celeste", "make", null, root) }
         runCurrent()
 
         gate.denyPending()
@@ -113,7 +134,7 @@ class CommandApprovalGateTest {
     fun `an answer for a different question is ignored`() = runTest {
         val gate = CommandApprovalGate()
         var decision: CommandDecision? = null
-        launch { decision = gate.request("Celeste", "make", root) }
+        launch { decision = gate.request("Celeste", "make", null, root) }
         runCurrent()
         val pending = gate.pending.value!!
 
@@ -130,14 +151,14 @@ class CommandApprovalGateTest {
     @Test
     fun `forgetting trust makes the next ask a question again`() = runTest {
         val gate = CommandApprovalGate()
-        launch { gate.request("Celeste", "make", root) }
+        launch { gate.request("Celeste", "make", null, root) }
         runCurrent()
         gate.answer(gate.pending.value!!.id, approve = true, trustForSession = true)
         runCurrent()
-        assertTrue(gate.trusts("make", root))
+        assertTrue(gate.trusts("make", null, root))
 
         gate.forgetTrust()
 
-        assertFalse(gate.trusts("make", root))
+        assertFalse(gate.trusts("make", null, root))
     }
 }

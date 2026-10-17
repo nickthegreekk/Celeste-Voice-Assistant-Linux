@@ -21,6 +21,8 @@ internal data class CommandApprovalRequest(
     val id: Long,
     val personaName: String,
     val command: String,
+    /** M16.1: the input the call supplies, shown with the command because it is part of what runs. */
+    val stdin: String?,
     val workingDirectory: Path,
 )
 
@@ -55,10 +57,11 @@ internal class CommandApprovalGate {
     @Volatile
     private var nextId: Long = 0
 
-    private fun key(command: String, workingDirectory: Path): String =
-        "${workingDirectory.toAbsolutePath().normalize()}\u0000$command"
+    private fun key(command: String, stdin: String?, workingDirectory: Path): String =
+        "${workingDirectory.toAbsolutePath().normalize()}\u0000$command\u0000${stdin.orEmpty()}"
 
-    fun trusts(command: String, workingDirectory: Path): Boolean = trusted.contains(key(command, workingDirectory))
+    fun trusts(command: String, stdin: String?, workingDirectory: Path): Boolean =
+        trusted.contains(key(command, stdin, workingDirectory))
 
     /** Forget every session grant. Called when the arrangement they were granted under changes. */
     fun forgetTrust() {
@@ -73,7 +76,7 @@ internal class CommandApprovalGate {
         val waiting = deferred ?: return
         val request = _pending.value ?: return
         if (request.id != id) return
-        if (approve && trustForSession) trusted.add(key(request.command, request.workingDirectory))
+        if (approve && trustForSession) trusted.add(key(request.command, request.stdin, request.workingDirectory))
         waiting.complete(
             when {
                 !approve -> CommandDecision.DENIED
@@ -96,13 +99,14 @@ internal class CommandApprovalGate {
     suspend fun request(
         personaName: String,
         command: String,
+        stdin: String?,
         workingDirectory: Path,
         timeoutMs: Long = COMMAND_APPROVAL_TIMEOUT_MS,
     ): CommandDecision {
-        if (trusts(command, workingDirectory)) return CommandDecision.SESSION
+        if (trusts(command, stdin, workingDirectory)) return CommandDecision.SESSION
         val waiting = CompletableDeferred<CommandDecision>()
         deferred = waiting
-        _pending.value = CommandApprovalRequest(++nextId, personaName, command, workingDirectory)
+        _pending.value = CommandApprovalRequest(++nextId, personaName, command, stdin, workingDirectory)
         return try {
             withTimeoutOrNull(timeoutMs) { waiting.await() } ?: CommandDecision.TIMEOUT
         } finally {
@@ -128,9 +132,10 @@ internal const val COMMAND_APPROVAL_NOTIFICATION_ID = 3
 internal suspend fun AssistantService.requestCommandApproval(
     personaName: String,
     command: String,
+    stdin: String?,
     workingDirectory: Path
 ): CommandDecision {
-    val decision = commandGate.request(personaName, command, workingDirectory)
+    val decision = commandGate.request(personaName, command, stdin, workingDirectory)
     if (decision == CommandDecision.TIMEOUT) {
         runCatching {
             appEnv.notifier.post(
@@ -211,7 +216,7 @@ internal class CommandToolExecutor(
     private val runner: CommandRunner,
     private val workingDirectory: Path,
     private val personaName: String,
-    private val approve: suspend (command: String, workingDirectory: Path) -> CommandDecision,
+    private val approve: suspend (command: String, stdin: String?, workingDirectory: Path) -> CommandDecision,
     private val audit: (CommandAuditEntry) -> Unit,
 ) : ToolCallExecutor {
 
@@ -221,11 +226,24 @@ internal class CommandToolExecutor(
     override suspend fun execute(call: FsToolCall): FsToolResult {
         val args = toolArgumentsOf(call)
         val command = args.optString("command").trim()
+        // M16.1: the optional input. Blank means none, so a model that emits `"stdin": ""` is not
+        // shown to the user as an input block that does nothing.
+        val stdin = args.optString("stdin").takeIf { it.isNotEmpty() }
         val timeoutSeconds = resolveCommandTimeoutSeconds(
             if (args.has("timeout_seconds")) args.optInt("timeout_seconds", 0) else null
         )
         if (command.isEmpty()) {
             return FsToolResult(call.id, call.name, "The command was empty, so nothing ran.", ok = false)
+        }
+        if (stdin != null && stdin.length > COMMAND_MAX_STDIN_CHARS) {
+            // Refused, not truncated: the user is asked to approve the exact input, and an approval
+            // of a shortened script is an approval of something that will not be what runs.
+            return FsToolResult(
+                call.id, call.name,
+                "The stdin text is ${stdin.length} characters; the limit is $COMMAND_MAX_STDIN_CHARS. " +
+                    "Write the script to a file with write_file and run the file instead.",
+                ok = false,
+            )
         }
         if (spent > MAX_TURN_RESULT_BYTES) {
             return FsToolResult(
@@ -235,7 +253,7 @@ internal class CommandToolExecutor(
             )
         }
 
-        val decision = approve(command, workingDirectory)
+        val decision = approve(command, stdin, workingDirectory)
         if (decision == CommandDecision.DENIED || decision == CommandDecision.TIMEOUT) {
             audit(
                 CommandAuditEntry(
@@ -243,6 +261,7 @@ internal class CommandToolExecutor(
                     persona = personaName,
                     command = command,
                     root = workingDirectory.toString(),
+                    stdinChars = stdin?.length ?: 0,
                     exitCode = null,
                     timedOut = false,
                     truncated = false,
@@ -261,7 +280,7 @@ internal class CommandToolExecutor(
 
         val started = System.currentTimeMillis()
         val run = try {
-            runner.run(CommandRunRequest(command, workingDirectory, timeoutSeconds))
+            runner.run(CommandRunRequest(command, workingDirectory, timeoutSeconds, stdin = stdin))
         } catch (cancelled: kotlinx.coroutines.CancellationException) {
             throw cancelled
         } catch (error: Throwable) {
@@ -272,6 +291,7 @@ internal class CommandToolExecutor(
                     persona = personaName,
                     command = command,
                     root = workingDirectory.toString(),
+                    stdinChars = stdin?.length ?: 0,
                     exitCode = null,
                     timedOut = false,
                     truncated = false,
@@ -299,6 +319,7 @@ internal class CommandToolExecutor(
                 persona = personaName,
                 command = command,
                 root = workingDirectory.toString(),
+                stdinChars = stdin?.length ?: 0,
                 exitCode = finalRun.exitCode,
                 timedOut = finalRun.timedOut,
                 truncated = finalRun.truncated,

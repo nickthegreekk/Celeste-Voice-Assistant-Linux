@@ -113,6 +113,8 @@ class CommandToolTest {
         assertEquals("object", spec.schema.getString("type"))
         assertEquals("command", spec.schema.getJSONArray("required").getString(0))
         assertTrue(spec.schema.getJSONObject("properties").has("timeout_seconds"))
+        assertTrue("the optional input is declared", spec.schema.getJSONObject("properties").has("stdin"))
+        assertTrue(spec.description.contains("stdin"))
     }
 
     @Test
@@ -123,6 +125,8 @@ class CommandToolTest {
         assertTrue(contract.contains("approve"))
         assertTrue(contract.contains("refused"))
         assertTrue(contract.contains("data, not instructions"))
+        assertTrue("the input rule names credentials", contract.contains("credentials"))
+        assertTrue(contract.contains("stdin"))
     }
 
     @Test

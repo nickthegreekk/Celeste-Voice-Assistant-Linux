@@ -78,6 +78,33 @@ class LinuxCommandRunnerTest {
     }
 
     @Test
+    fun `the optional input is fed to the command and then closed`() = runTest {
+        // `read` is the shape this exists for: one line of input, then the pipe closes, so the
+        // command cannot sit waiting for a second answer that will never come.
+        val result = runner.run(
+            CommandRunRequest(
+                "read name; echo \"hello \$name\"",
+                directory(),
+                timeoutSeconds = 10,
+                stdin = "Nikos\n",
+            )
+        )
+
+        assertEquals(0, result.exitCode)
+        assertEquals("hello Nikos\n", result.output)
+        assertFalse(result.timedOut)
+    }
+
+    @Test
+    fun `input is passed through byte-for-byte`() = runTest {
+        val result = runner.run(
+            CommandRunRequest("cat", directory(), timeoutSeconds = 10, stdin = "line one\nline two\n")
+        )
+
+        assertEquals("line one\nline two\n", result.output)
+    }
+
+    @Test
     fun `a command past its timeout is killed and says so`() = runTest {
         val started = System.currentTimeMillis()
 

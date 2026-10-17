@@ -25,6 +25,13 @@ internal data class CommandAuditEntry(
     val command: String,
     /** The workspace folder that was the working directory. */
     val root: String,
+    /**
+     * How many characters of stdin the call supplied. **Not the text itself**: like a command's
+     * output, input can carry a credential a model was tricked into using, and the audit must not
+     * become a secret store. The command line identifies the record; this says whether the dialog
+     * the user approved had an input block.
+     */
+    val stdinChars: Int = 0,
     val exitCode: Int?,
     val timedOut: Boolean,
     val truncated: Boolean,
@@ -39,6 +46,7 @@ internal data class CommandAuditEntry(
         .put("persona", persona)
         .put("command", command)
         .put("root", root)
+        .put("stdinChars", stdinChars)
         .put("exit", exitCode ?: JSONObject.NULL)
         .put("timedOut", timedOut)
         .put("truncated", truncated)
@@ -53,6 +61,7 @@ internal data class CommandAuditEntry(
                 persona = json.optString("persona"),
                 command = json.optString("command"),
                 root = json.optString("root"),
+                stdinChars = json.optInt("stdinChars"),
                 exitCode = json.opt("exit")?.takeIf { it != JSONObject.NULL }?.toString()?.toIntOrNull(),
                 timedOut = json.optBoolean("timedOut"),
                 truncated = json.optBoolean("truncated"),

@@ -423,7 +423,9 @@ private fun AssistantService.toolExecutorFor(
             runner = commandRunner,
             workingDirectory = root,
             personaName = persona.name,
-            approve = { command, workingDirectory -> requestCommandApproval(persona.name, command, workingDirectory) },
+            approve = { command, stdin, workingDirectory ->
+                requestCommandApproval(persona.name, command, stdin, workingDirectory)
+            },
             audit = ::auditCommand,
         )
     },

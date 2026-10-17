@@ -222,6 +222,22 @@ internal fun CommandApprovalDialog(
                     fontFamily = FontFamily.Monospace,
                     color = MaterialTheme.colorScheme.primary,
                 )
+                request.stdin?.let { input ->
+                    Spacer(Modifier.height(8.dp))
+                    Text("With this input:", style = MaterialTheme.typography.labelSmall)
+                    Text(
+                        input,
+                        style = MaterialTheme.typography.bodySmall,
+                        fontFamily = FontFamily.Monospace,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                    Text(
+                        "Sent to the command's input, then closed. If this contains a password " +
+                            "or token, cancel — it should not be in a conversation at all.",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
+                    )
+                }
                 Spacer(Modifier.height(8.dp))
                 Text(
                     "In: ${request.workingDirectory}",
