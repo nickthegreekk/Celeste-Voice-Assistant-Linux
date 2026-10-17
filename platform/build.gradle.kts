@@ -24,6 +24,11 @@ dependencies {
     // dependency precisely so that it does not leak outward. A module that uses a library says so.
     implementation(libs.kotlinx.serialization.json)
 
+    // The Streamable HTTP MCP transport. Not a new library to the project — :core already uses
+    // OkHttp for the cloud providers, and the packaged image carries it — but this module now uses
+    // it directly, so it says so rather than reaching through :core's implementation classpath.
+    implementation(libs.okhttp)
+
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)
 }
