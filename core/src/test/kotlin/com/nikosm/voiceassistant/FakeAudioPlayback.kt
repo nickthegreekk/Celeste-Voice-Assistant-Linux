@@ -26,11 +26,18 @@ class FakeAudioPlayback : AudioPlayback {
     val played = mutableListOf<Path>()
 
     /**
-     * The duration each chunk reports. Anything absent reports 0, which is also what the real
-     * implementation reports before it has measured anything — and the sequencer has to cope with
-     * that rather than treating it as a zero-length chunk.
+     * The duration each chunk reports. Anything absent reports [defaultDurationMs], which is also
+     * what the real implementation reports before it has measured anything — and the sequencer
+     * has to cope with that rather than treating it as a zero-length chunk.
      */
     val durations = mutableMapOf<Path, Long>()
+
+    /**
+     * The duration reported for a file with no explicit [durations] entry. Zero by default, so
+     * every existing test keeps the "not measured yet" shape; a test that needs a live,
+     * measurable chunk (the persona-switch playback tests) sets a real length.
+     */
+    var defaultDurationMs: Long = 0
 
     private class Recording(val file: Path, val handle: Handle, val onEnd: (PlaybackEnd) -> Unit)
 
@@ -59,9 +66,16 @@ class FakeAudioPlayback : AudioPlayback {
         check(current == null) {
             "seam 2 allows one playback at a time, but a second was started while one was live"
         }
-        val handle = Handle().apply { durationMs = durations[file] ?: 0L }
+        val handle = Handle().apply { durationMs = durations[file] ?: defaultDurationMs }
         val recording = Recording(file, handle, onEnd)
-        handle.onStop = { if (current === recording) current = null }
+        // The seam's contract: a stopped playback REPORTS `Stopped` rather than falling silent.
+        // Without this, `stopAll()` would leave a sequencer's playOne parked forever.
+        handle.onStop = {
+            if (current === recording) {
+                current = null
+                recording.onEnd(PlaybackEnd.Stopped)
+            }
+        }
         played.add(file)
         recordings.add(recording)
         current = recording

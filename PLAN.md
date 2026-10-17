@@ -1543,7 +1543,10 @@ the focus stack, so there is no retained focus to leak), the provider/credential
 (4), `MessageStampEchoTest` (1), `SuggestedRepliesDirectOllamaAuthTest` (1) with the ported `OllamaSuggestionStub`, and
 the pure `SuggestedRepliesTest`), the image-gen group (`ComfyImageTest` (24) over `ComfyUiStub`, `ImageGenAuthTest` (8),
 `ImageGenBackendMismatchTest` (7), `ImageGenSaveProbeTest` (2) on the runner, `ModelCatalogCacheTest` (18) and
-`ModelPickerServiceTest` (4)) and the room loop (`RoomRoundLoopTest` (8): order and
+`ModelPickerServiceTest` (4)), the persona/editor group (`PersonaEditorCommitTest`, `PersonaEditorEmptyListsTest`,
+`PersonaSelectionTest` (15), `PersonaSwitchStopsPlaybackTest` (3), `HandsFreeToggleTest` (2) — its focus assertions
+dropped with §9), the replay/reveal pair (`AssistantReplayRoutingTest`, `Stage2RevealStateTest` (4)) and the room loop
+(`RoomRoundLoopTest` (8): order and
 attribution, the cap exactly, local-only rotating autonomy, Stop removing the blank placeholder, supersede, and the
 three editor-parser cap cases, all against `RoomTurnServer`). The rest of the table decides their fate and belongs with
 the area's milestone. The one-hour acceptance is not claimed: the

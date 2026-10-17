@@ -70,7 +70,7 @@ it makes.
 
 All 59 files (20,889 lines) now have a verdict. The categories PLAN.md §11 names are applied per
 file below; the counts are 6 to the desktop Compose runner, 43 rewritten against the port's seams
-(39 tests plus 4 portable loopback fixtures), and 10 dropped with a written reason.
+(38 tests plus 4 portable loopback fixtures), and 11 dropped with a written reason.
 
 The moved-and-rewritten tests are **not ported yet** — this table decides their fate, it does not
 land them. Each belongs with the milestone that reaches its area, and the seam-based ones become
@@ -92,9 +92,8 @@ four socket fixtures this triage found portable.
 
 | Upstream file | What it tests | Port-side target | Lines |
 |---|---|---|---:|
-| `AssistantReplayRoutingInstrumentedTest.kt` | Replay re-synthesises through the gateway voice | Audio/TTS + gateway seams with fake playback | 346 |
+| `AssistantReplayRoutingInstrumentedTest.kt` | Replay re-synthesises through the gateway voice | **Ported** as `AssistantReplayRoutingTest` (1): a loopback `/synthesize` proves the persona's own voice is asked and its bytes become chunk 0 | 346 |
 | `AssistantServiceConcurrencyInstrumentedTest.kt` | Overlapping model fetches preserve live statuses | **Ported** as `AssistantServiceConcurrencyTest` (3): live-map read-modify-write, the Cline double-decrement, and the Main hop for health writes | 427 |
-| `AudioFocusDelayedRetryInstrumentedTest.kt` | Delayed audio focus retried within a bound | Audio-focus seam with an injected framework answer | 345 |
 | `CloudVoiceHistoryInstrumentedTest.kt` | Cloud voice turns record the transcript and carry history to all three providers | Service chat core + `FakeProviderServer` | 479 |
 | `ComfyImageInstrumentedTest.kt` | ComfyUI submit → poll → download, cancel, no file on failure | **Ported** as `ComfyImageTest` (24) over `ComfyUiStub`, including the character precedence and queue-first cancel cases | 817 |
 | `Fix4StreamingDotsInstrumentedTest.kt` | Thinking dots hide once streamed text exists | UI half to the Compose runner; state via ported core | 547 |
@@ -106,16 +105,16 @@ four socket fixtures this triage found portable.
 | `ImageGenBackendMismatchInstrumentedTest.kt` | 404/405 diagnosed as the other backend only when its probe succeeds | **Ported** as `ImageGenBackendMismatchTest` (7): both directions on Test Connection and generation, plus the 404/401/right-type negatives | 355 |
 | `ImageGenSaveProbeInstrumentedTest.kt` | Save probes the backend-appropriate endpoint | **Ported** as `ImageGenSaveProbeTest` (2) on the desktop Compose runner: the real dialog is the call site under test | 210 |
 | `ImageGenSettingsComposeTest.kt` | Image-gen switch/sections; state restoration | Service state via the port; the rotation/restoration case drops | 167 |
-| `M2HandsFreeToggleFocusInstrumentedTest.kt` | Hands-free off mid-turn does not force IDLE or leak focus | Hands-free ownership in the ported core | 621 |
+| `M2HandsFreeToggleFocusInstrumentedTest.kt` | Hands-free off mid-turn does not force IDLE or leak focus | **Ported in part** as `HandsFreeToggleTest` (2): the ownership contract and the unowned-THINKING control. The focus assertions are dropped with §9's focus stack | 621 |
 | `MessageStampEchoInstrumentedTest.kt` | Echoed timestamp stripped; injected exactly once next request | **Ported** as `MessageStampEchoTest` (1) over a body-capturing `SteppedNdjsonServer` | 249 |
 | `MessageTimestampInstrumentedTest.kt` | Stamps in local history, not cloud; budgeted and rendered | Request assembly on the ported core; UI half to the runner | 634 |
 | `ModelCatalogCacheInstrumentedTest.kt` | Cache states, refresh, merge, stale-on-failure | **Ported** as `ModelCatalogCacheTest` (18) over `ModelCatalogStub`, including the "what no models means" distinctions | 512 |
 | `ModelPickerInstrumentedTest.kt` | Favourites and selection through the service | **Ported** as `ModelPickerServiceTest` (4); the composable half is `ModelPickerComposeTest` (27) | 304 |
-| `PersonaEditorCommitInstrumentedTest.kt` | Closing inside the debounce still commits a cloud identity | Commit builder on the ported core | 177 |
-| `PersonaEditorEmptyListsInstrumentedTest.kt` | First-frame close does not rewrite identity from empty lists | Editor commit against the state seam | 201 |
+| `PersonaEditorCommitInstrumentedTest.kt` | Closing inside the debounce still commits a cloud identity | **Ported** as `PersonaEditorCommitTest` (1) on the desktop runner; read back from the store | 177 |
+| `PersonaEditorEmptyListsInstrumentedTest.kt` | First-frame close does not rewrite identity from empty lists | **Ported** as `PersonaEditorEmptyListsTest` (1), frozen clock and all | 201 |
 | `PersonaNameUniquenessInstrumentedTest.kt` | Duplicate add/rename refused; victim's history preserved | **Ported** as `PersonaNameUniquenessTest` (7), with `PersonaNameGuardTest` (7) covering the pure half | 265 |
-| `PersonaSelectionInstrumentedTest.kt` | Selection follows switch/edit/rename/delete/deep link/room exit | Selection flow in the ported core | 430 |
-| `PersonaSwitchStopsPlaybackInstrumentedTest.kt` | Switch/clear stops chunked playback | Playback + sequencer seams | 654 |
+| `PersonaSelectionInstrumentedTest.kt` | Selection follows switch/edit/rename/delete/deep link/room exit | **Ported** as `PersonaSelectionTest` (15): every path, plus the picker leaving room mode | 430 |
+| `PersonaSwitchStopsPlaybackInstrumentedTest.kt` | Switch/clear stops chunked playback | **Ported** as `PersonaSwitchStopsPlaybackTest` (3) over `FakeAudioPlayback`; the republish window advances the virtual clock | 654 |
 | `RoomAutoScrollInstrumentedTest.kt` | Opens at newest, follows streaming, stable identity | UI half to the runner; room state via the core | 377 |
 | `RoomEditorUiPersistenceInstrumentedTest.kt` | Room name/cap/reorder persist on close/Done/back | Editor commit to the settings seam | 387 |
 | `RoomPersistenceInstrumentedTest.kt` | Room edits survive a write-read cycle | **Ported** as `RoomPersistenceTest` (5) | 238 |
@@ -128,7 +127,7 @@ four socket fixtures this triage found portable.
 | `SpontaneousTurnInstrumentedTest.kt` | Output lands in that persona's history; silence writes nothing | Turn execution on the core | 258 |
 | `SpontaneousWorkerInstrumentedTest.kt` | WorkManager arming/disarming, state, date rollover | Scheduler seam 10 (coroutine in-process) | 601 |
 | `SpontaneousWriteGuardInstrumentedTest.kt` | Cloud personas stripped; eligible local ones armed | Guard in the ported core | 311 |
-| `Stage2RevealStateInstrumentedTest.kt` | Playback fraction/timestamps clear and arm per path | TTS sequencing/playback seams | 282 |
+| `Stage2RevealStateInstrumentedTest.kt` | Playback fraction/timestamps clear and arm per path | **Ported** as `Stage2RevealStateTest` (4): stopAudio clears, the device-voice replay arms a fresh token, System TTS clears, the gateway replay arms nothing | 282 |
 | `SuggestedRepliesDirectOllamaAuthInstrumentedTest.kt` | Suggested replies reach `/api/chat` with Basic auth | **Ported** as `SuggestedRepliesDirectOllamaAuthTest` (1) with the ported `OllamaSuggestionStub` | 190 |
 | `SuggestedRepliesInstrumentedTest.kt` | Default translator/image flags filter correctly | **Ported** as `SuggestedRepliesTest` (1); the unused Compose rule dropped | 31 |
 
@@ -141,10 +140,11 @@ four socket fixtures this triage found portable.
 | `ModelCatalogStub.kt` | Loopback Ollama catalogue (`/api/tags`, `/api/show`, `/v1/models`) | **Ported** as a JVM fixture | 156 |
 | `OllamaSuggestionStub.kt` | Loopback Ollama `/api/chat` for suggestions | **Ported** as a JVM fixture; the credentials are constructor parameters, not hardcoded | 136 |
 
-### Drop with a written reason (10)
+### Drop with a written reason (11)
 
 | Upstream file | What it tests | Reason | Lines |
 |---|---|---|---:|
+| `AudioFocusDelayedRetryInstrumentedTest.kt` | Delayed audio focus retried within a bound | The whole subject is Android's `AudioManager` focus request/retry, deleted by PLAN.md §9 — there is no focus stack on this platform to retry against | 345 |
 | `ExampleInstrumentedTest.kt` | The instrumentation target's package name | Template test; asserts no behaviour | 23 |
 | `ImageGenScreenshotsInstrumentedTest.kt` | Screenshots of image-gen surfaces | Capture only, no behavioural assertion | 177 |
 | `PersonaShortcutInstrumentedTest.kt` | Launcher shortcut intent, icons, pin probe | Launcher shortcuts have no desktop counterpart; per-persona `.desktop` entries are a different surface | 136 |
@@ -237,10 +237,13 @@ group (`GatewayCredentialResolutionTest` (4), `MessageStampEchoTest`, the ported
 `SuggestedRepliesTest`) and the room loop (`RoomRoundLoopTest`, 8), and the image-gen group
 (`ComfyImageTest` (24) over `ComfyUiStub`, `ImageGenAuthTest` (8) over `ImageGenStub`,
 `ImageGenBackendMismatchTest` (7), `ImageGenSaveProbeTest` (2) on the runner, and the catalog
-pair `ModelCatalogCacheTest` (18) over `ModelCatalogStub` and `ModelPickerServiceTest` (4)).
-Their fixtures (`SteppedNdjsonServer`, `RoomTurnServer`, `OllamaSuggestionStub`, `ComfyUiStub`,
-`ImageGenStub`, `ModelCatalogStub`) are JVM loopback stubs; no instrumented runner is involved
-beyond the Compose one.
+pair `ModelCatalogCacheTest` (18) over `ModelCatalogStub` and `ModelPickerServiceTest` (4)), the
+persona/editor group (`PersonaEditorCommitTest`, `PersonaEditorEmptyListsTest`,
+`PersonaSelectionTest` (15), `PersonaSwitchStopsPlaybackTest` (3) over `FakeAudioPlayback`, and
+`HandsFreeToggleTest` (2)), and the replay/reveal pair (`AssistantReplayRoutingTest`,
+`Stage2RevealStateTest` (4)). Their fixtures (`SteppedNdjsonServer`, `RoomTurnServer`,
+`OllamaSuggestionStub`, `ComfyUiStub`, `ImageGenStub`, `ModelCatalogStub`) are JVM loopback
+stubs; no instrumented runner is involved beyond the Compose one.
 
 **Still open in M7, with the reason:**
 
