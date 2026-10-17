@@ -28,6 +28,7 @@ is adapted on purpose, and it is recorded here — the same demotion rule that a
 | Upstream test | Now | Upstream at port time | Why it could not be copied |
 |---|---|---|---|
 | `SettingsManagerCorruptionTest.kt` | `core/src/test/…/SettingsManagerCorruptionTest.kt`, 41 tests | `988a023bd3ae781ae2166f25826a14db098a39913fd5c4c5a09f8955dc3e346c`, 789 lines | The premises are Android's. Upstream's harness fakes `Context` and `SharedPreferences` and relies on the constructor landing in its plaintext-fallback branch when `EncryptedSharedPreferences` cannot initialise; the port has no encrypted store to fall back from (PLAN.md §5a), so there is no such branch and nothing to fake at that level. Its `FakeAppContext` becomes a fake `AppEnv` and its `FakeSharedPreferences` an in-memory `SettingsStore`. **Every assertion is upstream's, unchanged** — including the payload-level assertions on the backup format, which are what pins the Android-backup interop guarantee. |
+| `PersonaNameGuardTest.kt` | `core/src/test/…/PersonaNameGuardTest.kt`, 7 tests | `34fb385e04eaf9fda1177f897d8a2cda540113ba336d8e7c8e24f9218feeaf31`, 176 lines | Arrived upstream after this port's M0/M1 harvest and was missed until the instrumented triage pointed at its service-side sibling. The premises are Android's: `FakeSharedPreferences`/`FakeAppContext` and the `EncryptedSharedPreferences` fallback that the port does not have. They become `InMemoryStore` + `FakeAppEnv`, the same substitution the corruption test makes. **Every assertion is upstream's, unchanged.** |
 
 **The "upstream at port time" column is the guard, and it is worth being honest about what
 kind.** A COPY test is protected by `tools/sync-from-android.sh --check`, which fails the build
@@ -111,7 +112,7 @@ four socket fixtures this triage found portable.
 | `ModelPickerInstrumentedTest.kt` | Favourites and selection through the service | Catalog/favourites on the ported core | 304 |
 | `PersonaEditorCommitInstrumentedTest.kt` | Closing inside the debounce still commits a cloud identity | Commit builder on the ported core | 177 |
 | `PersonaEditorEmptyListsInstrumentedTest.kt` | First-frame close does not rewrite identity from empty lists | Editor commit against the state seam | 201 |
-| `PersonaNameUniquenessInstrumentedTest.kt` | Duplicate add/rename refused; victim's history preserved | Name guard on the ported core | 265 |
+| `PersonaNameUniquenessInstrumentedTest.kt` | Duplicate add/rename refused; victim's history preserved | **Ported** as `PersonaNameUniquenessTest` (7), with `PersonaNameGuardTest` (7) covering the pure half | 265 |
 | `PersonaSelectionInstrumentedTest.kt` | Selection follows switch/edit/rename/delete/deep link/room exit | Selection flow in the ported core | 430 |
 | `PersonaSwitchStopsPlaybackInstrumentedTest.kt` | Switch/clear stops chunked playback | Playback + sequencer seams | 654 |
 | `RoomAutoScrollInstrumentedTest.kt` | Opens at newest, follows streaming, stable identity | UI half to the runner; room state via the core | 377 |
