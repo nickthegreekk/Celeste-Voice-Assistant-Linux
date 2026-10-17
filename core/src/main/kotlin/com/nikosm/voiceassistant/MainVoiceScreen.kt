@@ -415,6 +415,8 @@ fun MainScreen(
     var pendingCert by remember { mutableStateOf<CertApprovalRequest?>(null) }
     // M8: the write confirmation the service is waiting on, if any.
     var pendingFsWrite by remember { mutableStateOf<FsWriteRequest?>(null) }
+    // M9: the tool confirmation, held the same way.
+    var pendingMcpApproval by remember { mutableStateOf<McpApprovalRequest?>(null) }
     // M8: `notifyUser` has published `transientMessage` since M1 and **nothing has ever rendered
     // it** — every "Saved to…", "Shortcut added", "Import failed" the application has raised has
     // gone nowhere. The tool refusals and the write timeouts need a destination, so this is it, and
@@ -445,6 +447,7 @@ fun MainScreen(
             // composition state, so closing and reopening the window re-renders the same question
             // instead of losing it.
             launch { service.fsWriteGate.pending.collect { pendingFsWrite = it } }
+            launch { service.mcpApprovalGate.pending.collect { pendingMcpApproval = it } }
             launch { service.transientMessage.collect { transientMessage = it } }
             launch { service.rooms.collect { rooms = it } }
             launch { service.activeRoomId.collect { activeRoomId = it } }
@@ -1179,6 +1182,14 @@ fun MainScreen(
     pendingFsWrite?.let { request ->
         FsWriteApprovalDialog(request = request) { approve, trustRoot ->
             service?.fsWriteGate?.answer(approve, trustRoot)
+        }
+    }
+
+    // M9: the same last line of defence for a tool call: which server, which tool, which arguments,
+    // and two answers. Dismissal denies; so does the gate's timeout when nobody is there.
+    pendingMcpApproval?.let { request ->
+        McpApprovalDialog(request = request) { approve, trustServer ->
+            service?.mcpApprovalGate?.answer(approve, trustServer)
         }
     }
 

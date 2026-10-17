@@ -242,6 +242,37 @@ class McpRegistryTest {
     }
 
     @Test
+    fun `a changed command reconnects instead of reusing the old connection`() = runTest {
+        var opens = 0
+        val transports = mutableListOf<FakeTransport>()
+        val factory = object : McpTransportFactory {
+            override fun open(server: McpServerConfig): McpTransport {
+                opens++
+                return FakeTransport { request ->
+                    val id = request.getLong("id")
+                    when (request.getString("method")) {
+                        "initialize" -> result(id, initResult())
+                        "tools/list" -> result(id, toolsPage(listOf("echo"), null))
+                        else -> failure(id, -32601, "unknown")
+                    }
+                }.also { transports += it }
+            }
+        }
+        val registry = McpRegistry(factory, connectTimeoutMillis = 2_000, callTimeoutMillis = 2_000)
+        try {
+            registry.toolsFor(config())
+            assertEquals(1, opens)
+
+            registry.toolsFor(config().copy(command = "a-different-command"))
+
+            assertEquals("a changed connection must not reuse the old process", 2, opens)
+            assertTrue("the old connection should have been closed", transports[0].closed)
+        } finally {
+            registry.close()
+        }
+    }
+
+    @Test
     fun `names are sanitized, shortened to the provider limit and deterministic`() {
         assertEquals("mcp_my_server_read_file", declaredMcpToolName("My Server!", "Read File"))
         assertEquals("mcp_notes_echo", declaredMcpToolName("notes", "echo"))

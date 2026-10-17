@@ -159,7 +159,10 @@ internal val SETTINGS_CATEGORIES = listOf(
     SettingsCategory("Skills", Icons.Default.AutoAwesome, SettingsGroup.ASSISTANTS),
     // M8. After Skills, in the same section: both answer "what may this persona do", and a user who
     // has just given a persona instructions is the one thinking about what else it may touch.
-    SettingsCategory("Filesystem", Icons.Default.Folder, SettingsGroup.ASSISTANTS)
+    SettingsCategory("Filesystem", Icons.Default.Folder, SettingsGroup.ASSISTANTS),
+    // M9. Beside Filesystem: both answer "what may this persona reach", and a user configuring
+    // one is the user thinking about the other.
+    SettingsCategory("MCP", Icons.Default.Extension, SettingsGroup.ASSISTANTS)
 )
 
 /**
@@ -288,6 +291,7 @@ internal fun settingsCategorySummaries(
                 "Rooms" -> roomsSummary(rooms)
                 "Skills" -> skillsSummary(skills)
                 "Filesystem" -> FS_SETTINGS_SUMMARY
+                "MCP" -> MCP_SETTINGS_SUMMARY
                 else -> ""
             }
         )
@@ -768,6 +772,7 @@ fun SettingsDialog(
                                 )
                                 "Audio" -> AudioSettings(service = svc)
                                 "Filesystem" -> FsToolSettings(service = svc)
+                                "MCP" -> McpSettings(service = svc)
                                 "Servers" -> ServerSettings(
                                     service = svc,
                                     gateways = serverBases,

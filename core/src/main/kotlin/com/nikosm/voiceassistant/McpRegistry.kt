@@ -65,8 +65,16 @@ internal class McpRegistry(
      */
     suspend fun toolsFor(server: McpServerConfig): List<McpTool> {
         if (!server.enabled || !server.isRunnable) return emptyList()
-        val connection = connections.computeIfAbsent(server.id) {
-            McpConnection(server, factory, logger, callTimeoutMillis)
+        // A saved edit can change where the same id points. Reusing the old connection would run
+        // the old command for a server the user has just reconfigured — the settings screen's Test
+        // button would report the previous server's tools. The connection fields decide; trust and
+        // enabled do not (a grant change is not a reconnect).
+        val existing = connections[server.id]
+        val connection = if (existing != null && existing.configuredFor(server)) {
+            existing
+        } else {
+            existing?.close()
+            McpConnection(server, factory, logger, callTimeoutMillis).also { connections[server.id] = it }
         }
         val infos = try {
             withTimeout(connectTimeoutMillis + callTimeoutMillis) { connection.tools() }
@@ -159,6 +167,15 @@ private class McpConnection(
 
     @Volatile
     private var failure: String? = null
+
+    fun configuredFor(other: McpServerConfig): Boolean =
+        server.transport == other.transport &&
+            server.command == other.command &&
+            server.args == other.args &&
+            server.env == other.env &&
+            server.workingDir == other.workingDir &&
+            server.url == other.url &&
+            server.headers == other.headers
 
     suspend fun tools(): List<McpToolInfo> = setup.withLock {
         ensureReadyLocked()
