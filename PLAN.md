@@ -1990,7 +1990,10 @@ rail. `APP_VERSION` and `upstreamPin()` moved from `:desktop`'s `Main.kt` into `
 and the About window now reads the same two, so the window and the section cannot disagree; the pin's
 resource was already on `:core`'s classpath, beside the files it describes. `SettingsAboutSectionTest`
 proves both halves of "at the bottom": in a short list the section is below the fold, and scrolling to it
-reveals the four facts.]
+reveals the four facts. Both packages were rebuilt at `bb1065c`: Arch sha256
+`3e03025dea00d8fb81568d88dee52840a383d759351758f9b696e778f24e8f20` (112,139,408 bytes), Debian
+`celeste-linux_0.1.0_amd64.deb` sha256 `754e30319d86c2031985350c6fc71fbdfe17c10266eec2ecfe70064690697c67`
+(100,311,452 bytes).]
 
 [Correction, 2026-10-17 — the intermittent `FsToolTurnTest` failure recorded at slice 5 is fixed, in the
 test rather than in the service. `shutdown()` cancels the scope and returns; a child still unwinding from
