@@ -79,12 +79,12 @@ four socket fixtures this triage found portable.
 
 | Upstream file | What it tests | Note | Lines |
 |---|---|---|---:|
-| `AdaptiveThemeInstrumentedTest.kt` | Dynamic wallpaper schemes, fallback, persistence | Static-scheme and persistence cases move; dynamic-wallpaper cases drop (no desktop `WallpaperManager`) | 247 |
-| `FullScreenImageViewerInstrumentedTest.kt` | Image opens full-screen; close/tap dismisses | Swap the `Bitmap` fixture for `ImageCodec` | 133 |
-| `HeaderPersonaTapComposeTest.kt` | Header icon vs. name are separate tap targets | Pure parameter-fed composable, no service | 115 |
-| `ModelPickerComposeTest.kt` | Picker favourites, chips, selection, loading, failure | Pure composable | 554 |
-| `ModelsScreenComposeTest.kt` | Model rows, filters, favourites, empty/error, back | Pure composable | 405 |
-| `SettingsCategoryListComposeTest.kt` | Every category title/summary, accessible tap | Static list, no service or clock | 177 |
+| `AdaptiveThemeInstrumentedTest.kt` | Dynamic wallpaper schemes, fallback, persistence | **Ported** as `AdaptiveThemeTest` (4): static schemes, the closed dynamic gate, distinct accents, the service flow. Dynamic-wallpaper cases dropped (no desktop `WallpaperManager`) | 247 |
+| `FullScreenImageViewerInstrumentedTest.kt` | Image opens full-screen; close/tap dismisses | **Ported in part** as `ChatMessageImageTapTest` (3): both image kinds are clickable nodes. The cross-root dialog half is dropped — the port's viewer is a `DialogWindow`, a separate OS window the runner cannot see into | 133 |
+| `HeaderPersonaTapComposeTest.kt` | Header icon vs. name are separate tap targets | **Ported** as `HeaderPersonaTapComposeTest` (2) | 115 |
+| `ModelPickerComposeTest.kt` | Picker favourites, chips, selection, loading, failure | Pure composable; **still to port** | 554 |
+| `ModelsScreenComposeTest.kt` | Model rows, filters, favourites, empty/error, back | Pure composable; **still to port** | 405 |
+| `SettingsCategoryListComposeTest.kt` | Every category title/summary, accessible tap | **Ported** as `SettingsCategoryListComposeTest` (6) | 177 |
 
 ### Rewrite against the seams (39 tests)
 

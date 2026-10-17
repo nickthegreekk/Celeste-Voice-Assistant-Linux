@@ -1530,10 +1530,13 @@ fails with "stopped responding" instead of waiting out the ten-minute budget). "
 (seam 8 is not in v1; credentials are the 0600 file). The gateway's `/synthesize` leg now has an HTTP test too (`GatewaySynthesisTest`:
 audio + word timestamps, and the 200-JSON "no voice for this language" decision). The 59 instrumented tests are triaged
 per file in `docs/TEST-MAP.md` — 6 to the desktop Compose runner, 43 rewritten against the seams (39 tests + 4 portable
-loopback fixtures), 10 dropped with a reason. Still open, with reasons in `docs/TEST-MAP.md`: desktop UI tests need
-Compose's test runtime, a new dependency and therefore a stop-and-ask, and the triaged tests themselves are not ported
-yet (the table decides their fate; each lands with the milestone that reaches its area). The one-hour acceptance is not
-claimed: the cycle count is the thing that grows, and 50,000 cycles is more start/stop than an hour of manual use.]
+loopback fixtures), 10 dropped with a reason. **The desktop UI runner is in** (`3c44026`): Compose's test runtime is
+pinned in the catalog and the runner is `runComposeUiTest`; **four of the six Compose-runner tests are ported** —
+SettingsCategoryList (6), HeaderPersonaTap (2), AdaptiveTheme (4, the dynamic-wallpaper cases dropped because the port
+has no dynamic branch), and the thumbnail half of FullScreenImageViewer (3, its cross-root dialog half dropped because
+`DialogWindow` is a separate OS window). ModelPicker and ModelsScreen remain. **The triaged seam tests are not started**
+— the table decides their fate; each belongs with the area's milestone. The one-hour acceptance is not claimed: the
+cycle count is the thing that grows, and 50,000 cycles is more start/stop than an hour of manual use.]
 
 **M8 — Filesystem tools (new scope, not a port; not counted in the total below).** The user wants Celeste to read and write
 files on this machine so the assistant can be used as a local agent, **and the app's user chooses where and how**: a
