@@ -92,6 +92,45 @@ class CommandToolTest {
         assertEquals(text, sanitizeTtyOutput(text))
     }
 
+    // ------------------------------------------------------------------ the audit row
+
+    @Test
+    fun `the audit row marks a terminal run and leaves an ordinary one unmarked`() {
+        val entry = CommandAuditEntry(
+            timestamp = 0,
+            persona = "Celeste",
+            command = "ls -la",
+            root = "/tmp",
+            exitCode = 0,
+            timedOut = false,
+            truncated = false,
+            durationMs = 5,
+            result = "ok",
+            confirmed = "user",
+        )
+
+        assertEquals("ls -la  —  ok (user)", commandAuditSummary(entry))
+        assertEquals("ls -la  —  ok (user, tty)", commandAuditSummary(entry.copy(tty = true)))
+    }
+
+    @Test
+    fun `an audit row shows only the command's first line`() {
+        val entry = CommandAuditEntry(
+            timestamp = 0,
+            persona = "Celeste",
+            command = "echo one\necho two",
+            root = "/tmp",
+            exitCode = 0,
+            timedOut = false,
+            truncated = false,
+            durationMs = 5,
+            result = "ok",
+            confirmed = "user",
+        )
+
+        assertEquals("echo one  —  ok (user)", commandAuditSummary(entry))
+    }
+
     // ------------------------------------------------------------------ framing
 
     @Test

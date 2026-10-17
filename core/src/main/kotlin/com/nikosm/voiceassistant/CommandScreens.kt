@@ -140,11 +140,21 @@ internal fun CommandSettings(service: AssistantService, contentPadding: Int = 16
     }
 }
 
+/**
+ * The one-line audit row: the command (first line, bounded), the outcome, how it was approved —
+ * and **`tty` when a pseudo-terminal was used**, because that changes what the program did and the
+ * entry records it (M16.2). Pure so the copy is pinned by a test rather than by a screenshot.
+ */
+internal fun commandAuditSummary(entry: CommandAuditEntry): String {
+    val command = entry.command.lineSequence().firstOrNull().orEmpty().take(160)
+    val how = if (entry.tty) "${entry.confirmed}, tty" else entry.confirmed
+    return "$command  —  ${entry.result} ($how)"
+}
+
 @Composable
 private fun CommandAuditRow(entry: CommandAuditEntry) {
-    val command = entry.command.lineSequence().firstOrNull().orEmpty().take(160)
     Text(
-        "$command  —  ${entry.result} (${entry.confirmed})",
+        commandAuditSummary(entry),
         style = MaterialTheme.typography.bodySmall,
         color = if (entry.result == "ok") {
             MaterialTheme.colorScheme.onSurface
