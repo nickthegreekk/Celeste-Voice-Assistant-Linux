@@ -1480,6 +1480,9 @@ build-time decision, and the staging lives in the setting instead of across mile
   (2026-10-17; the original rule was session-only and the user reversed it, docs/DECISIONS.md, because a question raised
   on a backgrounded window times out unseen and reads as a bug). The grant lives in `trusted_fs_roots`, which — like the
   workspace it is about — is not a field of the backup, so a restored backup can never re-grant write access.
+  **Measured the same morning**, the way this sort of thing has to be: the app was restarted at 09:45:23 and wrote at
+  09:45:59 with no dialog and `confirmed=trusted` in the audit, after one "always allow" given at 09:44 against a store
+  that had held no grant. The two writes before the restart were silent too, which is the other half.
 - **Per persona, with a global default** — the shape the app already uses for image-generation entries and their pins: the
   persona you chat with casually has nothing, the one you use for work has a directory, and a persona's own setting wins.
 - **The always-excluded paths are named in the UI rather than hidden:** `~/.config/celeste-linux`, which holds the
