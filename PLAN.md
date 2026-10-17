@@ -1534,9 +1534,13 @@ loopback fixtures), 10 dropped with a reason. **The desktop UI runner is in** (`
 pinned in the catalog and the runner is `runComposeUiTest`; **all six Compose-runner tests are ported** — 65 UI tests:
 SettingsCategoryList (6), HeaderPersonaTap (2), AdaptiveTheme (4, the dynamic-wallpaper cases dropped because the port
 has no dynamic branch), the thumbnail half of FullScreenImageViewer (3, its cross-root dialog half dropped because
-`DialogWindow` is a separate OS window), ModelPicker (27) and ModelsScreen (23). **The triaged seam tests are not
-started**
-— the table decides their fate; each belongs with the area's milestone. The one-hour acceptance is not claimed: the
+`DialogWindow` is a separate OS window), ModelPicker (27) and ModelsScreen (23). **The triaged seam tests have started**:
+the name-identity group (`PersonaNameGuardTest` (7), `PersonaNameUniquenessTest` (7)), room persistence
+(`RoomPersistenceTest` (5)), server identity (the byte-identical `ServerIdentityTest` (15) plus
+`ServerIdentityServiceTest` (10)), the conversation-state group (`H3StaleStreamUnwindTest` (2),
+`AssistantServiceConcurrencyTest` (3), `GatewayTestVoiceSupersedeTest` (2) — its focus case dropped because §9 deletes
+the focus stack, so there is no retained focus to leak). The rest of the table decides their fate and belongs with
+the area's milestone. The one-hour acceptance is not claimed: the
 cycle count is the thing that grows, and 50,000 cycles is more start/stop than an hour of manual use.]
 
 **M8 — Filesystem tools (new scope, not a port; not counted in the total below).** The user wants Celeste to read and write

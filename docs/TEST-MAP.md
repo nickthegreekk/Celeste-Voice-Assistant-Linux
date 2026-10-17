@@ -93,15 +93,15 @@ four socket fixtures this triage found portable.
 | Upstream file | What it tests | Port-side target | Lines |
 |---|---|---|---:|
 | `AssistantReplayRoutingInstrumentedTest.kt` | Replay re-synthesises through the gateway voice | Audio/TTS + gateway seams with fake playback | 346 |
-| `AssistantServiceConcurrencyInstrumentedTest.kt` | Overlapping model fetches preserve live statuses | Ported core + held loopback responses | 427 |
+| `AssistantServiceConcurrencyInstrumentedTest.kt` | Overlapping model fetches preserve live statuses | **Ported** as `AssistantServiceConcurrencyTest` (3): live-map read-modify-write, the Cline double-decrement, and the Main hop for health writes | 427 |
 | `AudioFocusDelayedRetryInstrumentedTest.kt` | Delayed audio focus retried within a bound | Audio-focus seam with an injected framework answer | 345 |
 | `CloudVoiceHistoryInstrumentedTest.kt` | Cloud voice turns record the transcript and carry history to all three providers | Service chat core + `FakeProviderServer` | 479 |
 | `ComfyImageInstrumentedTest.kt` | ComfyUI submit → poll → download, cancel, no file on failure | Ported core + a ComfyUI stub fixture | 817 |
 | `Fix4StreamingDotsInstrumentedTest.kt` | Thinking dots hide once streamed text exists | UI half to the Compose runner; state via ported core | 547 |
 | `Fix6NumCtxOverflowInstrumentedTest.kt` | Over-budget requests refused before sending | Budget logic on the ported core; UI half to the runner | 837 |
 | `GatewayCredentialResolutionInstrumentedTest.kt` | Trailing-slash/name backend URLs resolve credentials; unresolvable sends nothing | Config resolution on the ported core | 551 |
-| `GatewayTestVoiceSupersedeInstrumentedTest.kt` | A superseded test-voice turn does not force IDLE or leak focus | State/focus ownership + focus seam | 499 |
-| `H3StaleStreamUnwindInstrumentedTest.kt` | A stale stream unwind does not blank the newer placeholder | Streaming state machine on the ported core | 540 |
+| `GatewayTestVoiceSupersedeInstrumentedTest.kt` | A superseded test-voice turn does not force IDLE or leak focus | **Ported in part** as `GatewayTestVoiceSupersedeTest` (2): the state-ownership case and its control. The focus case is dropped with its subject — §9 deletes the audio-focus stack, so there is no retained focus to leak | 499 |
+| `H3StaleStreamUnwindInstrumentedTest.kt` | A stale stream unwind does not blank the newer placeholder | **Ported** as `H3StaleStreamUnwindTest` (2) over `SteppedNdjsonServer`: the stale unwind and the lone-turn control | 540 |
 | `ImageGenAuthInstrumentedTest.kt` | Basic auth on generate/regenerate/test-connection | Image-gen flow + A1111 stub | 416 |
 | `ImageGenBackendMismatchInstrumentedTest.kt` | 404/405 diagnosed as the other backend only when its probe succeeds | Probe logic on the ported core | 355 |
 | `ImageGenSaveProbeInstrumentedTest.kt` | Save probes the backend-appropriate endpoint | Save path through the ported core | 210 |
@@ -224,12 +224,21 @@ blockers rather than left implied.
 | `ComfyRestartMidJobTest` | 1 | ComfyUI dies between the submit and the history poll (a real loopback server stopped mid-run): the run fails with "stopped responding" at once instead of polling a dead socket for the ten-minute budget. The four-failure streak is the loop's own contract; the refusal is a real connection where a scripted 500 would have tested a different branch. |
 | `GatewaySynthesisTest` | 3 | The gateway's `/synthesize` leg over real HTTP: audio plus the `X-Word-Timestamps-B64` header on a non-JSON response; a 200 `application/json` "no voice for this language" note reported with its note, engine and detected language; and empty text sending nothing. The content-type branch is the point — a canned `GatewaySpeech` would not exercise the decision between a WAV body and a JSON decision. |
 
+Since that table, M7 has landed the desktop Compose runner and its six ports (65 UI tests:
+`ComposeUiSmokeTest`, `SettingsCategoryListComposeTest`, `HeaderPersonaTapComposeTest`,
+`AdaptiveThemeTest`, `ChatMessageImageTapTest`, `ModelPickerComposeTest`,
+`ModelsScreenComposeTest`), and the first of the seam rewrites from the triage table: the name
+identity group (`PersonaNameGuardTest`, `PersonaNameUniquenessTest`), room persistence
+(`RoomPersistenceTest`), server identity (`ServerIdentityTest` byte-identical plus
+`ServerIdentityServiceTest`), and the conversation-state group (`H3StaleStreamUnwindTest`,
+`AssistantServiceConcurrencyTest`, `GatewayTestVoiceSupersedeTest`). Their fixtures
+(`SteppedNdjsonServer` and the held loopback servers) are JVM loopback stubs; no instrumented
+runner is involved.
+
 **Still open in M7, with the reason:**
 
-- **Desktop UI tests** need Compose's test runtime on the classpath (`runComposeUiTest`), which is a
-  new dependency. AGENTS.md §10 makes that a stop-and-ask, so it is not added by this hardening
-  pass.
-- **The triaged instrumented tests are not ported yet.** The per-file table above decides each
-  one's fate; landing them belongs with the milestone that reaches their area.
+- **The remaining triaged instrumented tests.** The per-file table above decides each one's
+  fate; the **Ported** rows are what has landed, and the rest land with the milestone that
+  reaches their area.
 - **No Secret Service**: moot rather than missing — seam 8 is not in v1 (PLAN.md §5a), so
   credentials are the 0600 settings file and there is no daemon whose absence can fail a start.
