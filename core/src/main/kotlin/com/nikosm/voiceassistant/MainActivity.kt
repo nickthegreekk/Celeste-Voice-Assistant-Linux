@@ -224,22 +224,28 @@ fun PersonaSettings(
         }
     } else {
         val (index, persona) = editingPersona!!
-        PersonaEditor(
-            persona = persona,
-            onSave = { updated ->
-                if (index == -1) {
-                    service.addPersona(updated)
-                    // Switch from "add" to "edit" mode for this persona
-                    val newIdx = service.personas.value.indexOf(updated)
-                    if (newIdx != -1) editingPersona = newIdx to updated
-                } else {
-                    service.updatePersona(index, updated)
-                }
-            },
-            onDelete = if (index != -1) { { service.removePersona(index); editingPersona = null } } else null,
-            onCancel = { editingPersona = null },
-            service = service
-        )
+        // M17: the editor is its own window; Settings stays on the persona list behind it.
+        EditorWindow(
+            title = if (index == -1) "New persona" else "Edit ${persona.name}",
+            onClose = { editingPersona = null },
+        ) {
+            PersonaEditor(
+                persona = persona,
+                onSave = { updated ->
+                    if (index == -1) {
+                        service.addPersona(updated)
+                        // Switch from "add" to "edit" mode for this persona
+                        val newIdx = service.personas.value.indexOf(updated)
+                        if (newIdx != -1) editingPersona = newIdx to updated
+                    } else {
+                        service.updatePersona(index, updated)
+                    }
+                },
+                onDelete = if (index != -1) { { service.removePersona(index); editingPersona = null } } else null,
+                onCancel = { editingPersona = null },
+                service = service
+            )
+        }
     }
 }
 

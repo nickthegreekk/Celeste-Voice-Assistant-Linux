@@ -447,7 +447,10 @@ fun RoomSettings(
             }
         }
     } else {
-        RoomEditor(room = editingRoom, personas = personas, onClose = { editingRoomId = null }, service = service)
+        // M17: the room editor is its own window; Settings stays on the room list.
+        EditorWindow(title = "Edit ${editingRoom.name}", onClose = { editingRoomId = null }) {
+            RoomEditor(room = editingRoom, personas = personas, onClose = { editingRoomId = null }, service = service)
+        }
     }
 }
 

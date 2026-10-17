@@ -240,12 +240,15 @@ fun SkillSettings(
             NewSkillRow(accentColor = currentThemeColor, onClick = { createSkill() })
         }
     } else {
-        SkillEditor(
-            skill = editingSkill,
-            personas = personas,
-            onClose = { editingSkillId = null },
-            service = service
-        )
+        // M17: the skill editor is its own window; Settings stays on the library list.
+        EditorWindow(title = "Edit ${editingSkill.name}", onClose = { editingSkillId = null }) {
+            SkillEditor(
+                skill = editingSkill,
+                personas = personas,
+                onClose = { editingSkillId = null },
+                service = service
+            )
+        }
     }
 }
 

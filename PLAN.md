@@ -1942,6 +1942,12 @@ chat list is now a centred reading column capped at 960 dp with a visible `Verti
 Enter sends / Shift+Enter newlines from the composer while Escape closes a dialog or stops a live turn. Hover states
 and focus rings move to the interaction slice, where the same pass touches every clickable row.]
 
+[Progress, 2026-10-17 — slice 3, editors as windows. `EditorWindow` (a `DialogWindow` with its own title bar, close
+button and the scrolling parent the editors expect) now hosts the persona, room and skill editors; Settings stays on
+its list behind them, and both the window's close button and the editor's Done/Cancel call the same onClose. The
+server/image-gen add and edit forms are still the `AlertDialog`s inside the Settings window and move with the
+interaction slice.]
+
 **Total: 33–50 focused days** (about 4–8 weeks full time, 3–5 months at evenings and weekends).
 A first usable milestone is **M2**: roughly **15–23 days**.
 
