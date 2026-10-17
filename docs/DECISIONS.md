@@ -13,6 +13,34 @@ not stop for it. Stop only for the four cases listed in AGENTS.md §10.
 
 ---
 
+## 2026-10-17 — MCP v1: both transports, per-server trust, main chat only
+
+The user chose MCP as the next capability — *"the app as is now is a portal to a server(s)"* — and answered the three
+scope questions of the design pass. **Decided: v1 speaks both stdio and Streamable HTTP; a tool call asks once and the
+server can then be trusted until revoked; tools are offered in the main chat only.** The design lives in PLAN.md §10's
+M9 entry; this records why the forks went the way they did.
+
+**Both transports**, because both kinds of server are real on this machine: local binaries (a filesystem, git or sqlite
+server) are stdio, and the sidecars this user already runs on another host are HTTP. Rejected stdio-only — it would
+exclude the servers that live on the home server — and HTTP-only, which would lose every local server binary. No new
+Gradle dependency: `org.json` speaks JSON-RPC and OkHttp, already used by the cloud providers, speaks HTTP.
+
+**Per-server trust, not a prompt per call and not trust by configuration.** It is the M8 write gate's shape, so the user
+already knows how it behaves: the first call shows the server, the tool and its arguments; *always allow* persists and is
+revoked from the same screen; **a server whose command, args or URL is edited loses its grant**, because it is not the
+same server any more. Ask-on-every-call would make reads unusable in a conversation; automatic trust would let a model
+act on the machine on the strength of a settings entry alone.
+
+**Main chat only**, the M8 narrowing: a room has no single user to answer a confirmation, and a spontaneous turn has
+nobody there at all. The gateway-route refusal widens from "has a workspace" to "has tools", for the reason it gave
+there — the gateway assembles the system prompt and cannot offer tools.
+
+**Trust is not in the backup; server definitions are.** The settings file is mode 0600 and already carries provider keys,
+so an MCP server's env and headers travel with it as those keys do — but a grant to run tools on this machine is a
+permission, and a restored backup must not confer one. It is the same line M8 drew for `trusted_fs_roots`.
+
+→ PLAN.md §10 (M9)
+
 ## 2026-10-17 — A shutdown that hangs must not leave the service running
 
 While installing the theme fix, an old windowed instance was told to quit with SIGTERM — the usual `pkill -x

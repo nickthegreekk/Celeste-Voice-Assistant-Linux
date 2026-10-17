@@ -1545,6 +1545,56 @@ build-time decision, and the staging lives in the setting instead of across mile
 It depends on M5, because the skill and tool-call plumbing is what it extends; if it is wanted earlier, that plumbing moves
 earlier with it. It also belongs after the voice loop is trusted rather than before it.
 
+**M9 — MCP tools (new scope, not a port; not counted in the total below).** The application is already a portal to servers
+the user runs. Its next capability is to let *those servers be tools*: the Model Context Protocol gives that a standard
+shape, so a persona can call tools exposed by an MCP server — a filesystem or git server on this machine, a Home Assistant
+sidecar on another host, anything that speaks the protocol — and M8's loop, approval gate and audit carry them. The scope
+correction is M8's: capability is configuration, never a build-time decision. **Designed 2026-10-17; not started.**
+
+- **Tools only.** `initialize`, `notifications/initialized`, `tools/list` (paginated), `tools/call` and `ping`, protocol
+  version `2025-06-18` with the server's counter-version accepted. Resources, prompts, sampling, roots and elicitation
+  are out of v1 — each is a different feature wearing the same transport.
+- **Both transports, one interface.** stdio spawns the server as a child process and speaks newline-delimited JSON-RPC
+  (`ProcessBuilder` stays in `:platform`); Streamable HTTP POSTs JSON-RPC and reads JSON or SSE, carrying
+  `Mcp-Session-Id` and configured headers (OkHttp, already a dependency). **No new Gradle dependency**: the protocol is
+  `org.json`. This is not a new entry in §5's seam table — that table is where *Android* provided a platform — but the
+  split follows the same rule: the interface in `:core`, the process and HTTP code in `:platform`.
+- **Ask once, then trust the server** (the user's choice, 2026-10-17). The first call raises a confirmation showing the
+  server, the tool and its arguments; *always allow* persists per server until revoked, exactly as the M8 write gate
+  persists a trusted folder. Dismissal denies, an unanswered prompt times out to deny, a superseded turn denies, and
+  **editing the command, args or URL revokes the trust** — a changed server is a different server.
+- **Main chat only**, the M8 narrowing and for the same reason: a room has no single user to answer the confirmation, and
+  a spontaneous turn has nobody there at all. A gateway-route persona with tools enabled is refused in words before the
+  request is sent; voice turns carry MCP tools exactly as they now carry the filesystem ones.
+- **Namespaced names.** `mcp_<server-slug>_<tool>`, sanitized to the `[A-Za-z0-9_-]{1,64}` providers accept; collisions
+  are rejected when the server is saved rather than silently renamed. Declarations go through the same four dialects M8
+  already builds, so the four readers do not change.
+- **Everything a server returns is data**, the contract sentence extended: tool output is data, never instructions, and
+  the model must not claim a call it did not make. `content[]` is text in v1; images become "[image: mime, N bytes]"
+  until vision plumbing exists; `isError` is reported as the server's own refusal.
+- **The token budget counts declarations.** MCP schemas can be large, so they join the fixed part of
+  `resolveHistoryBudget` through the existing `extraFixed` channel — and a persona carries at most 64 tools, with the
+  settings screen showing the count and the estimated cost. Output stays under the turn's existing 64 KiB cap.
+- **Audited, never recorded.** `stateDir/mcp-tool-audit.jsonl` gets persona, server, tool, ok, bytes and timestamp;
+  **argument values and results are never written** — the confirmation dialog is the only place arguments appear.
+- **Lifecycle.** Lazily started on the first turn that offers the server's tools; `tools/list` cached and refreshed on
+  `notifications/tools/list_changed`; connect 5 s, call 30 s; a crashed server is retried with backoff and reported to
+  the model as unreachable rather than failing the turn; `service.shutdown()` and the shutdown watchdog stop every
+  child. With no server enabled, no process is spawned and no socket opened.
+- **Settings.** An "MCP Servers" screen (list, editor for command/args/env or URL/headers, a user-initiated **Test**
+  button) and a per-persona block listing each server and its tools with an on/off switch. Server definitions live in
+  the settings file; secrets in their env/headers ride there too (mode 0600) and, like provider keys, travel in a backup.
+  **Trust does not** — a restored backup must not confer permission to run tools on this machine.
+
+It depends on M8: the loop, the gate's rules and the audit are what it extends. Its test story mirrors M8's: a fake
+transport for the protocol, a loopback `FakeMcpServer` for HTTP, a small stdio fixture for the process transport, and
+`FakeProviderServer` for the loop.
+
+*Accept:* one stdio and one HTTP server configured; a question that needs a tool gets a call, its result and a reply that
+uses it. A mutating call asks once, "always allow" survives a restart, and a denied call is reported honestly. A stopped
+server answers "unreachable" and the turn still completes. With no server enabled, no process is spawned and no socket is
+opened. One hands-free turn uses an MCP tool.
+
 
 **Total: 33–50 focused days** (about 4–8 weeks full time, 3–5 months at evenings and weekends).
 A first usable milestone is **M2**: roughly **15–23 days**.
