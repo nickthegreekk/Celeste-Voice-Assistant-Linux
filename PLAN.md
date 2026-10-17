@@ -1561,8 +1561,11 @@ on timeout, deny on a superseded turn) and the audit; and the loop integration o
 Ollama and cloud — with the gateway refusal widened from "has a workspace" to "has tools". No package has been rebuilt
 with M9 yet, and the feature is unreachable from the UI until the screen below lands.
 
-**Remaining:** the MCP Servers settings screen (list, editor, Test), the per-persona server toggles in the persona
-editor, the confirmation dialog's host, a package rebuild, and the live acceptance the *Accept* line above names.
+**Remaining: the live acceptance and nothing else.** The settings screen (list, editor, Test), the per-persona toggles,
+the confirmation dialog's host and both packages landed the same day — Arch 12:09, `.deb` 12:11, each verified by
+extraction. The acceptance needs a real MCP server: one stdio and one HTTP server configured, a tool-using turn, an
+asked-then-trusted call surviving a restart, a denied call reported honestly, a stopped server answered as unreachable,
+and one hands-free turn.
 
 - **Tools only.** `initialize`, `notifications/initialized`, `tools/list` (paginated), `tools/call` and `ping`, protocol
   version `2025-06-18` with the server's counter-version accepted. Resources, prompts, sampling, roots and elicitation
