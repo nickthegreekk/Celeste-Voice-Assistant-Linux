@@ -58,7 +58,12 @@ object StderrLogger : AppLogger {
             LogLevel.ERROR -> Level.SEVERE
             LogLevel.ASSERT -> Level.SEVERE
         }
-        if (error == null) logger.log(jul, message) else logger.log(jul, message, error)
+        // **The tag rides in the message**, because java.util.logging's default formatter prints the
+        // *source class and method*, not the logger's name — so `logger.i("FsTools", …)` reached stderr
+        // as a bare "INFO: write_file …" and journald had nothing to filter on. Measured on
+        // 2026-10-17: a live monitor watching for "FsTools" could not see a single tool call.
+        val line = "[$tag] $message"
+        if (error == null) logger.log(jul, line) else logger.log(jul, line, error)
     }
 }
 
