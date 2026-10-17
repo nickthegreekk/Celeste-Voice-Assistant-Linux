@@ -147,16 +147,18 @@ blockers rather than left implied.
 |---|---:|---|
 | `ServiceSoakTest` | 1 | Repeated `start()`/`shutdown()` over one fixture leaks no service-named threads and no file descriptors. Default 25 cycles in the suite; `CELESTE_SOAK_CYCLES=50000` ran 50,000 cycles green on 2026-10-17 (40 s), which is far more start/stop cycles than the acceptance's hour would exercise at human speed. The descriptor check reads `/proc/self/fd` and skips on systems without procfs; the thread check counts only names the service owns (`celeste`, `spontaneous`, `commandrunner`, `mcp-`, `pw-`, audio helpers) and deliberately excludes the JVM-wide `Dispatchers.IO` pool, which grows to load and stays. |
 | `VoiceErrorPathTest` | 1 | The gateway being down when the user speaks produces a **readable error bubble** in the transcript and leaves the application running — the failure a user meets first. The URL is a closed loopback port, so the refusal is immediate and no real service is involved. The exact sentence is deliberately not pinned beyond "it names the connection": which layer reports the refusal depends on whether the transcription call throws or returns null, and both are honest. |
+| `NoMicrophoneTest` | 1 | The capture seam refusing to open: the recorder reports it **exactly once**, stops monitoring, never asks the detector about audio that does not exist, and calls neither speech callback. The second log line this test denies is the hot loop the recorder's own comment records from before the fix. The detector is a fake, which is why `SpeechDetector` was extracted — the real `VADDetector` loads ONNX in its constructor. |
+| `ComfyRestartMidJobTest` | 1 | ComfyUI dies between the submit and the history poll (a real loopback server stopped mid-run): the run fails with "stopped responding" at once instead of polling a dead socket for the ten-minute budget. The four-failure streak is the loop's own contract; the refusal is a real connection where a scripted 500 would have tested a different branch. |
 
 **Still open in M7, with the reason:**
 
 - **Desktop UI tests** need Compose's test runtime on the classpath (`runComposeUiTest`), which is a
   new dependency. AGENTS.md §10 makes that a stop-and-ask, so it is not added by this hardening
   pass.
-- **No microphone**: the capture-open failure path lives in the VAD loop and needs the audio-device
-  fakes extended to a device that refuses to open. It is a small test once that fake exists.
-- **ComfyUI restarted mid-job**: needs a scriptable ComfyUI history endpoint (the job poller is the
-  code under test); `FakeProviderServer` is generic enough to grow one.
+- **The fake gateway's synthesis leg**: `FakeProviderServer` serves `/transcribe`, and the chunked
+  TTS sequencer is tested against a fake `synthesize` lambda, but no test drives `/synthesize` over
+  HTTP end to end. The leg that matters (sequencing, cancel, progress) is covered at the seam; the
+  remaining gap is the HTTP shape.
 - **No Secret Service**: moot rather than missing — seam 8 is not in v1 (PLAN.md §5a), so
   credentials are the 0600 settings file and there is no daemon whose absence can fail a start.
 - **The 59 instrumented tests** still have no per-file triage. The categories are written down above;

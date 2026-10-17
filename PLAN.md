@@ -1521,13 +1521,17 @@ Service, ComfyUI restarted mid-job), `docs/TEST-MAP.md`.
 
 [Progress, 2026-10-17 — the hardening pass the user asked for after M16. **The soak harness exists and runs green at
 50,000 cycles in 40 s** (`ServiceSoakTest`; the suite default is 25, `CELESTE_SOAK_CYCLES` is the long run), asserting no
-service-named thread growth and no descriptor growth on `/proc/self/fd`. The first error path — **the gateway being down
-when the user speaks** — is covered by `VoiceErrorPathTest`: a readable error bubble in the transcript, no crash, against
-a closed loopback port. "No Secret Service" is recorded as moot (seam 8 is not in v1; credentials are the 0600 file).
-Still open, with reasons in `docs/TEST-MAP.md`: desktop UI tests need Compose's test runtime, a new dependency and
-therefore a stop-and-ask; the no-microphone path needs a refusing audio-device fake; the ComfyUI-mid-job path needs a
-scriptable history endpoint; and the 59 instrumented tests still need their per-file triage. The one-hour acceptance is
-not claimed: the cycle count is the thing that grows, and 50,000 cycles is more start/stop than an hour of manual use.]
+service-named thread growth and no descriptor growth on `/proc/self/fd`. Three error paths are covered: **the gateway being
+down when the user speaks** (`VoiceErrorPathTest`: a readable error bubble, no crash, closed loopback port); **no
+microphone** (`NoMicrophoneTest`: the capture seam refuses, the recorder reports once and stops rather than retrying into a
+hot loop — this is what `SpeechDetector` was extracted for, since the real detector loads ONNX in its constructor); and
+**ComfyUI restarted mid-job** (`ComfyRestartMidJobTest`: a real loopback server stopped between submit and poll, the run
+fails with "stopped responding" instead of waiting out the ten-minute budget). "No Secret Service" is recorded as moot
+(seam 8 is not in v1; credentials are the 0600 file). Still open, with reasons in `docs/TEST-MAP.md`: desktop UI tests need
+Compose's test runtime, a new dependency and therefore a stop-and-ask; the fake gateway's `/synthesize` leg has no HTTP
+end-to-end test (the sequencing is covered at the seam); and the 59 instrumented tests still need their per-file triage.
+The one-hour acceptance is not claimed: the cycle count is the thing that grows, and 50,000 cycles is more start/stop than
+an hour of manual use.]
 
 **M8 — Filesystem tools (new scope, not a port; not counted in the total below).** The user wants Celeste to read and write
 files on this machine so the assistant can be used as a local agent, **and the app's user chooses where and how**: a

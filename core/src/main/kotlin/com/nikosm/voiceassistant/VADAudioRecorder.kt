@@ -52,7 +52,7 @@ import kotlin.concurrent.Volatile
  */
 class VADAudioRecorder(
     private val capture: AudioCapture,
-    private val detector: VADDetector,
+    private val detector: SpeechDetector,
     private val cacheDir: Path,
     private val scope: CoroutineScope,
     /**

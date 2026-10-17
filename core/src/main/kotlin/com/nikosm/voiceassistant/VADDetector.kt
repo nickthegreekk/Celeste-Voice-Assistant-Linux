@@ -7,6 +7,20 @@ import java.nio.FloatBuffer
 import java.nio.LongBuffer
 
 /**
+ * What the recorder needs from a speech detector: a probability for one chunk, and a reset between
+ * utterances. Extracted for M7 so the recorder's failure paths — no microphone above all — can be
+ * driven by a fake instead of constructing the ONNX session; [VADDetector] is the only production
+ * implementation.
+ */
+interface SpeechDetector {
+    /** Probability of speech in [samples], in `[0, 1]` (or a logit — see [VADDetector]). */
+    fun isSpeech(samples: FloatArray): Float
+
+    /** Forget the recurrent state between utterances. */
+    fun reset()
+}
+
+/**
  * Silero VAD through ONNX Runtime — seam 4 (PLAN.md §5).
  *
  * **This file needs no interface and no `:platform` implementation, and that is the seam's point.**
@@ -31,7 +45,7 @@ import java.nio.LongBuffer
  * a global `android.util.Log`: this is constructed by the service before anything else is wired,
  * and it has no environment to be handed.
  */
-class VADDetector {
+class VADDetector : SpeechDetector {
 
     private val env = OrtEnvironment.getEnvironment()
     private var session: OrtSession? = null
@@ -73,7 +87,7 @@ class VADDetector {
         }
     }
 
-    fun isSpeech(samples: FloatArray): Float = synchronized(stateLock) {
+    override fun isSpeech(samples: FloatArray): Float = synchronized(stateLock) {
         val s = session ?: return 0f
 
         val container = mutableMapOf<String, OnnxTensor>()
@@ -128,7 +142,7 @@ class VADDetector {
         }
     }
 
-    fun reset() {
+    override fun reset() {
         synchronized(stateLock) { state.fill(0f) }
     }
 
