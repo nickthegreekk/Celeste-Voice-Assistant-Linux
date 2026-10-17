@@ -1347,6 +1347,14 @@ desktop. `dark_theme` is now a stored boolean defaulting to on, collected at the
 repaints immediately, with a **Dark theme** switch in Settings → General → Appearance. It is a device preference and
 stays out of the backup allowlist, like the window size.
 
+**A SIGTERM could leave a wedged service behind** (2026-10-17, found while diagnosing the theme). An instance told to
+quit before an upgrade was still alive forty minutes later: **61 threads, no window and no instance lock** — the
+lock's hook had completed while another never returned — so a relaunch was accepted and two microphone owners ran at
+once. The windowed path had no service teardown hook (only `--headless` did), leaving the service and its ONNX session
+alive while ONNX Runtime's own hook ran; both paths now register the teardown hook, `shutdown()` is idempotent, and
+`ShutdownWatchdog` halts the process ten seconds after shutdown begins if any hook is still stuck (a plain thread
+started by a hook, so a normal exit is not delayed).
+
 **Chat memory is sized for a desktop: 2000 stored messages, and a 128k context ceiling.** The 200-message cap was the
 Android app's, and the persona slider stopped at 32768. Both were raised at the user's request; the second matters
 because the request budget is measured against `persona.numCtx`, so raising the transcript alone would still send the

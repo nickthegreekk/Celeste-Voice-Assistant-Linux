@@ -13,6 +13,29 @@ not stop for it. Stop only for the four cases listed in AGENTS.md §10.
 
 ---
 
+## 2026-10-17 — A shutdown that hangs must not leave the service running
+
+While installing the theme fix, an old windowed instance was told to quit with SIGTERM — the usual `pkill -x
+celeste-linux` before an upgrade — and was still alive forty minutes later: **61 threads, the service's executors and the
+AWT event queue among them, no window in X11's client list, and no instance lock on disk.** The lock's own hook had
+completed (which is why the relaunch that followed was accepted) while another hook never returned. The JVM was inside
+shutdown with its service still able to listen.
+
+**Two holes are certain, whatever the stuck hook was.** The windowed path had *no* service teardown hook — only
+`--headless` registered one — so on SIGTERM the service, the audio subprocesses and the ONNX VAD session were alive while
+ONNX Runtime's own shutdown hook ran; that is the most plausible source of the wedge, and it is fixed at the source:
+`Main` registers the same `service-teardown` hook on the windowed path, and `AssistantService.shutdown()` became
+idempotent because the ordinary close already calls it. **And a shutdown that hangs must still end**: `ShutdownWatchdog`
+starts a plain daemon thread from a hook, gives the ordinary hooks ten seconds, then `Runtime.halt`s.
+
+**Rejected: making the watchdog itself a shutdown hook.** The JVM waits for *every* hook before it halts, so a sleeping
+hook would add its grace period to every clean quit. A thread started by a hook does not hold the JVM open — the JVM
+halts as soon as the hooks finish and the thread dies with it — and it still runs while another hook is stuck.
+**Rejected: relying on the user to `kill -9` a wedged process** — the failure mode left two microphone owners running,
+which is exactly the hazard the instance lock exists for.
+
+→ PLAN.md §10 (M8's note), `Main.kt`, `AssistantService.kt`, `ShutdownWatchdog.kt`
+
 ## 2026-10-17 — The window opens dark: the theme is a stored choice with a dark default
 
 The first desktop day ended with a white window on a dark desktop. The cause is not a styling choice:

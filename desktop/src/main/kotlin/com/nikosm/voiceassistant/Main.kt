@@ -24,6 +24,7 @@ import com.nikosm.voiceassistant.linux.ProcessAudioCapture
 import com.nikosm.voiceassistant.linux.LinuxAudioDevices
 import com.nikosm.voiceassistant.linux.PwPlayback
 import com.nikosm.voiceassistant.linux.ProcessTextToSpeech
+import com.nikosm.voiceassistant.linux.ShutdownWatchdog
 import com.nikosm.voiceassistant.linux.SingleInstance
 import com.nikosm.voiceassistant.linux.SystemLookAndFeel
 import com.nikosm.voiceassistant.ui.theme.VoiceAssistantTheme
@@ -91,6 +92,10 @@ fun main(args: Array<String>) {
     val instance = SingleInstance.acquire(appEnv.stateDir, appEnv.logger)
     if (instance == null) exitProcess(1)
     Runtime.getRuntime().addShutdownHook(Thread({ instance.close() }, "instance-lock-release"))
+    // A shutdown hook that never returns used to leave a wedged process with no window, no lock and
+    // its service still alive — see ShutdownWatchdog's KDoc for the measured instance. Armed here,
+    // before either the windowed path or `--headless` branches, so both are covered.
+    ShutdownWatchdog.install()
 
     val settingsManager = SettingsManager(
         appEnv = appEnv,
@@ -199,6 +204,14 @@ fun main(args: Array<String>) {
         CountDownLatch(1).await()
         return
     }
+
+    // SIGTERM is how an upgrade, a terminal kill or a launcher restart ends this process, and it
+    // does not call `onCloseRequest`. Without this hook the service would keep the microphone and
+    // the ONNX session while the JVM shuts down — measured 2026-10-17: a SIGTERM'd windowed
+    // instance was alive forty minutes later, with no window and no lock, while a relaunch was
+    // accepted. The headless path has had the same teardown since M4; `shutdown()` is idempotent,
+    // so the ordinary close (which calls it too) is unaffected.
+    Runtime.getRuntime().addShutdownHook(Thread({ service.shutdown() }, "service-teardown"))
 
     // Before any window exists, and only on the path that opens one: tell AWT what to call this
     // application in X11's `WM_CLASS`, which is the name a dock matches a window against to find the

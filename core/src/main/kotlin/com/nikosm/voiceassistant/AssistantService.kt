@@ -233,6 +233,14 @@ class AssistantService(
     val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
     /**
+     * Set by the first [shutdown]. Two callers now reach that teardown on an ordinary close — the
+     * window's close handler and the process-exit hook — and a second pass would re-release the
+     * TTS engine and re-close the VAD detector, which are only safe once.
+     */
+    @Volatile
+    private var shutDown = false
+
+    /**
      * The chunked-TTS sequencing, extracted from `AssistantServiceAudio.kt` (PLAN.md §5's extraction
      * rule; the reasoning is in `TtsChunkSequencer`'s own KDoc and in `docs/PROVENANCE.md`).
      * Constructed here because the service owns its lifetime, not the per-turn code.
@@ -2526,6 +2534,10 @@ class AssistantService(
      * went with the subsystem it belonged to.
      */
     fun shutdown() {
+        // Idempotent, because a normal close reaches here and the process-exit hook reaches it
+        // again. See [shutDown].
+        if (shutDown) return
+        shutDown = true
         // C1: final synchronous flush — if the service is torn down inside the debounce
         // window, the pending state must reach disk before anything is cancelled.
         // Serialized against an in-flight debounced write via the same mutex.
