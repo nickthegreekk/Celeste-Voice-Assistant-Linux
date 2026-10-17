@@ -115,8 +115,8 @@ four socket fixtures this triage found portable.
 | `PersonaNameUniquenessInstrumentedTest.kt` | Duplicate add/rename refused; victim's history preserved | **Ported** as `PersonaNameUniquenessTest` (7), with `PersonaNameGuardTest` (7) covering the pure half | 265 |
 | `PersonaSelectionInstrumentedTest.kt` | Selection follows switch/edit/rename/delete/deep link/room exit | **Ported** as `PersonaSelectionTest` (15): every path, plus the picker leaving room mode | 430 |
 | `PersonaSwitchStopsPlaybackInstrumentedTest.kt` | Switch/clear stops chunked playback | **Ported** as `PersonaSwitchStopsPlaybackTest` (3) over `FakeAudioPlayback`; the republish window advances the virtual clock | 654 |
-| `RoomAutoScrollInstrumentedTest.kt` | Opens at newest, follows streaming, stable identity | UI half to the runner; room state via the core | 377 |
-| `RoomEditorUiPersistenceInstrumentedTest.kt` | Room name/cap/reorder persist on close/Done/back | Editor commit to the settings seam | 387 |
+| `RoomAutoScrollInstrumentedTest.kt` | Opens at newest, follows streaming, stable identity | **Ported** as `RoomAutoScrollTest` (5); the screenshot half drops. The grow-in-place case found a port timing defect — the refine measured the pre-growth layout — fixed with a frame wait | 377 |
+| `RoomEditorUiPersistenceInstrumentedTest.kt` | Room name/cap/reorder persist on close/Done/back | **Ported** as `RoomEditorUiTest` (5) on the desktop runner, read back from the store | 387 |
 | `RoomPersistenceInstrumentedTest.kt` | Room edits survive a write-read cycle | **Ported** as `RoomPersistenceTest` (5) | 238 |
 | `RoomRoundLoopInstrumentedTest.kt` | Order, cap, local-only autonomy, stop, supersede | **Ported** as `RoomRoundLoopTest` (8) over `RoomTurnServer`: every property above plus the editor-parser cap cases | 919 |
 | `ServerIdentityInstrumentedTest.kt` | Server rename rewrites favourites/personas/cache | **Ported** as `ServerIdentityServiceTest` (10), with the pure half as the byte-identical `ServerIdentityTest` (15) | 351 |
@@ -243,8 +243,8 @@ persona/editor group (`PersonaEditorCommitTest`, `PersonaEditorEmptyListsTest`,
 `HandsFreeToggleTest` (2)), the replay/reveal pair (`AssistantReplayRoutingTest`,
 `Stage2RevealStateTest` (4)), the spontaneous group (`SpontaneousWriteGuardTest` (8),
 `SpontaneousTurnServiceTest` (4), `SpontaneousDeepLinkTest` (3), `SpontaneousEditorUiTest` (4),
-`SpontaneousDeliveryTest` (10)), and the skills pair (`SkillInjectionTest` (7),
-`SkillUiTest`). Their fixtures (`SteppedNdjsonServer`, `RoomTurnServer`,
+`SpontaneousDeliveryTest` (10)), the skills pair (`SkillInjectionTest` (7),
+`SkillUiTest`) and the room UI pair (`RoomEditorUiTest` (5), `RoomAutoScrollTest` (5)). Their fixtures (`SteppedNdjsonServer`, `RoomTurnServer`,
 `OllamaSuggestionStub`, `ComfyUiStub`, `ImageGenStub`, `ModelCatalogStub`) are JVM loopback
 stubs; no instrumented runner is involved beyond the Compose one.
 

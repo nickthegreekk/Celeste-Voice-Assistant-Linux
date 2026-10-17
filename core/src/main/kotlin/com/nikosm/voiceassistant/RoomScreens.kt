@@ -859,6 +859,13 @@ fun RoomChatArea(
         if (messages.isEmpty()) return@LaunchedEffect
         val lastIndex = messages.size - 1
         listState.scrollToItem(lastIndex)
+        // Wait for the scroll's own layout pass before measuring the item. A streaming chunk
+        // grows the LAST bubble in place, and the refine below reads `visibleItemsInfo`; reading
+        // it in the same frame as the scroll sees the PREVIOUS height and under-scrolls by
+        // exactly the new text's height — the end of the reply stays below the fold until the
+        // next chunk. Measured by RoomAutoScrollTest: without this, a grown reply left
+        // `canScrollForward` true with the last item already in the visible list.
+        androidx.compose.runtime.withFrameNanos { }
         // Refine, as single chat does, so the BOTTOM of a tall final bubble is visible:
         // scrollToItem only guarantees the item's TOP is on screen.
         listState.layoutInfo.visibleItemsInfo.find { it.index == lastIndex }?.let { lastItem ->
