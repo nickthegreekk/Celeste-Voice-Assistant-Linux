@@ -1541,7 +1541,9 @@ the name-identity group (`PersonaNameGuardTest` (7), `PersonaNameUniquenessTest`
 `AssistantServiceConcurrencyTest` (3), `GatewayTestVoiceSupersedeTest` (2) — its focus case dropped because §9 deletes
 the focus stack, so there is no retained focus to leak), the provider/credential group (`GatewayCredentialResolutionTest`
 (4), `MessageStampEchoTest` (1), `SuggestedRepliesDirectOllamaAuthTest` (1) with the ported `OllamaSuggestionStub`, and
-the pure `SuggestedRepliesTest`) and the room loop (`RoomRoundLoopTest` (8): order and
+the pure `SuggestedRepliesTest`), the image-gen group (`ComfyImageTest` (24) over `ComfyUiStub`, `ImageGenAuthTest` (8),
+`ImageGenBackendMismatchTest` (7), `ImageGenSaveProbeTest` (2) on the runner, `ModelCatalogCacheTest` (18) and
+`ModelPickerServiceTest` (4)) and the room loop (`RoomRoundLoopTest` (8): order and
 attribution, the cap exactly, local-only rotating autonomy, Stop removing the blank placeholder, supersede, and the
 three editor-parser cap cases, all against `RoomTurnServer`). The rest of the table decides their fate and belongs with
 the area's milestone. The one-hour acceptance is not claimed: the
