@@ -131,8 +131,13 @@ Once M0 has created the build:
   rewritten at 18:55:26 by a verification build, and a click at 18:56 that opened an image and died
   with `NoClassDefFoundError: FullScreenImageViewerKt` inside a composition. It reads like a defect
   in the code that never ran, which is what makes it expensive: the first diagnosis blamed the image
-  viewer. So check before building — `pgrep -f voiceassistant` — and if the application is up, ask
+  viewer. So check before building — `pgrep -x celeste-linux` — and if the application is up, ask
   before rebuilding. After any build, a running application must be restarted rather than trusted.
+  **[2026-10-17: the check used to say `pgrep -f voiceassistant`, and that misses the installed
+  package entirely — its launcher and process are named `celeste-linux`. That is how a full build
+  ran beside a running application and reported "not running"; it was harmless only because the
+  installed package loads `/usr/lib/celeste-linux`, not the build tree. The rule's failure mode is
+  the `:desktop:run` case above, and that case would have been broken.]**
 - A build that leaves a Gradle daemon, a JDK, a database or an audio subprocess running after the
   session is a bug. Stop what you start.
 - Tests must not depend on a real microphone, a real PipeWire server, a real Voice Gateway or

@@ -1357,7 +1357,9 @@ thing that evaporates if it is only said out loud:
 - **The app's log lines do not carry their tag.** `logger.i("FsTools", …)` prints as `INFO: write_file …` because JUL's
   default formatter prints the source class, not the logger name — so journald has the line but nothing to filter on, and
   a live monitor has to match by message shape. A one-line `Formatter` would fix it.
-- **The `.deb` has not been rebuilt** since 2026-10-17's fixes; the Arch package is current and installed.
+- **The `.deb` has not been *run*.** It was rebuilt on 2026-10-17 11:00 with the theme and chat-memory changes and verified by
+  extraction (the platform jar carries `SystemLookAndFeel`; the Arch package the same), but the Debian test travels with its own
+  machine — the app image embeds a runtime linked against the build host's glibc (PLAN.md §12), and this host is Arch.
 
 **Fixed, with the adjacent gap the check turned up.** The refusal is now asked through `requestRouting` (the same
 classification Rooms and the history stamps use) on both entry points: a text turn and a **spoken** turn for a persona
