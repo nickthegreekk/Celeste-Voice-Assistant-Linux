@@ -1,7 +1,10 @@
 package com.nikosm.voiceassistant.linux
 
+import java.awt.GraphicsEnvironment
+import javax.swing.UIManager
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
@@ -49,5 +52,38 @@ class SystemLookAndFeelTest {
         val chosen = firstInstallable(listOf("gtk", "system")) { false }
 
         assertNull(chosen)
+    }
+
+    /**
+     * **The defect this test exists for, measured live on 2026-10-17.** The installed application
+     * logged `Swing look and feel: …GTKLookAndFeel` at startup, and then its file chooser rendered
+     * as Metal. Skiko — Compose Desktop's renderer — calls
+     * `UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName())` while the application
+     * starts, and on Linux that is Metal; a one-shot install before the window existed was undone
+     * before the first dialog was created. [SystemLookAndFeel.install] is therefore re-asserted at
+     * the point of use, and this drives the same reset the renderer performs.
+     *
+     * It needs a display: the class is a documented no-op headless, and a machine without GTK has
+     * nothing to repair. Both cases skip rather than fail — the alternative is a test that passes
+     * for the wrong reason on a server and fails on a developer's box.
+     */
+    @Test
+    fun `a look and feel reset is repaired at the next point of use`() {
+        if (GraphicsEnvironment.isHeadless()) return
+        if (SystemLookAndFeel.install() != SystemLookAndFeel.GTK_LOOK_AND_FEEL) return
+
+        // Exactly what Skiko does while Compose starts (Actuals_awtKt.setSystemLookAndFeel).
+        UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName())
+        assertTrue(
+            "the reset should have moved the process off GTK, or this test proves nothing",
+            UIManager.getLookAndFeel()?.javaClass?.name != SystemLookAndFeel.GTK_LOOK_AND_FEEL,
+        )
+
+        SystemLookAndFeel.install()
+
+        assertEquals(
+            SystemLookAndFeel.GTK_LOOK_AND_FEEL,
+            UIManager.getLookAndFeel()?.javaClass?.name,
+        )
     }
 }

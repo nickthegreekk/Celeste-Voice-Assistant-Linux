@@ -82,6 +82,11 @@ class AwtFileDialogs(
     ): List<Path> {
         var chosen: List<Path> = emptyList()
         val show = {
+            // **Here, not only at startup.** Skiko (Compose's renderer) resets the process look
+            // and feel to the JDK's system one while the application starts — Metal on Linux — so
+            // a theme installed before the window existed has been replaced by the time a click
+            // opens this dialog. The call is a no-op when GTK is already in force.
+            SystemLookAndFeel.install(logger)
             val chooser = JFileChooser().apply {
                 dialogTitle = title
                 // A chooser opens at the process's working directory by default, which for a

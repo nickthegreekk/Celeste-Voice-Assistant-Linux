@@ -77,6 +77,15 @@ with its own lifecycle, adds a runtime tool the packages would have to declare, 
 and feel does not already do. **Rejected: a hand-rolled dark Swing theme** — the request was to follow the system, not to
 invent a palette and chase it.
 
+**The first packaged attempt still drew a Metal chooser, and the reason is worth keeping.** The log said
+`Swing look and feel: …GTKLookAndFeel` and the dialog was grey: **Skiko, Compose Desktop's renderer, calls
+`UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName())` while the application starts** (measured in
+`skiko-awt` 0.150.2, `Actuals_awtKt.setSystemLookAndFeel`), and on Linux that is Metal. A one-shot install before the
+window existed was undone before the first dialog was created. `install()` is now idempotent — a class-name check makes
+it free when GTK is already in force — and both Swing surfaces re-assert it immediately before building their
+components (`AwtFileDialogs.choose`, `AwtTray.rebuild`). `SystemLookAndFeelTest` performs the same reset and asserts the
+repair, so the next renderer that changes this behaviour fails a test rather than shipping a grey dialog.
+
 **The tray icon itself was not the problem.** It is drawn with an alpha channel (a purple disc), so it sits correctly on
 both light and dark panels — confirmed from a screenshot of the real one on the user's dark panel. What could not follow
 the theme was the menu it opens.

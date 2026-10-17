@@ -29,6 +29,20 @@ import javax.swing.UIManager
  * A machine with no GTK libraries at all is not a failure — the fallback class name is tried, and
  * if neither installs, the JDK default stays and the application still opens its dialogs, in the
  * wrong colours. That is worth one warning, never a failed launch.
+ *
+ * ## It is not a one-shot, because Compose resets it
+ *
+ * **Measured 2026-10-17, from the installed package:** the file chooser rendered as Metal although
+ * the startup log said GTK had been installed. The cause is Skiko, Compose Desktop's renderer:
+ * `org.jetbrains.skiko.Actuals_awtKt.setSystemLookAndFeel()` calls
+ * `UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName())` while the application
+ * starts, which on Linux replaces GTK with Metal. Installing at the window root is therefore too
+ * early — the components created afterwards see Metal.
+ *
+ * So [install] is idempotent and cheap: when the process already runs GTK it returns without doing
+ * anything, and the two surfaces that care — [AwtFileDialogs] and [AwtTray] — call it immediately
+ * before they create their Swing components. The startup call stays for the paths where Skiko
+ * never runs (the headless tray), and for the log line that names the chosen theme.
  */
 object SystemLookAndFeel {
 
@@ -38,6 +52,10 @@ object SystemLookAndFeel {
      * assumed, which is also what makes the fallback meaningful.
      */
     const val GTK_LOOK_AND_FEEL = "com.sun.java.swing.plaf.gtk.GTKLookAndFeel"
+
+    /** Set when both candidates were refused; see [install]'s cheap path. */
+    @Volatile
+    private var gaveUp = false
 
     /**
      * Install the best available look and feel and return its class name, or null when the
@@ -54,6 +72,14 @@ object SystemLookAndFeel {
             logger.d(TAG, "headless: no Swing surfaces to theme")
             return null
         }
+        // The cheap path, and the reason a caller may invoke this at every point of use: if GTK is
+        // already in force nothing is reinstalled. The check is against the *current* look and
+        // feel, not a remembered one, because Skiko resets the process look and feel during
+        // startup (see the class comment).
+        if (UIManager.getLookAndFeel()?.javaClass?.name == GTK_LOOK_AND_FEEL) return GTK_LOOK_AND_FEEL
+        // A JDK that refused GTK once will refuse it every time; retrying per dialog would only
+        // repeat the warning.
+        if (gaveUp) return null
         return try {
             if (EventQueue.isDispatchThread()) {
                 installOnEventThread(logger)
@@ -86,6 +112,7 @@ object SystemLookAndFeel {
             }
         }
         if (chosen == null) {
+            gaveUp = true
             logger.w(TAG, "no look and feel installed; Swing surfaces keep the JDK default")
         } else {
             logger.i(TAG, "Swing look and feel: $chosen")

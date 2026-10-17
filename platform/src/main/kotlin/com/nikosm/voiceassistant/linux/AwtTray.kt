@@ -178,6 +178,10 @@ class AwtTray(
         // open rebuilds it anyway, so a status change while it is open waits rather than swapping
         // the items out from under the pointer.
         if (menu.isVisible) return
+        // Item UIs come from the look and feel in force when the items are created, and Skiko
+        // resets it while Compose starts — see SystemLookAndFeel. The call is cheap when GTK is
+        // already in force.
+        SystemLookAndFeel.install(logger)
         val current = state()
         menu.removeAll()
         trayMenu(current).forEach { item ->

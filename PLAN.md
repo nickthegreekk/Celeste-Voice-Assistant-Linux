@@ -1334,6 +1334,12 @@ shown from a one-pixel `JWindow` anchor because a popup needs an owning `Compone
 offscreen before any of it was written: panel `#383c4a`, light text. Compose Desktop's own `Tray` menu was checked and
 rejected as a replacement — it is the same AWT `PopupMenu` under the hood.
 
+**And the pickers needed a second fix to survive Compose.** The installed package logged GTK at startup and still drew
+a Metal chooser: **Skiko resets the process look and feel to the JDK's system one while Compose starts**
+(`Actuals_awtKt.setSystemLookAndFeel`), which on Linux is Metal. `SystemLookAndFeel.install` is now idempotent and is
+re-asserted at the point of use — immediately before a chooser or tray menu is built — and `SystemLookAndFeelTest`
+drives the same reset and asserts the repair.
+
 **The window itself opens dark by default on a fresh install** (2026-10-17, the same afternoon):
 `VoiceAssistantTheme` defaulted to `isSystemInDarkTheme()`, and on Linux that asks Skiko, whose system-theme probe
 returns UNKNOWN for an Xfce session — mapped to light — so following the system meant always opening white on a dark
