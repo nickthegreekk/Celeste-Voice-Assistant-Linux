@@ -1704,7 +1704,8 @@ one layer up: a status page must ask the same client the traffic uses, or it rep
 **M13 — Transcript search across personas and rooms (new scope, not a port; not counted in the total below).** The
 user picked it from the post-M9 list. The header menu gains **Search chats**: type, and matching messages from every
 persona, every room and the main chat appear newest-first with their speaker, time and a snippet; tapping one opens that
-persona or room. **Built 2026-10-17; live run pending.**
+persona or room. **Built 2026-10-17; the Arch run is green the same day, and the Debian run is deferred to the end of the
+Debian test batch.**
 
 - **No index.** The search decodes the same JSON transcript entries the chat screens read, after a 250 ms pause in
   typing, and throws the results away when the dialog closes. At this size — 2000 messages per persona — a scan is
