@@ -75,32 +75,51 @@ internal const val TOOL_READ = "read_file"
 internal const val TOOL_WRITE = "write_file"
 
 /**
+ * One function the request declares, in provider-neutral terms — name, sentence, JSON Schema.
+ *
+ * The four dialects differ only in how these three fields are arranged, so M9's MCP tools and M8's
+ * filesystem tools travel through one builder ([toolsJsonFor]) and cannot drift in the shapes they
+ * offer the model.
+ */
+internal data class ToolSpec(val name: String, val description: String, val schema: JSONObject)
+
+/** The filesystem tools in [mode], as neutral specs. */
+internal fun fsToolSpecs(mode: FsToolMode): List<ToolSpec> =
+    fsToolNames(mode).map { name -> ToolSpec(name, fsToolDescription(name), fsToolSchema(name)) }
+
+/**
  * The declarations in [provider]'s shape, or null when nothing is offered.
  *
- * The one sentence every description carries — *paths are relative to the workspace root* — is not
- * decoration: the absolute root is deliberately never sent to a provider, so a cloud model cannot
- * learn the user's local path or username, and the tool has to say how a path is spelled instead.
+ * The one sentence every filesystem description carries — *paths are relative to the workspace
+ * root* — is not decoration: the absolute root is deliberately never sent to a provider, so a cloud
+ * model cannot learn the user's local path or username, and the tool has to say how a path is
+ * spelled instead.
  */
-internal fun fsToolsJsonFor(provider: FsToolProvider, mode: FsToolMode): JSONArray? {
-    val names = fsToolNames(mode)
-    if (names.isEmpty()) return null
+internal fun toolsJsonFor(provider: FsToolProvider, specs: List<ToolSpec>): JSONArray? {
+    if (specs.isEmpty()) return null
     return when (provider) {
         FsToolProvider.OLLAMA, FsToolProvider.OPENAI -> JSONArray().apply {
-            names.forEach { name ->
+            specs.forEach { spec ->
                 put(
                     JSONObject()
                         .put("type", "function")
-                        .put("function", JSONObject().put("name", name).put("description", fsToolDescription(name)).put("parameters", fsToolSchema(name))),
+                        .put(
+                            "function",
+                            JSONObject()
+                                .put("name", spec.name)
+                                .put("description", spec.description)
+                                .put("parameters", spec.schema),
+                        ),
                 )
             }
         }
         FsToolProvider.ANTHROPIC -> JSONArray().apply {
-            names.forEach { name ->
+            specs.forEach { spec ->
                 put(
                     JSONObject()
-                        .put("name", name)
-                        .put("description", fsToolDescription(name))
-                        .put("input_schema", fsToolSchema(name)),
+                        .put("name", spec.name)
+                        .put("description", spec.description)
+                        .put("input_schema", spec.schema),
                 )
             }
         }
@@ -109,12 +128,12 @@ internal fun fsToolsJsonFor(provider: FsToolProvider, mode: FsToolMode): JSONArr
                 JSONObject().put(
                     "function_declarations",
                     JSONArray().apply {
-                        names.forEach { name ->
+                        specs.forEach { spec ->
                             put(
                                 JSONObject()
-                                    .put("name", name)
-                                    .put("description", fsToolDescription(name))
-                                    .put("parameters", fsToolSchema(name)),
+                                    .put("name", spec.name)
+                                    .put("description", spec.description)
+                                    .put("parameters", spec.schema),
                             )
                         }
                     },
@@ -123,6 +142,10 @@ internal fun fsToolsJsonFor(provider: FsToolProvider, mode: FsToolMode): JSONArr
         }
     }
 }
+
+/** The filesystem declarations in [provider]'s shape — the M8 callers' entry point. */
+internal fun fsToolsJsonFor(provider: FsToolProvider, mode: FsToolMode): JSONArray? =
+    toolsJsonFor(provider, fsToolSpecs(mode))
 
 /**
  * The **system-prompt half of the tool contract** — or null when this turn offers no tools, which is
