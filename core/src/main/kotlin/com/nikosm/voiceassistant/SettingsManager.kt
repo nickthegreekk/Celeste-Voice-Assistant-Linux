@@ -142,6 +142,17 @@ class SettingsManager(
         const val TRUSTED_FS_ROOTS = "trusted_fs_roots"
 
         /**
+         * The MCP servers, as one JSON list (PLAN.md §10/M9). Their `env` and `headers` carry the
+         * secrets a server needs — the same kind of value the provider keys beside them are — and
+         * they live in this file at mode 0600. `trust` rides in each entry so a grant survives a
+         * restart, and a changed command/args/URL revokes it where the list is saved.
+         */
+        const val MCP_SERVERS = "mcp_servers_v1"
+
+        /** Which servers a persona offers, name-keyed like the filesystem pair. */
+        const val MCP_PERSONA_PREFIX = "mcp_persona_"
+
+        /**
          * The window's size in **dp**, as the user left it — "WIDTHxHEIGHT", the shape a person can
          * read in the settings file and a test can write by hand (2026-10-17, by request).
          *
@@ -610,6 +621,7 @@ class SettingsManager(
         migrateSpontaneousState(oldName, newName)
         migratePersonaOutputDevice(oldName, newName)
         migratePersonaFs(oldName, newName)
+        migratePersonaMcp(oldName, newName)
         val data = store.getString("persona_messages_$oldName") ?: return
         store.edit()
             .putString("persona_messages_$newName", data)
@@ -810,6 +822,7 @@ class SettingsManager(
         // reach again.
         store.edit().remove(PERSONA_OUTPUT_DEVICE_PREFIX + personaName).commit()
         removePersonaFs(personaName)
+        removePersonaMcp(personaName)
     }
 
     /** The one place a referenced cache/artwork file is removed. Missing is not an error. */
@@ -872,7 +885,10 @@ class SettingsManager(
             imageWorkflows = getImageWorkflows() ?: emptyList(),
             // The chosen generator travels too: a restored install should keep generating with the
             // backend it was backed up with, not silently revert to A1111.
-            activeImageGenBackend = getActiveImageGenBackend()
+            activeImageGenBackend = getActiveImageGenBackend(),
+            // Definitions only — the grant is stripped below. Per-persona enablement is name-keyed
+            // state like the filesystem pair and is deliberately not on the allowlist.
+            mcpServers = getMcpServers().map { it.copy(trust = McpTrust.ASK) },
         )
         return json.encodeToString(backup)
     }
@@ -902,6 +918,10 @@ class SettingsManager(
             saveImageGenBases(backup.imageGenBases)
             saveCloudApis(backup.cloudApis)
             saveCustomCloudApis(backup.customCloudApis)
+            // MCP definitions restore; the grant does not. The export already stripped trust, and
+            // this second copy of the rule is what protects against a hand-edited backup that says
+            // TRUSTED — an imported file must never be a way to run tools without the confirmation.
+            saveMcpServers(backup.mcpServers.map { it.copy(trust = McpTrust.ASK) })
             // Skills land BEFORE the personas, because each persona's enabledSkillIds are
             // pruned against this exact list below: a backup that carried skills but a
             // persona referencing a skill this backup doesn't contain must not restore an
@@ -991,8 +1011,9 @@ class SettingsManager(
                 .forEach { store.edit().remove(PERSONA_OUTPUT_DEVICE_PREFIX + it).commit() }
             // The filesystem family has two prefixes and needs the same pass for both, for the same
             // reason: a restore can leave either behind for a persona it did not bring back, and a
-            // mode left behind is a *grant* left behind.
-            listOf(PERSONA_FS_MODE_PREFIX, PERSONA_FS_WORKSPACE_PREFIX).forEach { prefix ->
+            // mode left behind is a *grant* left behind. The MCP enablement is name-keyed the same
+            // way and would otherwise be inherited by a future persona of that name.
+            listOf(PERSONA_FS_MODE_PREFIX, PERSONA_FS_WORKSPACE_PREFIX, MCP_PERSONA_PREFIX).forEach { prefix ->
                 store.allKeys()
                     .filter { it.startsWith(prefix) }
                     .map { it.removePrefix(prefix) }
@@ -1347,6 +1368,88 @@ class SettingsManager(
             .commit()
     }
 
+    // ------------------------------------------------------------------ MCP servers (2026-10-17, M9)
+
+    /**
+     * The configured MCP servers. Unreadable JSON reads as none — a corrupted entry costs the
+     * feature, never a failed start, which is this file's rule for every stored collection.
+     */
+    fun getMcpServers(): List<McpServerConfig> {
+        val data = store.getString(MCP_SERVERS) ?: return emptyList()
+        return runCatching { json.decodeFromString<List<McpServerConfig>>(data) }
+            .onFailure { logger.w(TAG, "Corrupted/unreadable JSON in $MCP_SERVERS — no MCP servers", it) }
+            .getOrDefault(emptyList())
+    }
+
+    /**
+     * Replace the server list.
+     *
+     * **Trust is only ever lowered here, and the rule is deliberate:** a grant was given for a
+     * command, its arguments and its URL, so editing any of those makes it a different server — the
+     * grant is revoked in the same write. Everything else about an entry (its name, whether it is
+     * enabled) can change without touching the grant, or renaming a server would silently turn the
+     * confirmation back on.
+     */
+    fun saveMcpServers(servers: List<McpServerConfig>) {
+        val previous = getMcpServers().associateBy { it.id }
+        val sanitized = servers.map { server ->
+            val old = previous[server.id]
+            val connectionChanged = old != null && (
+                old.transport != server.transport ||
+                    old.command != server.command ||
+                    old.args != server.args ||
+                    old.env != server.env ||
+                    old.workingDir != server.workingDir ||
+                    old.url != server.url ||
+                    old.headers != server.headers
+                )
+            if (connectionChanged && server.trust == McpTrust.TRUSTED) server.copy(trust = McpTrust.ASK) else server
+        }
+        store.edit().putString(MCP_SERVERS, json.encodeToString(sanitized)).commit()
+    }
+
+    /** Grant or revoke one server's trust, leaving every other entry exactly as it was. */
+    fun saveMcpTrust(serverId: String, trust: McpTrust) {
+        val servers = getMcpServers()
+        if (servers.none { it.id == serverId }) return
+        saveMcpServers(servers.map { if (it.id == serverId) it.copy(trust = trust) else it })
+    }
+
+    /** The server ids a persona offers; empty means "none", which is every persona until chosen. */
+    fun getMcpServersForPersona(personaName: String): List<String> {
+        if (personaName.isBlank()) return emptyList()
+        val data = store.getString(MCP_PERSONA_PREFIX + personaName) ?: return emptyList()
+        return runCatching { json.decodeFromString<List<String>>(data) }
+            .onFailure {
+                logger.w(TAG, "Corrupted/unreadable JSON in $MCP_PERSONA_PREFIX$personaName — none", it)
+            }
+            .getOrDefault(emptyList())
+    }
+
+    fun saveMcpServersForPersona(personaName: String, serverIds: List<String>) {
+        if (personaName.isBlank()) return
+        val key = MCP_PERSONA_PREFIX + personaName
+        val ids = serverIds.distinct()
+        if (ids.isEmpty()) store.edit().remove(key).commit()
+        else store.edit().putString(key, json.encodeToString(ids)).commit()
+    }
+
+    /** The rename half, like every other name-keyed persona setting. */
+    fun migratePersonaMcp(oldName: String, newName: String) {
+        if (oldName == newName || oldName.isBlank()) return
+        val data = store.getString(MCP_PERSONA_PREFIX + oldName) ?: return
+        store.edit()
+            .putString(MCP_PERSONA_PREFIX + newName, data)
+            .remove(MCP_PERSONA_PREFIX + oldName)
+            .commit()
+    }
+
+    /** The delete half: an orphaned enablement would be inherited by a future persona of that name. */
+    fun removePersonaMcp(personaName: String) {
+        if (personaName.isBlank()) return
+        store.edit().remove(MCP_PERSONA_PREFIX + personaName).commit()
+    }
+
     // ------------------------------------------------------------------ the window (2026-10-17)
 
     fun getWindowSize(): Pair<Int, Int>? {
@@ -1500,7 +1603,11 @@ data class BackupData(
     val imageWorkflows: List<ImageWorkflow> = emptyList(),
     // Which image backend Celeste generates with. Defaulted to A1111, so a backup written before
     // the switch existed still decodes — and restores to exactly the behaviour it was taken with.
-    val activeImageGenBackend: ImageGenBackend = DEFAULT_IMAGE_GEN_BACKEND
+    val activeImageGenBackend: ImageGenBackend = DEFAULT_IMAGE_GEN_BACKEND,
+    // The MCP servers, definitions only: the export strips their trust and the import re-adds it as
+    // ASK, because a grant to run tools on this machine is a permission and a restored backup must
+    // not confer one. Defaulted, so a backup written before MCP existed still decodes.
+    val mcpServers: List<McpServerConfig> = emptyList(),
 )
 
 // One persona's embedded artwork. Both slots are optional: a persona may have only an
