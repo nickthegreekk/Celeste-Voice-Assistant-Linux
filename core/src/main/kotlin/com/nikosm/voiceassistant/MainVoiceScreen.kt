@@ -420,6 +420,8 @@ fun MainScreen(
     // M11: the session model overrides and the headline picker's visibility.
     var sessionModels by remember { mutableStateOf(emptyMap<String, String>()) }
     var showSessionModelPicker by remember { mutableStateOf(false) }
+    // M13: the transcript search dialog.
+    var showTranscriptSearch by remember { mutableStateOf(false) }
     // M8: `notifyUser` has published `transientMessage` since M1 and **nothing has ever rendered
     // it** — every "Saved to…", "Shortcut added", "Import failed" the application has raised has
     // gone nowhere. The tool refusals and the write timeouts need a destination, so this is it, and
@@ -927,7 +929,8 @@ fun MainScreen(
                         sessionModelOverridden = canOverrideSessionModel && sessionModelOverride != null,
                         onSessionModelClick = if (canOverrideSessionModel) {
                             { showSessionModelPicker = true }
-                        } else null
+                        } else null,
+                        onSearchClick = { showTranscriptSearch = true }
                     )
                 }
             }
@@ -1231,6 +1234,11 @@ fun MainScreen(
         )
     }
 
+    // M13: transcript search, over the saved local transcripts only.
+    if (showTranscriptSearch && sessionService != null) {
+        TranscriptSearchDialog(service = sessionService) { showTranscriptSearch = false }
+    }
+
     if (pendingCert != null) {
         AlertDialog(
             onDismissRequest = { service?.denyCertificate() },
@@ -1372,7 +1380,9 @@ fun Header(
     sessionModelLabel: String? = null,
     /** True when the label is an override rather than the persona's own model. */
     sessionModelOverridden: Boolean = false,
-    onSessionModelClick: (() -> Unit)? = null
+    onSessionModelClick: (() -> Unit)? = null,
+    /** Opens the transcript search dialog (M13). */
+    onSearchClick: () -> Unit = {}
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
 
@@ -1501,6 +1511,15 @@ fun Header(
                     expanded = menuExpanded,
                     onDismissRequest = { menuExpanded = false }
                 ) {
+                    DropdownMenuItem(
+                        text = { Text("Search chats") },
+                        leadingIcon = { Icon(Icons.Default.Search, null, modifier = Modifier.size(24.dp)) },
+                        onClick = {
+                            menuExpanded = false
+                            onSearchClick()
+                        },
+                        modifier = Modifier.heightIn(min = 48.dp)
+                    )
                     DropdownMenuItem(
                         text = { Text("Settings") },
                         leadingIcon = { Icon(Icons.Default.Settings, null, modifier = Modifier.size(24.dp)) },

@@ -13,6 +13,30 @@ not stop for it. Stop only for the four cases listed in AGENTS.md §10.
 
 ---
 
+## 2026-10-17 — Transcript search: no index, text only, opens the conversation
+
+The user picked transcript search from the post-M9 list. **Decided: an on-demand, local substring search over the JSON
+transcripts the chat screens already read — personas, rooms and the main chat — with a 250 ms debounce and a 100-hit cap,
+opened from the header menu.**
+
+**No index.** A second store (SQLite FTS or a file) would need building, migrating, backing up and keeping in sync with
+three write paths, and the data is small: 2000 messages per persona and a few personas. A scan after a pause in typing
+is faster than the machinery and cannot go stale. Rejected: an FTS index; rejected: scanning on every keystroke without
+a debounce.
+
+**Text only, substring, newest first.** No regex, no fuzzy matching, no ranking beyond the timestamp: a search box that
+promises relevance and delivers a guess is worse than one whose rule a user can predict. Reasoning is not searched —
+it is model scratch work, not conversation. Rejected: searching reasoning and tool text for a "find everything" feel.
+
+**A hit opens the conversation, not the message.** Switching persona (leaving a room first) or opening the room is
+real and useful; scrolling to a message index is not available in the chat screen yet, and landing at the bottom with no
+sign of the hit would be pretending. The limitation is recorded in the plan rather than hidden in the UI.
+
+**Local only, on demand.** The search makes no network call and writes nothing; it reads the same entries the screens
+do and discards the results when the dialog closes.
+
+→ PLAN.md §10 (M13), `TranscriptSearch.kt`, `TranscriptSearchScreens.kt`, `SettingsManager.kt`, `MainVoiceScreen.kt`
+
 ## 2026-10-17 — Server health: on demand, local services only, reachable is not authorised
 
 The user picked the health page from the post-M9 list. **Decided: a Settings → Health page that checks the configured

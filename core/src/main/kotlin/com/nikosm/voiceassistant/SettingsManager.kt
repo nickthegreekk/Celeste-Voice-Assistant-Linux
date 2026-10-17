@@ -1562,6 +1562,53 @@ class SettingsManager(
             .commit()
     }
 
+    // ------------------------------------------------------------------ transcript search (2026-10-17, M13)
+
+    /**
+     * Search every saved transcript — the main chat, each persona's history, every room — for
+     * [query]. Case-insensitive substring, one hit per matching message, newest first, capped at
+     * [limit].
+     *
+     * Reads the same JSON entries the chat screens read and makes no network call. Legacy messages
+     * with no timestamp sort last (timestamp 0); the sort is stable, so equal timestamps keep the
+     * chat → personas → rooms order. Unreadable entries degrade to no hits, like every other getter
+     * in this file.
+     */
+    internal fun searchTranscripts(query: String, limit: Int = TRANSCRIPT_SEARCH_LIMIT): List<TranscriptHit> {
+        val q = query.trim()
+        if (q.isEmpty()) return emptyList()
+        val hits = mutableListOf<TranscriptHit>()
+
+        getMessages()?.forEach { message ->
+            transcriptSnippet(message.text, q)?.let {
+                hits += TranscriptHit(TranscriptKind.CHAT, "chat", "Chat", message.role, message.timestamp, it)
+            }
+        }
+        (getPersonas() ?: emptyList()).forEach { persona ->
+            getPersonaMessages(persona.name)?.forEach { message ->
+                transcriptSnippet(message.text, q)?.let {
+                    hits += TranscriptHit(
+                        TranscriptKind.PERSONA,
+                        persona.name,
+                        persona.name,
+                        message.role,
+                        message.timestamp,
+                        it,
+                    )
+                }
+            }
+        }
+        (getRooms() ?: emptyList()).forEach { room ->
+            getRoomMessages(room.id)?.forEach { message ->
+                transcriptSnippet(message.text, q)?.let {
+                    val speaker = if (message.isUser) "user" else message.speakerName
+                    hits += TranscriptHit(TranscriptKind.ROOM, room.id, room.name, speaker, message.timestamp, it)
+                }
+            }
+        }
+        return hits.sortedByDescending { it.timestamp }.take(limit)
+    }
+
     // ------------------------------------------------------------------ the window (2026-10-17)
 
     fun getWindowSize(): Pair<Int, Int>? {

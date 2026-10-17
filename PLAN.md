@@ -1701,6 +1701,27 @@ four-second health timeouts on top, and `checkHealth` takes the client as a **re
 the wrong client gets back in. The row now reads "reachable, authentication required". Same lesson as M8's wire format,
 one layer up: a status page must ask the same client the traffic uses, or it reports on a different connection.
 
+**M13 — Transcript search across personas and rooms (new scope, not a port; not counted in the total below).** The
+user picked it from the post-M9 list. The header menu gains **Search chats**: type, and matching messages from every
+persona, every room and the main chat appear newest-first with their speaker, time and a snippet; tapping one opens that
+persona or room. **Built 2026-10-17; live run pending.**
+
+- **No index.** The search decodes the same JSON transcript entries the chat screens read, after a 250 ms pause in
+  typing, and throws the results away when the dialog closes. At this size — 2000 messages per persona — a scan is
+  faster than maintaining a second store, and it cannot go stale.
+- **Text only, case-insensitive substring.** Reasoning is not searched; there is no regex, no fuzzy matching, and no
+  ranking beyond newest-first. A blank query searches nothing.
+- **Capped and honest about it:** 100 hits cross into the UI; each row names its kind, source, speaker and time, and a
+  legacy message with no timestamp sorts last because that is what its zero means.
+- **A hit opens the conversation, not the message.** Tapping switches to the persona (leaving a room first, if one is
+  open) or opens the room; the chat has no jump-to-index affordance yet, and landing at the bottom of a conversation
+  with no sign of the hit would be pretending otherwise. That is the recorded limitation of this slice.
+- **Local only:** no network call, no shared index, nothing leaves the machine.
+
+*Accept:* search a word that appears in a persona chat, a room and the main chat; see three hits with snippets,
+newest first; tap the room hit and land in that room; tap a persona hit from inside a room and land in that persona's
+chat.
+
 **Total: 33–50 focused days** (about 4–8 weeks full time, 3–5 months at evenings and weekends).
 A first usable milestone is **M2**: roughly **15–23 days**.
 
