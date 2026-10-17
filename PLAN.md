@@ -1631,7 +1631,8 @@ opened. One hands-free turn uses an MCP tool.
 **M10 — Long-term memory per persona (new scope, not a port; not counted in the total below).** The user picked it
 from the post-M9 additions. A persona keeps a small list of notes — added by the model with a `remember` tool when the
 user asks, or by the user in the editor — that rides in the system prompt, so it survives the history budget's
-trimming; a 128k window is context, not memory. **Built 2026-10-17; live run pending.**
+trimming; a 128k window is context, not memory. **Built 2026-10-17; accepted the same day — the user's verdict was
+"gold" ("I was impressed"), and the M10-era `.deb` was confirmed working on the Debian VM.**
 
 - **Opt-in per persona, default off.** A persona with memory off sends no tool, no block and no settings read beyond
   the switch; its requests are byte-identical to before. The switch is name-keyed state like the filesystem pair:
