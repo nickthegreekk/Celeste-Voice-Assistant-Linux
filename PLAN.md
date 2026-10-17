@@ -1384,8 +1384,12 @@ thing that evaporates if it is only said out loud:
   exits 0 and resolves `libgif7` 5.2.2 and `libnotify-bin` 0.8.6 from trixie/main. **`dpkg -i` cannot** — it fetches
   no dependencies and prints them unmet (`libgif7`, `libnotify-bin`, `pipewire-bin | …`, `libglib2.0-bin`,
   `hicolor-icon-theme`), which is dpkg's contract rather than a packaging defect: the package targets Debian 13 and
-  those are its correct names there. The *running* test still travels with its own desktop machine — the app image
-  embeds a runtime linked against the build host's glibc (PLAN.md §12).
+  those are its correct names there.
+  **Run on Debian 13 the same day (2026-10-17), in the user's VM (`test-vm`, LXQt on `:0`):** the 12:44 build was
+  reinstalled over the previous one — the version stayed `0.1.0`, so the upgrade is `apt install --reinstall ./…deb` —
+  `celeste-linux --selftest` exited 0 with the settings directory writable, and the application launched and worked.
+  **The VM has no audio devices** — PipeWire reports a `Dummy Output` and no input — so the voice path remains
+  unmeasured on Debian; every other surface (GUI, settings, memory, MCP) had a real desktop to run on.
 
 **Fixed, with the adjacent gap the check turned up.** The refusal is now asked through `requestRouting` (the same
 classification Rooms and the history stamps use) on both entry points: a text turn and a **spoken** turn for a persona
