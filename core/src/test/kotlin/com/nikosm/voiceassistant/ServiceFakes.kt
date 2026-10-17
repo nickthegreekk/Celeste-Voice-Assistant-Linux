@@ -29,7 +29,10 @@ internal class FakeAppEnv(
     override val notifier: Notifier = ThrowingNotifier,
     override val scheduler: Scheduler = ThrowingScheduler,
 ) : AppEnv {
-    private val root: Path = Files.createTempDirectory("celeste-test")
+    // Removed when the test JVM exits — see [TempRoots] for why `deleteOnExit` was not enough (the
+    // audit writer creates `state/` inside it, so the tree is not empty). Before this, every test
+    // that built a service left one behind: 561 had accumulated in /tmp by 2026-10-17.
+    private val root: Path = TempRoots.newRoot("celeste-test")
     override val configDir: Path get() = root.resolve("config")
     override val dataDir: Path get() = root.resolve("data")
     override val stateDir: Path get() = root.resolve("state")

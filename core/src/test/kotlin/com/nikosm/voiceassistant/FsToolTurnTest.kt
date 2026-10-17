@@ -26,6 +26,7 @@ import java.net.SocketAddress
 import java.net.URI
 import java.nio.file.Files
 import java.nio.file.Path
+import java.util.Comparator
 
 /**
  * **A tool turn, driven end to end on both routes** — the half of M8 that only a run can prove, made
@@ -84,7 +85,7 @@ class FsToolTurnTest {
         store = InMemoryStore()
         settings = SettingsManager(env, store, NoImageCodec)
         provider = FakeProviderServer()
-        workspace = Files.createTempDirectory("celeste-fs-turn")
+        workspace = TempRoots.newRoot("celeste-fs-turn")
     }
 
     @After
@@ -97,6 +98,13 @@ class FsToolTurnTest {
         provider.close()
         ProxySelector.setDefault(proxyBefore)
         Dispatchers.resetMain()
+        // The workspace holds real files the tests wrote, so `deleteOnExit` cannot help — it only
+        // removes empty directories. 505 of these had accumulated in /tmp by 2026-10-17.
+        runCatching {
+            if (Files.exists(workspace)) {
+                Files.walk(workspace).sorted(Comparator.reverseOrder()).forEach { runCatching { Files.delete(it) } }
+            }
+        }
     }
 
     @Test
