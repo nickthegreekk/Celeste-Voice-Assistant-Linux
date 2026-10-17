@@ -1357,9 +1357,14 @@ thing that evaporates if it is only said out loud:
 - **The app's log lines do not carry their tag.** `logger.i("FsTools", …)` prints as `INFO: write_file …` because JUL's
   default formatter prints the source class, not the logger name — so journald has the line but nothing to filter on, and
   a live monitor has to match by message shape. A one-line `Formatter` would fix it.
-- **The `.deb` has not been *run*.** It was rebuilt on 2026-10-17 11:00 with the theme and chat-memory changes and verified by
-  extraction (the platform jar carries `SystemLookAndFeel`; the Arch package the same), but the Debian test travels with its own
-  machine — the app image embeds a runtime linked against the build host's glibc (PLAN.md §12), and this host is Arch.
+- **The `.deb` installs on Debian 13; it has not been *run* there.** Rebuilt on 2026-10-17 11:00 with the theme and
+  chat-memory changes and verified by extraction (the platform jar carries `SystemLookAndFeel`; the Arch package the
+  same). Measured the same day in a clean `debian:trixie` container: `apt-get install ./celeste-linux_0.1.0_amd64.deb`
+  exits 0 and resolves `libgif7` 5.2.2 and `libnotify-bin` 0.8.6 from trixie/main. **`dpkg -i` cannot** — it fetches
+  no dependencies and prints them unmet (`libgif7`, `libnotify-bin`, `pipewire-bin | …`, `libglib2.0-bin`,
+  `hicolor-icon-theme`), which is dpkg's contract rather than a packaging defect: the package targets Debian 13 and
+  those are its correct names there. The *running* test still travels with its own desktop machine — the app image
+  embeds a runtime linked against the build host's glibc (PLAN.md §12).
 
 **Fixed, with the adjacent gap the check turned up.** The refusal is now asked through `requestRouting` (the same
 classification Rooms and the history stamps use) on both entry points: a text turn and a **spoken** turn for a persona
