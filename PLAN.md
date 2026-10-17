@@ -1652,7 +1652,7 @@ gateway turn never carry the notes.
 
 **M11 — Session model override in the chat header (new scope, not a port; not counted in the total below).** The user
 picked it from the post-M9 list: try a model for a conversation without editing the persona. **Built 2026-10-17; the
-Arch run is green the same day, and the Debian run is deferred to the end of the Debian test batch.**
+Arch run is green the same day, and the Debian run is green with the M11–M15 batch.**
 
 - **Session only, in memory.** The override lives in a map keyed by persona name for the life of the process and is not
   persisted, migrated or backed up. The header chip shows the model and marks an override in the accent colour; the
@@ -1673,8 +1673,8 @@ Arch run is green the same day, and the Debian run is deferred to the end of the
 
 **M12 — Server health page (new scope, not a port; not counted in the total below).** The user picked it from the
 post-M9 list. Settings → Health lists the configured local services — Ollama servers, Voice Gateways and
-image-generation servers — and checks them **only when the user presses Check now**. **Built 2026-10-17; live run
-pending.**
+image-generation servers — and checks them **only when the user presses Check now**. **Built 2026-10-17; the Arch run
+is green after the TLS fix below, and the Debian run is green with the M11–M15 batch.**
 
 - **On demand, never polled.** Opening the page shows "Not checked"; the request happens on the button, once, and the
   results live only while the page is open. A health check is a network call, and the no-unrequested-network rule
@@ -1704,8 +1704,8 @@ one layer up: a status page must ask the same client the traffic uses, or it rep
 **M13 — Transcript search across personas and rooms (new scope, not a port; not counted in the total below).** The
 user picked it from the post-M9 list. The header menu gains **Search chats**: type, and matching messages from every
 persona, every room and the main chat appear newest-first with their speaker, time and a snippet; tapping one opens that
-persona or room. **Built 2026-10-17; the Arch run is green the same day, and the Debian run is deferred to the end of the
-Debian test batch.**
+persona or room. **Built 2026-10-17; the Arch run is green the same day, and the Debian run is green with the
+M11–M15 batch.**
 
 - **No index.** The search decodes the same JSON transcript entries the chat screens read, after a 250 ms pause in
   typing, and throws the results away when the dialog closes. At this size — 2000 messages per persona — a scan is
@@ -1725,8 +1725,8 @@ chat.
 
 **M14 — Reply notifications when unfocused (new scope, not a port; not counted in the total below).** The user picked
 it from the post-M9 list. When a manual turn settles while the window is not focused, the reply appears as a desktop
-notification. **Built 2026-10-17; the Arch run is green the same day, and the Debian run is deferred to the end of the
-Debian test batch.**
+notification. **Built 2026-10-17; the Arch run is green the same day, and the Debian run is green with the M11–M15
+batch.**
 
 - **One settle point.** The service watches its own state: `THINKING`/`SPEAKING` → `IDLE`, plus "the transcript grew
   during this turn". That covers text, voice, cloud and tool loops without a per-route hook that could drift; a stopped
@@ -1749,7 +1749,7 @@ nothing posts.
 **M15 — Scheduled skills (new scope, not a port; not counted in the total below).** The user picked it from the
 post-M9 list. A skill can run on a clock: every day at a chosen time, as a chosen persona, producing one message in
 that persona's chat and a per-persona notification. **Built 2026-10-17; the Arch run is green the same day, and the
-Debian run is deferred to the end of the Debian test batch.**
+Debian run is green with the M11–M15 batch.**
 
 - **A schedule is its own record, not a field on `Skill`.** `Models.kt` is a COPY file and may not grow one, so
   `ScheduledSkill` lives in its own file and its own settings key. It references the skill by id and the persona by
