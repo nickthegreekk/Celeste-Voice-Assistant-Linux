@@ -17,6 +17,7 @@ package com.nikosm.voiceassistant
 // seam or deleted by PLAN.md §8/§9. See docs/PROVENANCE.md for what each one became.
 import android.util.Log
 import androidx.compose.ui.graphics.Color
+import com.nikosm.voiceassistant.ui.theme.DesktopStyle
 import kotlinx.coroutines.*
 import kotlin.concurrent.Volatile
 import kotlinx.coroutines.sync.Mutex
@@ -712,6 +713,18 @@ class AssistantService(
     fun setDarkTheme(enabled: Boolean) {
         _darkTheme.value = enabled
         settingsManager.saveDarkTheme(enabled)
+    }
+
+    // M17 follow-up (2026-10-18): the palette the root theme paints with. Persisted by name and
+    // read at load, so the choice survives a restart; the root theme collects the flow, so
+    // switching it in Settings repaints every window at once. GTK itself is probed in `:desktop`
+    // (it needs a process launcher, which this module may not have).
+    val _desktopStyle = MutableStateFlow(DesktopStyle.CELESTE)
+    val desktopStyle = _desktopStyle.asStateFlow()
+
+    fun setDesktopStyle(style: DesktopStyle) {
+        _desktopStyle.value = style
+        settingsManager.saveDesktopStyle(style)
     }
 
     val _chatFontSize = MutableStateFlow(14f)
@@ -1452,6 +1465,7 @@ class AssistantService(
         _celestialUi.value = settingsManager.getCelestialUi()
         _adaptiveTheme.value = settingsManager.getAdaptiveTheme()
         _darkTheme.value = settingsManager.getDarkTheme()
+        _desktopStyle.value = settingsManager.getDesktopStyle()
         _notifyRepliesWhenUnfocused.value = settingsManager.getNotifyRepliesWhenUnfocused()
         _chatFontSize.value = settingsManager.getChatFontSize()
 

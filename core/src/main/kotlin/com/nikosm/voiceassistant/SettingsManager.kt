@@ -1,5 +1,6 @@
 package com.nikosm.voiceassistant
 
+import com.nikosm.voiceassistant.ui.theme.DesktopStyle
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import org.json.JSONArray
@@ -1287,6 +1288,19 @@ class SettingsManager(
 
     fun saveDarkTheme(enabled: Boolean) {
         store.edit().putBoolean("dark_theme", enabled).commit()
+    }
+
+    // M17 follow-up (2026-10-18): which palette the application paints with. Stored by NAME rather
+    // than ordinal, so the settings file stays readable and an enum that gains a value does not
+    // silently repaint someone's application. An unknown name keeps Celeste rather than failing
+    // the whole settings load.
+    fun getDesktopStyle(): DesktopStyle =
+        runCatching {
+            DesktopStyle.valueOf(store.getString("desktop_style") ?: DesktopStyle.CELESTE.name)
+        }.getOrDefault(DesktopStyle.CELESTE)
+
+    fun saveDesktopStyle(style: DesktopStyle) {
+        store.edit().putString("desktop_style", style.name).commit()
     }
 
     fun saveSearxngUrl(url: String) {

@@ -2012,6 +2012,21 @@ single answer to a secondary click. The desktop test harness cannot see into pop
 recorded above), so the single-menu behaviour is judged in the live run; `MessageContextMenuTest` still
 proves a secondary press reaches the callback and a primary press does not.]
 
+[Follow-up, 2026-10-18 — a GTK desktop style, requested by the user ("we are still on material theme —
+can we use a gtk option?"). Settings → General → Appearance now offers **Desktop style**: Celeste (the
+app's own palette) or GTK (the desktop's current theme). GTK is read from GTK itself the first time a
+window paints with it: `:platform`'s `GtkThemeProbe` starts `python3` with PyGObject, asks a
+`Gtk.StyleContext` for the resolved `theme_*` colours, and `:core`'s `GtkTheme.kt` maps them onto the
+Material 3 roles the ported screens read, with GTK-like radii through `Shapes`. Parsing theme files was
+rejected — this machine's Arc-Dark keeps its entire stylesheet in a gresource bundle, and `@import`/`shade`
+resolution would be a second theme engine. The choice persists by name (`desktop_style`), defaults to
+Celeste, and an unknown stored value falls back to Celeste rather than failing the settings load. The probe
+is lazy (a Celeste user never starts it), bounded at 3 s, and failure simply leaves Celeste's colours; a GTK
+theme changed while the application runs applies at the next launch. Material's own component geometry —
+pill buttons, switches, sliders — is unchanged: this is a palette-and-radii pass, not a widget toolkit, and
+D2 stands. Tests: `GtkThemeProbeTest` (4, parser), `GtkThemeTest` (4, role mapping), `DesktopStyleSettingTest`
+(3, persistence). The visual result is judged in the live run.]
+
 [Correction, 2026-10-17 — the intermittent `FsToolTurnTest` failure recorded at slice 5 is fixed, in the
 test rather than in the service. `shutdown()` cancels the scope and returns; a child still unwinding from
 `Dispatchers.IO` resumes its cancellation ON `Dispatchers.Main`, and the class's teardown reset Main before

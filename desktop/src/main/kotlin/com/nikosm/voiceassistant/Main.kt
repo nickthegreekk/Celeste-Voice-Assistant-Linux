@@ -31,7 +31,10 @@ import com.nikosm.voiceassistant.linux.ProcessTextToSpeech
 import com.nikosm.voiceassistant.linux.ShutdownWatchdog
 import com.nikosm.voiceassistant.linux.SingleInstance
 import com.nikosm.voiceassistant.linux.SystemLookAndFeel
+import com.nikosm.voiceassistant.linux.probeGtkPalette
 import com.nikosm.voiceassistant.linux.systemUiFontPath
+import com.nikosm.voiceassistant.ui.theme.DesktopStyle
+import com.nikosm.voiceassistant.ui.theme.GtkPalette
 import com.nikosm.voiceassistant.ui.theme.VoiceAssistantTheme
 import java.awt.Toolkit
 import java.awt.event.InputEvent
@@ -49,6 +52,16 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
+
+/**
+ * The GTK palette, probed at most once per process (2026-10-18).
+ *
+ * `lazy` rather than a probe at startup: a user on the Celeste style never starts a Python/GTK
+ * process. The value is read the first time a window paints with the GTK style. A GTK theme
+ * changed while the application is running is picked up at the next launch — the probe is a
+ * process launch, and doing it per frame or per window would cost more than it buys.
+ */
+private val gtkPaletteOnce: GtkPalette? by lazy { probeGtkPalette() }
 
 /**
  * The one entry point. `--headless` is a flag on this program, not a second program — the service
@@ -334,7 +347,13 @@ fun main(args: Array<String>) {
             // light), so the setting is the source of truth. Collected here, at the root, so the
             // Settings switch repaints the whole window immediately.
             val darkTheme by service.darkTheme.collectAsState()
-            VoiceAssistantTheme(darkTheme = darkTheme, fontFamily = appFontFamily) {
+            val desktopStyle by service.desktopStyle.collectAsState()
+            VoiceAssistantTheme(
+                darkTheme = darkTheme,
+                fontFamily = appFontFamily,
+                desktopStyle = desktopStyle,
+                gtkPalette = if (desktopStyle == DesktopStyle.GTK) gtkPaletteOnce else null,
+            ) {
                 // Held in composition state so the landing can clear it. Nothing else clears it, and
                 // nothing needs to: the payload is a start-up argument, and this window is the only
                 // one there will be.
@@ -413,7 +432,13 @@ fun main(args: Array<String>) {
                 icon = remember { windowIcon() },
             ) {
                 val darkTheme by service.darkTheme.collectAsState()
-                VoiceAssistantTheme(darkTheme = darkTheme, fontFamily = appFontFamily) {
+                val desktopStyle by service.desktopStyle.collectAsState()
+                VoiceAssistantTheme(
+                    darkTheme = darkTheme,
+                    fontFamily = appFontFamily,
+                    desktopStyle = desktopStyle,
+                    gtkPalette = if (desktopStyle == DesktopStyle.GTK) gtkPaletteOnce else null,
+                ) {
                     val personaColor = service.currentPersonaFlow.collectAsState().value?.themeColor
                         ?: MaterialTheme.colorScheme.primary
                     // `embedded = true` is the half that matters: the content renders directly in
@@ -439,7 +464,13 @@ fun main(args: Array<String>) {
                 icon = remember { windowIcon() },
             ) {
                 val darkTheme by service.darkTheme.collectAsState()
-                VoiceAssistantTheme(darkTheme = darkTheme, fontFamily = appFontFamily) {
+                val desktopStyle by service.desktopStyle.collectAsState()
+                VoiceAssistantTheme(
+                    darkTheme = darkTheme,
+                    fontFamily = appFontFamily,
+                    desktopStyle = desktopStyle,
+                    gtkPalette = if (desktopStyle == DesktopStyle.GTK) gtkPaletteOnce else null,
+                ) {
                     AboutContent(version = APP_VERSION, upstreamCommit = upstreamPin())
                 }
             }

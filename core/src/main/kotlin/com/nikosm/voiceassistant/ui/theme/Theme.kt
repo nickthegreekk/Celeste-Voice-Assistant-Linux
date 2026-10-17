@@ -101,9 +101,18 @@ fun VoiceAssistantTheme(
      * default family, which is what tests, previews and a machine without fontconfig get.
      */
     fontFamily: FontFamily? = null,
+    /**
+     * M17 follow-up (2026-10-18): the palette. `CELESTE` is this app's own scheme; `GTK` paints
+     * with [gtkPalette], read from the desktop's current GTK theme in `:desktop`. A `GTK` choice
+     * with no palette (the probe failed, or there is no GTK) falls back to Celeste rather than
+     * painting nothing.
+     */
+    desktopStyle: DesktopStyle = DesktopStyle.CELESTE,
+    gtkPalette: GtkPalette? = null,
     content: @Composable () -> Unit
 ) {
-    val colorScheme = baseColorScheme(darkTheme)
+    val useGtk = desktopStyle == DesktopStyle.GTK && gtkPalette != null
+    val colorScheme = if (useGtk) gtkColorScheme(gtkPalette!!) else baseColorScheme(darkTheme)
     // M17: hover, press and focus feedback for every plain `clickable` row. Provided INSIDE
     // MaterialTheme because MaterialTheme installs its own LocalIndication for descendants; this
     // replaces that one rather than being shadowed by it. Material buttons keep their ripple.
@@ -117,7 +126,7 @@ fun VoiceAssistantTheme(
     MaterialTheme(
         colorScheme = colorScheme,
         typography = Typography.withFontFamily(fontFamily),
-        shapes = Shapes,
+        shapes = if (useGtk) GtkShapes else Shapes,
     ) {
         CompositionLocalProvider(LocalIndication provides indication, content = content)
     }

@@ -1363,3 +1363,38 @@ than an accident, and the reason the confirmation dialog is in the same mileston
 
 → PLAN.md §10; `FsWorkspace.kt`, `FsToolProtocol.kt`, `FsToolExecutor.kt`, `FsToolAudit.kt`,
 `AssistantServiceFsTools.kt`, `FsToolScreens.kt`
+
+## 2026-10-18 — The GTK desktop style: ask GTK, do not re-implement it
+
+The user asked for a GTK option, on XFCE, wanting the application to follow the current theme (Arc-Dark).
+Three interpretations, and only one is compatible with D2.
+
+**Real GTK widgets were rejected outright.** `GtkButton`, `AdwPreferencesPage` and friends would replace
+Compose as the UI toolkit, which is D2's *subject*, not a detail of it; the ported screens are 301
+`internal` composables in one module. What remains — and what was built — is a palette-and-geometry choice
+inside Compose. The GTK chrome the application already has (Swing's system look-and-feel for the menu bar,
+AWT file dialogs, the window manager's decorations) is unaffected.
+
+**The theme is read by asking GTK, not by parsing theme files.** A GTK theme is not a stylesheet on disk:
+Arc-Dark's `gtk-3.0/gtk.css` contains one `@import url("resource:///org/gnome/arc-theme/…")`, with the real
+definitions in a compiled `gtk.gresource`; other themes nest imports or define colours through
+`shade()`/`alpha()` expressions. `Gtk.StyleContext.lookup_color` resolves all of that, so `:platform` starts
+a short-lived `python3` + PyGObject + GTK 3 process, reads the eleven named colours, and parses its output.
+This adds a **runtime** probe dependency (python3-gi and GTK 3) on GTK desktops only — no build dependency,
+nothing pinned in `libs.versions.toml`, and the probe never runs unless the GTK style is selected (a lazy
+value in `:desktop`). Failure of any kind — no Python, no display, a theme without the named colours — is
+reported as "no palette" and the window paints with Celeste. The process is bounded at three seconds, and
+the probe is per process: a theme switched while the application runs is picked up at the next launch,
+which is stated in the Settings row rather than papered over.
+
+**The choice is a persisted setting, not a startup flag.** `desktop_style` in the settings file, by name,
+defaulting to Celeste; the root theme collects a service flow, so switching it repaints all three windows at
+once. The in-app dark toggle stays, and applies to the Celeste style; in GTK style the desktop's theme
+decides, and the Settings row says so and disables the switch.
+
+**Scope, stated honestly.** This pass maps colours and `MaterialTheme.shapes`. Material's buttons, switches,
+sliders and tabs draw geometry from component tokens that do not read the theme, so they keep their Material
+shapes; restyling them is a widget pass, not a palette pass, and can follow if the look earns it. Every
+screen is otherwise untouched, which is what makes the change reviewable.
+
+→ PLAN.md §10/M17 follow-up; `GtkTheme.kt`, `GtkThemeProbe.kt`, `Theme.kt`, `SettingsScreens.kt`

@@ -69,6 +69,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.window.DialogWindow
 import androidx.compose.ui.window.rememberDialogState
+import com.nikosm.voiceassistant.ui.theme.DesktopStyle
 import com.nikosm.voiceassistant.ui.theme.VoiceAssistantTheme
 import com.nikosm.voiceassistant.ui.theme.isDynamicColorSupported
 import kotlinx.coroutines.*
@@ -1007,6 +1008,12 @@ fun GeneralSettings(
         service.darkTheme.collect { darkTheme = it }
     }
 
+    // M17 follow-up (2026-10-18): Celeste's palette or the desktop's current GTK theme.
+    var desktopStyle by remember { mutableStateOf(DesktopStyle.CELESTE) }
+    LaunchedEffect(Unit) {
+        service.desktopStyle.collect { desktopStyle = it }
+    }
+
     // M14: reply notifications when the window is elsewhere.
     var notifyReplies by remember { mutableStateOf(true) }
     LaunchedEffect(Unit) {
@@ -1070,9 +1077,48 @@ fun GeneralSettings(
 Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
     SettingsSectionHeader(title = "Appearance", icon = Icons.Default.Palette)
     SettingsSection {
+        // M17 follow-up (2026-10-18): which palette the whole application paints with. Celeste is
+        // the app's own scheme; GTK follows the desktop's current theme (Arc-Dark on the
+        // development machine), read at launch and in the language of the desktop the window sits
+        // in. Kept as two plain radio rows rather than a slider: there are exactly two answers.
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text("Desktop style", style = MaterialTheme.typography.titleMedium)
+                Text(
+                    "Celeste keeps the app's own palette. GTK uses the colours of the current " +
+                        "GTK theme; a theme changed while the app is open applies at the next launch.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                )
+            }
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            RadioButton(
+                selected = desktopStyle == DesktopStyle.CELESTE,
+                onClick = { service.setDesktopStyle(DesktopStyle.CELESTE) }
+            )
+            Text("Celeste", style = MaterialTheme.typography.bodyLarge)
+            Spacer(Modifier.width(24.dp))
+            RadioButton(
+                selected = desktopStyle == DesktopStyle.GTK,
+                onClick = { service.setDesktopStyle(DesktopStyle.GTK) }
+            )
+            Text("GTK (current theme)", style = MaterialTheme.typography.bodyLarge)
+        }
+        HorizontalDivider(
+            modifier = Modifier.padding(vertical = 12.dp),
+            color = Color.White.copy(alpha = 0.05f)
+        )
         // Dark theme: the application's own scheme, not the desktop's. It defaults ON because
         // the desktop's preference cannot be read here (see AssistantService.darkTheme), and it
         // repaints the whole window the moment it flips — the root theme collects the flow.
+        // In GTK style the desktop's theme decides, so the switch applies to Celeste only.
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -1081,14 +1127,19 @@ Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
             Column(modifier = Modifier.weight(1f)) {
                 Text("Dark theme", style = MaterialTheme.typography.titleMedium)
                 Text(
-                    "Celeste's dark colours. Off switches the whole window to the light scheme.",
+                    if (desktopStyle == DesktopStyle.GTK) {
+                        "Applies to the Celeste style. In GTK style the desktop's theme decides."
+                    } else {
+                        "Celeste's dark colours. Off switches the whole window to the light scheme."
+                    },
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
                 )
             }
             Switch(
                 checked = darkTheme,
-                onCheckedChange = { service.setDarkTheme(it) }
+                onCheckedChange = { service.setDarkTheme(it) },
+                enabled = desktopStyle == DesktopStyle.CELESTE
             )
         }
         HorizontalDivider(
