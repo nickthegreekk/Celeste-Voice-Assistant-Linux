@@ -1725,7 +1725,8 @@ chat.
 
 **M14 — Reply notifications when unfocused (new scope, not a port; not counted in the total below).** The user picked
 it from the post-M9 list. When a manual turn settles while the window is not focused, the reply appears as a desktop
-notification. **Built 2026-10-17; live run pending.**
+notification. **Built 2026-10-17; the Arch run is green the same day, and the Debian run is deferred to the end of the
+Debian test batch.**
 
 - **One settle point.** The service watches its own state: `THINKING`/`SPEAKING` → `IDLE`, plus "the transcript grew
   during this turn". That covers text, voice, cloud and tool loops without a per-route hook that could drift; a stopped
@@ -1744,6 +1745,37 @@ notification. **Built 2026-10-17; live run pending.**
 *Accept:* with the window focused, a reply posts nothing; switch to another app and send a turn; the notification
 appears with the reply's first line; click back into Celeste and the notification disappears; turn the switch off and
 nothing posts.
+
+**M15 — Scheduled skills (new scope, not a port; not counted in the total below).** The user picked it from the
+post-M9 list. A skill can run on a clock: every day at a chosen time, as a chosen persona, producing one message in
+that persona's chat and a per-persona notification. **Built 2026-10-17; live run pending.**
+
+- **A schedule is its own record, not a field on `Skill`.** `Models.kt` is a COPY file and may not grow one, so
+  `ScheduledSkill` lives in its own file and its own settings key. It references the skill by id and the persona by
+  name — the app's two reference styles — and follows both lifecycles: deleting a skill drops its schedule, and a
+  persona rename or delete re-points or removes it. Storage is a list, but the editor enforces one schedule per skill;
+  a second time of day is a second skill, recorded as the slice's limitation.
+- **What "run" means.** The skill's instructions are the task: they land in the one-turn system suffix (where
+  `resolveHistoryBudget` counts them) beside a framing that says the user scheduled this and nothing they said prompted
+  it. The turn is the spontaneous path's twin — direct Ollama, non-streaming, budgeted history, the persona's own chat
+  via `PersonaHistorySink`, the silence sentinel, and the per-persona notification card. It never touches the streaming
+  pipeline or the VAD, so it can fire while the user is mid-conversation. A skill with blank instructions is skipped,
+  and the editor already warns about the inert state.
+- **Who can speak it.** Local direct-Ollama personas only, for the same structural reason spontaneous messages are so
+  restricted: the turn addresses `/api/chat` directly. Cloud, gateway-only, image and translator personas are blocked
+  in the editor with a reason from the same `requestRouting` the router uses. Cloud schedules would need a cloud
+  request builder and are a recorded later slice.
+- **The clock.** One loop on `serviceScope` polls every 30 seconds against the wall clock, rather than one long
+  `delay`, because a monotonic delay stops across machine suspend and ignores wall-clock changes. An occurrence is due
+  from its minute until a 2-minute grace ends, is handled once, and is never replayed after that: the application has
+  to be running, and a time missed while it was closed is skipped. The run is logged and not retried — a retry would
+  put a duplicate message in the chat hours after the time the user picked.
+- **Backups carry the schedules,** and the import prunes any whose skill or persona did not travel in the same file —
+  the same allowlist reasoning the personas' skill ids get.
+
+*Accept:* schedule a skill two minutes ahead, switch to another app, and see the message land in the persona's chat
+with its notification at the time; move the time and the next run follows it; switch the schedule off and nothing runs;
+restart Celeste after a scheduled time and confirm it is not replayed.
 
 **Total: 33–50 focused days** (about 4–8 weeks full time, 3–5 months at evenings and weekends).
 A first usable milestone is **M2**: roughly **15–23 days**.

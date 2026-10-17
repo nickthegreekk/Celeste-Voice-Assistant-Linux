@@ -122,6 +122,13 @@ class SettingsManager(
         const val PERSONA_OUTPUT_DEVICE_PREFIX = "persona_output_device_"
 
         /**
+         * M15: the [ScheduledSkill] list. One key rather than a prefix per record, because the
+         * runner and the editor always read the whole list — a schedule has no per-persona accessor
+         * the way history or a device does.
+         */
+        const val SCHEDULED_SKILLS_KEY = "scheduled_skills_v1"
+
+        /**
          * The two prefixes for a persona's filesystem access (PLAN.md §10/M8): the mode and the
          * workspace folder. Two keys rather than one encoded value because the persona may override
          * either independently — a different folder at the global trust level is a reasonable thing
@@ -560,6 +567,23 @@ class SettingsManager(
         return emptyList()
     }
 
+    // ---------------------------------------------------------------- Scheduled skills
+    // M15: one JSON key holding the [ScheduledSkill] records. Kept beside `skills_v1` because a
+    // schedule points INTO that list by id; corruption is tolerated the same way, and an absent
+    // key reads as "nothing scheduled" rather than as an error (every install before M15).
+    fun saveScheduledSkills(schedules: List<ScheduledSkill>) {
+        store.edit().putString(SCHEDULED_SKILLS_KEY, json.encodeToString(schedules)).commit()
+    }
+
+    fun getScheduledSkills(): List<ScheduledSkill> {
+        val data = store.getString(SCHEDULED_SKILLS_KEY) ?: return emptyList()
+        return runCatching { json.decodeFromString<List<ScheduledSkill>>(data) }
+            .onFailure { e ->
+                logger.w(TAG, "Corrupted/unreadable JSON in $SCHEDULED_SKILLS_KEY — ignoring entry, returning empty", e)
+            }
+            .getOrDefault(emptyList())
+    }
+
     // ---------------------------------------------------------- Image Characters
     // The shared ComfyUI-workflow library, the same shape as skills_v1 above: one JSON key,
     // corruption-tolerant reads, `emptyList()` when absent so a fresh install and any
@@ -910,6 +934,9 @@ class SettingsManager(
                 .associate { it.name to getPersonaMemory(it.name) }
                 .filterValues { it.isNotEmpty() },
             personaMemoryEnabled = personas.filter { isPersonaMemoryEnabled(it.name) }.map { it.name },
+            // M15: the schedules, unpruned for the same reason skills are — the import re-checks
+            // the references against what the backup actually brought back.
+            scheduledSkills = getScheduledSkills(),
         )
         return json.encodeToString(backup)
     }
@@ -1003,6 +1030,16 @@ class SettingsManager(
             // persona isn't in the restored list — reusing deletePersonaHistory so any
             // referenced audio cache files are cleaned up too.
             val restoredNames = restoredPersonas.map { it.name }.toSet()
+            // M15: restore the schedules the backup carried, pruned exactly like the personas'
+            // enabledSkillIds above — a schedule whose skill or persona did not travel in this
+            // backup would be a reference nothing could ever resolve. Written here, after both
+            // lists are restored, so the prune is judged against what this restore actually made
+            // true.
+            saveScheduledSkills(
+                backup.scheduledSkills.filter { schedule ->
+                    schedule.skillId in restoredSkillIds && schedule.personaName in restoredNames
+                }
+            )
             // Rooms: definitions first (pruned of members the restore dropped — the
             // transcript survives, the vanished members don't), then their transcripts.
             val restoredRooms = backup.rooms.map { room ->
@@ -1787,6 +1824,12 @@ data class BackupData(
     // so a backup written before memory existed still decodes.
     val personaMemories: Map<String, List<String>> = emptyMap(),
     val personaMemoryEnabled: List<String> = emptyList(),
+    // M15: the schedules travel with the skills they run and the personas that speak them. A
+    // schedule is user-authored configuration, not a permission (unlike an MCP trust or a
+    // filesystem grant), so it restores whole. Defaulted, so a backup written before Scheduled
+    // skills existed still decodes; the import prunes entries whose skill or persona did not
+    // travel in the same backup.
+    val scheduledSkills: List<ScheduledSkill> = emptyList(),
 )
 
 // One persona's embedded artwork. Both slots are optional: a persona may have only an

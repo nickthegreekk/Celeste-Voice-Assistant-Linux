@@ -644,6 +644,7 @@ fun SettingsDialog(
     var personas by remember { mutableStateOf<List<Persona>>(emptyList()) }
     var rooms by remember { mutableStateOf<List<Room>>(emptyList()) }
     var skills by remember { mutableStateOf<List<Skill>>(emptyList()) }
+    var scheduledSkills by remember { mutableStateOf<List<ScheduledSkill>>(emptyList()) }
 
     LaunchedEffect(service) {
         if (service != null) {
@@ -656,6 +657,7 @@ fun SettingsDialog(
             launch { service.personas.collect { personas = it } }
             launch { service.rooms.collect { rooms = it } }
             launch { service.skills.collect { skills = it } }
+            launch { service.scheduledSkills.collect { scheduledSkills = it } }
         }
     }
 
@@ -810,7 +812,8 @@ fun SettingsDialog(
                                     service = svc,
                                     skills = skills,
                                     personas = personas,
-                                    currentThemeColor = personaColor
+                                    currentThemeColor = personaColor,
+                                    scheduledSkills = scheduledSkills
                                 )
                             }
                         }

@@ -13,6 +13,46 @@ not stop for it. Stop only for the four cases listed in AGENTS.md §10.
 
 ---
 
+## 2026-10-17 — Scheduled skills: a record beside the library, a poll against the wall clock
+
+The user picked scheduled skills from the post-M9 list — *"run this skill at 08:00 and notify me"*. **Decided: a
+`ScheduledSkill` record that references a skill by id and a persona by name, one per skill, running daily at a local
+HH:MM through the spontaneous turn's shape; the clock is a 30-second poll in the service.**
+
+**Why a separate record and a separate settings key.** `Skill` is declared in `Models.kt`, a COPY file that may stay
+byte-identical forever, so the schedule cannot be a field on it without a recorded demotion. A new file and a new key
+also make the feature removable without touching upstream's data class. The record is joined to the library by id —
+the same reference-by-id rule `enabledSkillIds` uses — so renaming a skill keeps its schedule, and deleting a skill
+drops it in the same lane.
+
+**Why one per skill, daily, no day-of-week picker.** The proposal was one time; a list of times per skill is a UI and
+bookkeeping question with no evidence it is needed yet, and a second time of day is a second skill. The storage is a
+list and the runner iterates it, so lifting the restriction later is a UI change. Off keeps the record — a switch should
+not throw away the time and persona the user typed.
+
+**Why the spontaneous turn's shape, and not the streaming pipeline.** The streaming path assumes one live turn; a
+scheduled run can fire while the user is mid-conversation with the same persona, which is exactly the concurrency the
+spontaneous file was built to avoid. So the run is a non-streaming direct-Ollama completion with the same prompt
+composition, budget, history sink, silence sentinel and per-persona notification. The skill's instructions ride the
+one-turn system suffix, where the budget counts them. The consequence is stated rather than hidden: **local
+direct-Ollama personas only** in this slice; cloud and gateway personas are blocked in the editor with the reason, and
+a cloud builder is a recorded later slice. The request builder is necessarily a twin of the spontaneous one, which is
+private inside a COPY file nothing may edit.
+
+**Why a poll and not one long delay.** `delay` is monotonic: it stops across machine suspend and ignores wall-clock
+changes, so a timer armed at 8:00 yesterday would not fire correctly on a laptop that slept. A 30-second poll re-reads
+the clock and the live schedule list, which also makes an edit or a deletion take effect on the next tick with no
+notification plumbing. Due means the occurrence is at most two minutes old and has not run; past that it is MISSED and
+never replayed — the app must be running, and an application opened at noon must not deliver the 08:00 briefing. A
+failed run is logged, not retried: a retry would put a duplicate message in the chat hours after the time the user
+picked.
+
+**A backup carries the schedules** (they are user-authored configuration, not a permission), and the import prunes any
+whose skill or persona did not travel in the same backup, the same rule the personas' skill ids get.
+
+→ PLAN.md §10 (M15), `ScheduledSkills.kt`, `ScheduledSkillRunner.kt`, `ScheduledSkillScreens.kt`,
+`SettingsManager.kt`, `AssistantService.kt`, `SkillScreens.kt`, `SettingsScreens.kt`
+
 ## 2026-10-17 — Reply notifications: one settle point, never while focused
 
 The user picked reply notifications from the post-M9 list. **Decided: notify on the service's

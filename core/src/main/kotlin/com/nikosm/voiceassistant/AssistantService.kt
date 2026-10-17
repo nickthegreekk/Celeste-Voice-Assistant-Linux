@@ -806,6 +806,39 @@ class AssistantService(
     internal val _skills = MutableStateFlow<List<Skill>>(emptyList())
     val skills = _skills.asStateFlow()
 
+    // ---------------------------------------------------------------- Scheduled skills
+    // M15: the clock-driven half of the skill library. A [ScheduledSkill] references a skill by
+    // id and a persona by name; the runner reads this flow on every poll, so an edit takes effect
+    // on the next tick without a separate notification path. The record lives outside
+    // Models.kt's Skill because that file is COPY and may not grow a field.
+    internal val _scheduledSkills = MutableStateFlow<List<ScheduledSkill>>(emptyList())
+    val scheduledSkills = _scheduledSkills.asStateFlow()
+
+    /** The one schedule a skill has, if any. The editor edits at most one per skill. */
+    fun scheduledSkillFor(skillId: String): ScheduledSkill? =
+        _scheduledSkills.value.firstOrNull { it.skillId == skillId }
+
+    /**
+     * Create or replace the schedule for [schedule]'s skill.
+     *
+     * Replaces rather than adds: the editor's model is one schedule per skill (see
+     * [ScheduledSkill]'s header), and the existing record's id is kept so a run in flight and the
+     * runner's once-per-occurrence bookkeeping stay attached to the same entry.
+     */
+    fun setScheduledSkill(schedule: ScheduledSkill) {
+        val existing = _scheduledSkills.value.firstOrNull { it.skillId == schedule.skillId }
+        val normalized = schedule.copy(id = existing?.id ?: schedule.id)
+        _scheduledSkills.value = _scheduledSkills.value.filterNot { it.skillId == schedule.skillId } + normalized
+        saveSettings()
+    }
+
+    /** Remove a skill's schedule outright (the editor's delete, not its off switch). */
+    fun removeScheduledSkill(skillId: String) {
+        if (_scheduledSkills.value.none { it.skillId == skillId }) return
+        _scheduledSkills.value = _scheduledSkills.value.filterNot { it.skillId == skillId }
+        saveSettings()
+    }
+
     // ------------------------------------------------------- Image Characters
     // The shared ComfyUI-workflow library every image-generator persona references by id
     // (Persona.imageWorkflowId) — the exact shape _skills has, and for the same reason: a
@@ -1126,6 +1159,10 @@ class AssistantService(
             runSpontaneousDelivery(personaName, slot)
         }
         loadSettings()
+        // M15: the scheduled-skill loop, started after settings so its first tick sees the
+        // persisted schedules. It lives on serviceScope like the spontaneous timer, so
+        // shutdown() cancels it with everything else.
+        startScheduledSkillLoop()
         // Deleted: `syncOpenRouterPricing()`, which fired here on every launch (throttled to once
         // a day by a stored timestamp, which on a fresh install is zero — so the first launch
         // always made the call).
@@ -1349,6 +1386,12 @@ class AssistantService(
         // a stale reference can never inject anything or throw.
         _skills.value = settingsManager.getSkills() ?: emptyList()
 
+        // M15: the schedules load beside the skills they point into. A schedule whose skill,
+        // persona or server no longer resolves is NOT repaired here: the runner re-resolves every
+        // reference at run time and skips what is gone, and the editor shows the dangling name, so
+        // a stale record is visible rather than silently deleted.
+        _scheduledSkills.value = settingsManager.getScheduledSkills()
+
         // Image Characters load beside the skills, for the same reason and with the same
         // tolerance: a persona's imageWorkflowId is resolved against this list at generation
         // time, and resolveImageWorkflow() simply falls back to the entry's workflow when the id
@@ -1448,6 +1491,11 @@ class AssistantService(
         // ids that were never persisted, which the load path would drop as dangling and
         // silently disable every enabled skill.)
         settingsManager.saveSkills(_skills.value)
+        // M15: schedules reference skills by id, so they ride immediately after the library — the
+        // same crash-consistency pair skills and personas form a few lines down. A schedule naming
+        // a persona that this save has not reached yet is tolerated by the load path and by the
+        // runner, which re-resolves names live.
+        settingsManager.saveScheduledSkills(_scheduledSkills.value)
         // The Image Characters library rides the same debounced save, and is written BEFORE the
         // persona list for the same reason skills are: a persona's imageWorkflowId must never be
         // persisted pointing at a character that wasn't saved alongside it.
@@ -1978,6 +2026,11 @@ class AssistantService(
                 // otherwise `loadRooms` would prune the old name out of every room
                 // the persona belonged to and the loss would become permanent.
                 renameRoomMemberEverywhere(oldName, persona.name)
+                // M15: a schedule names its speaking persona, so it re-points in the same
+                // breath. The store is migrated SYNCHRONOUSLY as well (the migratePersonaHistory
+                // contract) so an export taken before the next debounced save already carries the
+                // new name; the flow is updated here so the UI and the runner see it immediately.
+                renameScheduledSkillsForPersona(oldName, persona.name)
             }
             // Spontaneous cloud guard (plan §6, location 3): the editor is not the only
             // writer — this is. Sanitized at the moment of storage, so every downstream
@@ -2047,6 +2100,12 @@ class AssistantService(
      */
     fun removeSkill(skill: Skill) {
         _skills.value = _skills.value - skill
+        // M15: a deleted skill's schedule would be a record nothing can run — and worse, the
+        // editor would have no way to reach it to delete it. Dropped here, in the same lane as
+        // the personas' enabled ids below.
+        if (_scheduledSkills.value.any { it.skillId == skill.id }) {
+            _scheduledSkills.value = _scheduledSkills.value.filterNot { it.skillId == skill.id }
+        }
         val referencing = _personas.value.filter { skill.id in it.enabledSkillIds }
         if (referencing.isNotEmpty()) {
             _personas.value = _personas.value.map { persona ->
@@ -2248,6 +2307,11 @@ class AssistantService(
             // exists. Without this the timer would keep ticking until its next run, at
             // which point the guard would end it anyway — this just makes it immediate.
             removeSpontaneousSchedule(removedName)
+            // M15: schedules name a persona, and a name nothing can resolve again is a dead
+            // switch in the skill editor. Dropped with the same immediacy as the spontaneous
+            // chain (which would otherwise self-cancel on its next run), rather than left for
+            // the runner's live-read guard.
+            removeScheduledSkillsForPersona(removedName)
             // Home-screen shortcut: a pinned launcher icon is keyed by this name, so it would
             // otherwise outlive the persona it opens. Best-effort — a launcher that refuses
             // must not fail the deletion.

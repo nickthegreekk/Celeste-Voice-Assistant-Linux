@@ -189,7 +189,9 @@ fun SkillSettings(
     service: AssistantService,
     skills: List<Skill>,
     personas: List<Persona>,
-    currentThemeColor: Color
+    currentThemeColor: Color,
+    /** M15: the clock-driven records, so each row can say whether this skill runs on one. */
+    scheduledSkills: List<ScheduledSkill> = emptyList()
 ) {
     var editingSkillId by rememberSaveable { mutableStateOf<String?>(null) }
     val editingSkill = skills.find { it.id == editingSkillId }
@@ -218,6 +220,7 @@ fun SkillSettings(
                 )
             }
             skills.forEachIndexed { index, skill ->
+                val schedule = scheduledSkills.firstOrNull { it.skillId == skill.id }
                 SkillRow(
                     skill = skill,
                     personas = personas,
@@ -226,7 +229,12 @@ fun SkillSettings(
                     onMoveUp = { service.moveSkillUp(skill) },
                     onMoveDown = { service.moveSkillDown(skill) },
                     canMoveUp = index > 0,
-                    canMoveDown = index < skills.size - 1
+                    canMoveDown = index < skills.size - 1,
+                    // Empty for "not scheduled": a row says nothing rather than repeating the
+                    // same "Not scheduled" line on every entry in the library.
+                    scheduleSummary = schedule
+                        ?.let { scheduledSkillSummary(it, personas.map { p -> p.name }) }
+                        .orEmpty()
                 )
             }
             NewSkillRow(accentColor = currentThemeColor, onClick = { createSkill() })
@@ -257,7 +265,9 @@ private fun SkillRow(
     onMoveUp: () -> Unit,
     onMoveDown: () -> Unit,
     canMoveUp: Boolean,
-    canMoveDown: Boolean
+    canMoveDown: Boolean,
+    /** M15: "Every day at 08:00 as Friend", or empty when the skill has no schedule. */
+    scheduleSummary: String = ""
 ) {
     Surface(
         modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
@@ -291,6 +301,14 @@ private fun SkillRow(
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
                     maxLines = 1, overflow = TextOverflow.Ellipsis
                 )
+                if (scheduleSummary.isNotEmpty()) {
+                    Text(
+                        text = scheduleSummary,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = accentColor.copy(alpha = 0.8f),
+                        maxLines = 1, overflow = TextOverflow.Ellipsis
+                    )
+                }
             }
             IconButton(onClick = onMoveUp, enabled = canMoveUp, modifier = Modifier.size(28.dp)) {
                 Icon(
@@ -485,6 +503,12 @@ fun SkillEditor(
                 color = MaterialTheme.colorScheme.error
             )
         }
+        Spacer(Modifier.height(16.dp))
+
+        // M15: the clock-driven firing path, beside the trigger-phrase one. The section reads
+        // the live schedule list from the service rather than a field on [skill] — the record
+        // lives outside Models.kt (see ScheduledSkill's header for why).
+        SkillScheduleSection(service = service, skillId = skill.id, personas = personas)
         Spacer(Modifier.height(16.dp))
 
         // Which personas this delete would change, said up front rather than only in the
