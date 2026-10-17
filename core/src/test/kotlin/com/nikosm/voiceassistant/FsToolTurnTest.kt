@@ -270,6 +270,47 @@ class FsToolTurnTest {
     }
 
     @Test
+    fun `a workspace you trusted is remembered after a restart`() = runTest {
+        // The user's ask, 2026-10-17: answering "always allow" once must not mean answering it every
+        // launch. The design said session-only; this pins the reversal and its negative half.
+        val service = serviceWith(Dialect.CLOUD, workspace = workspace, mode = FsToolMode.READ_WRITE)
+        runCurrent()
+        val request = FsWriteRequest(
+            personaName = PERSONA,
+            relativePath = "notes.md",
+            resolved = workspace.resolve("notes.md"),
+            root = workspace,
+            existed = false,
+            oldBytes = 0,
+            newBytes = 3,
+            preview = "abc",
+        )
+
+        val decision = async { service.requestFsWriteApproval(request, FsWorkspace(workspace, FsToolMode.READ_WRITE)) }
+        runCurrent()
+        service.fsWriteGate.answer(approve = true, trustRoot = true)
+        assertEquals(FsWriteDecision.TRUSTED, decision.await())
+
+        // "Restart": a second service over the same store, which is what reopening the app means.
+        val second = serviceWith(Dialect.CLOUD, workspace = workspace, mode = FsToolMode.READ_WRITE)
+        runCurrent()
+        assertTrue(
+            "the workspace was approved earlier; a restart must not ask again",
+            second.fsWriteGate.trusts(workspace),
+        )
+        assertEquals(
+            "and the grant says who it is: not a button press, but a remembered answer",
+            listOf(workspace.toString()),
+            settings.getTrustedFsRoots(),
+        )
+
+        second.forgetFsWriteTrust()
+        val third = serviceWith(Dialect.CLOUD, workspace = workspace, mode = FsToolMode.READ_WRITE)
+        runCurrent()
+        assertFalse("after 'stop trusting', the next launch asks again", third.fsWriteGate.trusts(workspace))
+    }
+
+    @Test
     fun `Stop withdraws a pending write question rather than leaving it to be answered late`() = runTest {
         Files.writeString(workspace.resolve("notes.md"), "before")
         val service = serviceWith(Dialect.CLOUD, workspace = workspace, mode = FsToolMode.READ_WRITE)

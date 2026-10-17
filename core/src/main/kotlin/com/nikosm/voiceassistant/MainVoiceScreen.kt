@@ -1177,8 +1177,8 @@ fun MainScreen(
     // M8: the last line of defence — the path and the change, in front of the person whose files
     // they are. Dismissal denies; so does the gate's timeout when nobody is there to answer.
     pendingFsWrite?.let { request ->
-        FsWriteApprovalDialog(request = request) { approve, trustForSession ->
-            service?.fsWriteGate?.answer(approve, trustForSession)
+        FsWriteApprovalDialog(request = request) { approve, trustRoot ->
+            service?.fsWriteGate?.answer(approve, trustRoot)
         }
     }
 

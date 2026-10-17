@@ -1404,8 +1404,8 @@ view at once, which is why they were not rushed at the end of a long session.)
    so the notifier branch is dead code, and the audit records a timeout as `confirmed = "denied"` — the documented
    `timeout` and `session-trust` values are never written. `denyPending()` has no caller at all, despite the design
    saying a superseded turn denies the pending write.~~ **Fixed 2026-10-16, and the three were one cause**: a `Boolean`
-   cannot say *why* it said no. The gate now returns an `FsWriteDecision` — `user`, `session-trust`, `denied`,
-   `timeout`, the strings the audit already documented — with `allows` as the only thing a caller tests. That is what
+   cannot say *why* it said no. The gate now returns an `FsWriteDecision` — `user`, `trusted` (spelled `session-trust`
+   at the time; renamed when trust started surviving a restart), `denied`, `timeout`, the strings the audit documents — with `allows` as the only thing a caller tests. That is what
    revived the announcement (nobody-answered is now a value rather than an inference from state the gate had already
    cleared), what put `timeout` and `session-trust` in the audit at last, and what lets the model be told which of the
    two happened. The announcement itself moved to the **`Notifier` seam**, which is what the design named and what the
@@ -1476,7 +1476,10 @@ build-time decision, and the staging lives in the setting instead of across mile
 
 - **Off by default, and "off" is a real answer.** Nothing is reachable until the user names a path and picks a mode.
 - **Two modes: read-only, and read-write.** Read-write adds a confirmation showing the path and the change, and a root can
-  be trusted for the session only, so a restart returns to asking.
+  be trusted — "always allow writes in this folder" — **remembered across restarts until the mode or the folder changes**
+  (2026-10-17; the original rule was session-only and the user reversed it, docs/DECISIONS.md, because a question raised
+  on a backgrounded window times out unseen and reads as a bug). The grant lives in `trusted_fs_roots`, which — like the
+  workspace it is about — is not a field of the backup, so a restored backup can never re-grant write access.
 - **Per persona, with a global default** — the shape the app already uses for image-generation entries and their pins: the
   persona you chat with casually has nothing, the one you use for work has a directory, and a persona's own setting wins.
 - **The always-excluded paths are named in the UI rather than hidden:** `~/.config/celeste-linux`, which holds the

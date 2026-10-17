@@ -139,15 +139,18 @@ internal fun FsToolSettings(service: AssistantService, contentPadding: Int = 16)
             }
         }
 
-        val trusted = service.fsWriteGate.trustedForSession()
+        val trusted = service.fsWriteGate.trustedRoots()
         if (trusted.isNotEmpty()) {
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 Text(
-                    "Trusted for this session: ${trusted.joinToString { it.toString() }}",
+                    "Writes here do not ask: ${trusted.joinToString { it.toString() }}",
                     style = MaterialTheme.typography.bodySmall,
                     modifier = Modifier.weight(1f),
                 )
-                TextButton(onClick = { service.fsWriteGate.forgetTrust(); notice = "Writes will ask again." }) {
+                // The service call, not the gate's: the grant is persisted, so clearing it has to
+                // clear both halves. A `forgetTrust()` here would look like it worked until the next
+                // launch asked again.
+                TextButton(onClick = { service.forgetFsWriteTrust(); notice = "Writes will ask again." }) {
                     Text("Stop trusting")
                 }
             }
@@ -211,7 +214,7 @@ internal fun FsWriteApprovalDialog(request: FsWriteRequest, onAnswer: (approve: 
                 Spacer(Modifier.height(8.dp))
                 Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
                     Checkbox(checked = trust, onCheckedChange = { trust = it })
-                    Text("Allow writes in this folder for this session", style = MaterialTheme.typography.bodySmall)
+                    Text("Always allow writes in this folder (remembered until you change it)", style = MaterialTheme.typography.bodySmall)
                 }
             }
         },

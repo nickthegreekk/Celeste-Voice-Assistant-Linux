@@ -31,7 +31,7 @@ internal data class FsToolAuditEntry(
     val bytes: Long,
     /** `ok`, `denied`, `error`. */
     val result: String,
-    /** For a write: `user`, `session-trust`, `denied`, `timeout`; otherwise `n/a`. */
+    /** For a write: `user`, `trusted`, `denied`, `timeout`; otherwise `n/a`. (`trusted` was spelled `session-trust` until trust became something that survives a restart, 2026-10-17.) */
     val confirmed: String,
     val detail: String? = null,
 ) {

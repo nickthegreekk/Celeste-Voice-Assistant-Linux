@@ -13,6 +13,33 @@ not stop for it. Stop only for the four cases listed in AGENTS.md §10.
 
 ---
 
+## 2026-10-17 — Trust persists, and the backup is why that is safe
+
+The write confirmation's "always allow" lasted one session. The design said so in as many words — *"a root can be
+trusted for the session only, so a restart returns to asking"* — and gave the reason: *"a value that survives a restart
+is a value that survives a backup, and this one must not."* The user asked for the opposite after a morning of it: a
+hands-free turn raises the dialog on a window that is behind another one, nobody answers, the question times out to
+deny after two minutes, and the file is never written. A refusal nobody saw is indistinguishable from a bug.
+
+**Decided: the grant persists.** The service writes the root into `trusted_fs_roots` when the decision is
+`FsWriteDecision.TRUSTED`, seeds the gate from it at startup, and `forgetFsWriteTrust()` clears both halves — which every
+setting that changes *what is trusted* calls (the mode, the folder, a persona's pair, and the settings screen's "Stop
+trusting").
+
+**The design's objection is answered structurally rather than overruled.** Its worry was a backup carrying a grant to a
+machine that never chose it. But `exportBackup` is an **allowlist of fields**, and `trusted_fs_roots` is not one — the
+same mechanism that already keeps `files_mode` and `files_workspace` out of a backup, because those are device facts
+too. A restored backup can neither restore the workspace nor the grant, and `FsToolSettingsTest` pins both halves so a
+future field added to `BackupData` cannot quietly reverse this. The confirmation itself is untouched and remains the
+first line of defence; what changed is how long its answer is remembered.
+
+**And the audit's word changed with it.** The value was `session-trust`, which on the first write after a restart would
+describe a session that had not happened yet; it is `trusted` now, and the enum's `SESSION_TRUST` went with it. The
+history in this file and in PLAN.md §10 still says `session-trust` where it is describing what was fixed on 2026-10-16 —
+that is what it was called then.
+
+→ PLAN.md §10 (M8), `AssistantServiceFsTools.kt`, `SettingsManager.kt` (`TRUSTED_FS_ROOTS`), `FsToolScreens.kt`
+
 ## 2026-10-17 — The prompt says what the tools are for, not only what they are not
 
 M8's design asked for a system-prompt contract and §1 said where it goes (the `suffix` skills ride in, so the budget

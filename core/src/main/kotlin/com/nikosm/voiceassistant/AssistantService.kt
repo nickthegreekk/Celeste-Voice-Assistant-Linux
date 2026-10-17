@@ -1249,6 +1249,14 @@ class AssistantService(
         // is personas that reached storage without passing through add/updatePersona — an
         // importBackup being the one that matters — where nothing has armed them at all.
         refreshAllSpontaneousSchedules()
+        // M8: the workspaces the user has already told the write gate to stop asking about. Seeded
+        // here, once, so a restart does not ask again — and *read back from the store*, which is what
+        // makes the trust survive; the gate itself is in-memory by construction and stays that way.
+        fsWriteGate.seedTrustedRoots(
+            settingsManager.getTrustedFsRoots()
+                .mapNotNull { runCatching { Path.of(it) }.getOrNull() }
+                .filter { it.isAbsolute },
+        )
         _imageGenBases.value = settingsManager.getImageGenBases()?.takeIf { it.isNotEmpty() } ?: listOf(ServerConfig("Local A1111", "http://0.0.0.0:7860"))
         // Loaded after the list so the two can never be momentarily inconsistent for a collector.
         _activeImageGenBackend.value = settingsManager.getActiveImageGenBackend()

@@ -125,6 +125,17 @@ class SettingsManager(
          */
         const val PERSONA_FS_MODE_PREFIX = "persona_fs_mode_"
         const val PERSONA_FS_WORKSPACE_PREFIX = "persona_fs_workspace_"
+
+        /**
+         * The workspaces the user has told the write gate to stop asking about (2026-10-17).
+         *
+         * **Not a `BackupData` field, deliberately** — which is what makes persisting it safe. The
+         * backup is an allowlist, the files settings are not on it, and neither is this: a restored
+         * backup cannot re-grant write access to a folder, because it can neither restore the folder
+         * nor the grant. That is the whole of the design's original objection, answered structurally
+         * rather than by keeping the value out of storage.
+         */
+        const val TRUSTED_FS_ROOTS = "trusted_fs_roots"
     }
 
     // The shared production Json, not a second copy of it — see [SettingsJson].
@@ -1265,6 +1276,19 @@ class SettingsManager(
 
     fun getPersonaFsWorkspace(personaName: String): String? =
         store.getString(PERSONA_FS_WORKSPACE_PREFIX + personaName)?.takeIf { it.isNotBlank() }
+
+    /** The roots the write gate does not ask about, as absolute paths. Unreadable JSON reads as none. */
+    fun getTrustedFsRoots(): List<String> {
+        val data = store.getString(TRUSTED_FS_ROOTS) ?: return emptyList()
+        return runCatching { json.decodeFromString<List<String>>(data) }
+            .onFailure { logger.w(TAG, "Corrupted/unreadable JSON in $TRUSTED_FS_ROOTS — asking again", it) }
+            .getOrDefault(emptyList())
+    }
+
+    /** Replace the whole set. Empty means "ask again", which is what every fs setting change writes. */
+    fun saveTrustedFsRoots(roots: Collection<String>) {
+        store.edit().putString(TRUSTED_FS_ROOTS, json.encodeToString(roots.toList())).commit()
+    }
 
     /** The rename half, both keys, like the history and output-device twins above. */
     fun migratePersonaFs(oldName: String, newName: String) {

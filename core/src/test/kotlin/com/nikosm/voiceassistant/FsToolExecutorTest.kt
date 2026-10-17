@@ -272,11 +272,11 @@ class FsToolExecutorTest {
     fun `a write a trusted root never asks about is recorded as session trust`() = runBlocking {
         // The other half of "recorded with how it was approved": a write that got through without a
         // dialog is not a write the user pressed a button for, and the audit used to say it was.
-        val result = executor(approve = { FsWriteDecision.SESSION_TRUST })
+        val result = executor(approve = { FsWriteDecision.TRUSTED })
             .execute(call(TOOL_WRITE, "path" to "trusted.txt", "content" to "hello"))
 
         assertTrue(result.ok)
-        assertEquals("session-trust", audit.single().confirmed)
+        assertEquals("trusted", audit.single().confirmed)
         assertEquals("ok", audit.single().result)
     }
 
@@ -373,16 +373,24 @@ class FsToolExecutorTest {
     }
 
     @Test
-    fun `the write gate trusts a root for the session, and forgets on demand`() {
+    fun `the write gate trusts a root, seeds it at startup, and forgets on demand`() {
         val gate = FsWriteApprovalGate()
 
         assertFalse("nothing is trusted to begin with", gate.trusts(root))
-        gate.trustForSession(root)
+        gate.trustRoot(root)
         assertTrue(gate.trusts(root))
-        assertEquals(setOf(root), gate.trustedForSession())
+        assertEquals(setOf(root), gate.trustedRoots())
+
+        // What a restart looks like from the gate's side: a fresh instance seeded from the store, so
+        // the first write of the day asks nothing. The *persisting* is the service's job and is
+        // tested through it, in FsToolTurnTest.
+        val afterRestart = FsWriteApprovalGate()
+        assertFalse("a fresh gate trusts nothing until it is seeded", afterRestart.trusts(root))
+        afterRestart.seedTrustedRoots(listOf(root))
+        assertTrue(afterRestart.trusts(root))
 
         gate.forgetTrust()
-        assertFalse("a restart asks again, and so does this", gate.trusts(root))
+        assertFalse("and forgetting is immediate", gate.trusts(root))
     }
 
     @Test

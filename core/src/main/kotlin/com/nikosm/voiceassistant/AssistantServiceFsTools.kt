@@ -55,25 +55,25 @@ internal fun AssistantService.setFsModeSetting(mode: FsToolMode) {
     // A mode change is a change of what is trusted, so the session's grants go with it: leaving a
     // folder trusted after the user has just reached for the switch would be answering a question
     // they have not been asked yet.
-    fsWriteGate.forgetTrust()
+    forgetFsWriteTrust()
     logger.i("FsTools", "filesystem mode is now ${mode.name}")
 }
 
 internal fun AssistantService.setFsWorkspaceSetting(path: String?) {
     settingsManager.saveFsWorkspace(path)
-    fsWriteGate.forgetTrust()
+    forgetFsWriteTrust()
     logger.i("FsTools", if (path.isNullOrBlank()) "workspace cleared" else "workspace set")
 }
 
 /** The persona editor's two writes. Null mode means "follow the global", which is the default. */
 internal fun AssistantService.setPersonaFsModeSetting(personaName: String, mode: FsToolMode?) {
     settingsManager.savePersonaFsMode(personaName, mode)
-    fsWriteGate.forgetTrust()
+    forgetFsWriteTrust()
 }
 
 internal fun AssistantService.setPersonaFsWorkspaceSetting(personaName: String, path: String?) {
     settingsManager.savePersonaFsWorkspace(personaName, path)
-    fsWriteGate.forgetTrust()
+    forgetFsWriteTrust()
 }
 
 /** Why this folder cannot be the workspace, or null when it can — asked where the user picks it. */
@@ -390,10 +390,12 @@ internal const val MAX_TOOL_ROUNDS = 6
  * losing it — and the answer arrives from the UI through a `CompletableDeferred` the calling
  * coroutine is suspended on.
  *
- * **Trust is per root and never persisted.** A restart asks again, which is PLAN.md §10/M8's own
- * rule ("a root can be trusted for the session only"), and it is also the reason the trust lives in
- * this object rather than in the settings blob: a value that survives a restart is a value that
- * survives a backup, and this one must not.
+ * **Trust is per root, and the service persists it** (2026-10-17; the design said session-only and
+ * the user asked for it to survive a restart — docs/DECISIONS.md records the reversal and why it is
+ * safe: a backup is an allowlist of fields, and this one is not among them, so a restored backup
+ * cannot re-grant write access any more than it can restore the workspace). The set lives here; the
+ * *decision* to write it down is the service's, at [AssistantService.requestFsWriteApproval], and
+ * [AssistantService.forgetFsWriteTrust] clears both halves when the arrangement changes.
  */
 internal class FsWriteApprovalGate {
     private val trustedRoots = java.util.Collections.synchronizedSet(mutableSetOf<Path>())
@@ -407,30 +409,38 @@ internal class FsWriteApprovalGate {
 
     fun trusts(root: Path): Boolean = trustedRoots.contains(root)
 
-    /** The roots trusted for this session, for the settings screen to show and to withdraw. */
-    fun trustedForSession(): Set<Path> = trustedRoots.toSet()
+    /** The roots trusted now, for the settings screen to show and to withdraw. */
+    fun trustedRoots(): Set<Path> = trustedRoots.toSet()
+
+    /**
+     * Trust these roots before any question is asked — the service calls this once, from its
+     * settings load, so a restart does not ask about a folder the user approved yesterday.
+     */
+    fun seedTrustedRoots(roots: Collection<Path>) {
+        trustedRoots.addAll(roots)
+    }
 
     fun forgetTrust() {
         trustedRoots.clear()
     }
 
-    fun trustForSession(root: Path) {
+    fun trustRoot(root: Path) {
         trustedRoots.add(root)
     }
 
     /** The user's answer. Ignored when no question is pending, like every dialog dismissal. */
-    fun answer(approve: Boolean, trustForSession: Boolean = false) {
+    fun answer(approve: Boolean, trustRoot: Boolean = false) {
         val waiting = deferred ?: return
-        if (approve && trustForSession) {
+        if (approve && trustRoot) {
             _pending.value?.root?.let { trustedRoots.add(it) }
         }
         waiting.complete(
             when {
                 !approve -> FsWriteDecision.DENIED
-                // "Allow and trust this workspace for the session" is one button, and the audit has a
-                // word for it — the same one an already-trusted root gets, because from the user's
-                // side those are the same decision: stop asking about this folder.
-                trustForSession -> FsWriteDecision.SESSION_TRUST
+                // "Always allow writes in this folder" is one checkbox, and the audit has a word for
+                // it — the same one an already-trusted root gets, because from the user's side those
+                // are the same decision: stop asking about this folder.
+                trustRoot -> FsWriteDecision.TRUSTED
                 else -> FsWriteDecision.USER
             },
         )
@@ -453,7 +463,7 @@ internal class FsWriteApprovalGate {
         // No question at all when the root is already trusted for this session, and the answer says
         // so — which is how a write the user never saw a dialog for still explains itself in the
         // audit.
-        if (trusts(workspace.root)) return FsWriteDecision.SESSION_TRUST
+        if (trusts(workspace.root)) return FsWriteDecision.TRUSTED
         val waiting = CompletableDeferred<FsWriteDecision>()
         deferred = waiting
         _pending.value = requestBody
@@ -483,10 +493,37 @@ internal const val FS_WRITE_APPROVAL_TIMEOUT_MS = 120_000L
  */
 internal suspend fun AssistantService.requestFsWriteApproval(request: FsWriteRequest, workspace: FsWorkspace): FsWriteDecision {
     val decision = fsWriteGate.request(workspace, request)
+    if (decision == FsWriteDecision.TRUSTED) {
+        // **Remembered across restarts** (the user's call, 2026-10-17 — docs/DECISIONS.md). Written
+        // only when it changes something, so the ordinary case — a root approved days ago — does not
+        // rewrite the settings file on every write.
+        rememberTrustedRoot(workspace.root)
+    }
     if (decision == FsWriteDecision.TIMEOUT) {
         announceWriteNeedsAttention(request)
     }
     return decision
+}
+
+/** Persist one trusted root, if the store does not already have it. */
+private fun AssistantService.rememberTrustedRoot(root: Path) {
+    val stored = settingsManager.getTrustedFsRoots()
+    val asText = root.toString()
+    if (asText in stored) return
+    settingsManager.saveTrustedFsRoots(stored + asText)
+    logger.i("FsTools", "writes in this workspace will not ask again: ${root.fileName}")
+}
+
+/**
+ * Writes ask again from now on: the grants go, in memory and on disk.
+ *
+ * Called by everything that changes what is trusted — the mode, the folder, a persona's pair — because
+ * a grant is an answer about one *arrangement*, and changing the arrangement has to re-ask. The
+ * settings screen's "Stop trusting" uses it too.
+ */
+internal fun AssistantService.forgetFsWriteTrust() {
+    fsWriteGate.forgetTrust()
+    settingsManager.saveTrustedFsRoots(emptyList())
 }
 
 /** One card, reused: there is at most one question pending, and it is answered or withdrawn. */
@@ -514,15 +551,23 @@ internal fun AssistantService.announceWriteNeedsAttention(request: FsWriteReques
  *
  * The values are the strings `FsToolAuditEntry` documents. Two of them were never written: a
  * **timeout** was recorded as `denied`, because a refusal and a question nobody answered were
- * indistinguishable to every caller; and **`session-trust`** was recorded as `user`, because a
- * written approval that asked nothing looked exactly like one that did.
+ * indistinguishable to every caller; and **trust** was recorded as `user`, because a written
+ * approval that asked nothing looked exactly like one that did.
+ *
+ * **`TRUSTED` was called `SESSION_TRUST` until 2026-10-17**, when trust became something the service
+ * persists rather than a set that dies with the process (the user's call — see docs/DECISIONS.md).
+ * The label changed with it: an audit line saying "session-trust" on the first write after a restart
+ * would have described a session that had not happened yet.
  */
 internal enum class FsWriteDecision(val label: String) {
     /** Allowed once, by the dialog's first button. */
     USER("user"),
 
-    /** Allowed because this root is trusted for the session — by the second button, or earlier. */
-    SESSION_TRUST("session-trust"),
+    /**
+     * Allowed because this root is trusted — approved earlier with the dialog's "always allow", and
+     * remembered since, across restarts.
+     */
+    TRUSTED("trusted"),
 
     /** Refused: the user said no, or the question was withdrawn when its turn ended. */
     DENIED("denied"),
@@ -531,5 +576,5 @@ internal enum class FsWriteDecision(val label: String) {
     TIMEOUT("timeout"),
     ;
 
-    val allows: Boolean get() = this == USER || this == SESSION_TRUST
+    val allows: Boolean get() = this == USER || this == TRUSTED
 }

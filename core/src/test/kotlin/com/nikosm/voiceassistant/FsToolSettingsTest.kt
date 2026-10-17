@@ -243,4 +243,30 @@ class FsToolSettingsTest {
         assertFalse("and so is the folder", backup.contains("/home/u/notes"))
         assertFalse("and the per-persona pair", backup.contains("persona_fs_"))
     }
+
+    /**
+     * **The trust does not travel either, and that is what makes persisting it safe** (2026-10-17).
+     * The design kept trust out of storage because "a value that survives a restart is a value that
+     * survives a backup"; the backup is an *allowlist*, so a stored grant travels no further than the
+     * workspace it is about — which itself cannot travel. Pinned here rather than argued in a comment,
+     * because adding a field to `BackupData` is a one-line change nobody would think to reconsider.
+     */
+    @Test
+    fun `the write trust is stored, and still never travels in a backup`() {
+        manager.saveTrustedFsRoots(listOf("/home/u/notes"))
+
+        assertEquals(listOf("/home/u/notes"), manager.getTrustedFsRoots())
+        assertFalse(
+            "a restored backup must not re-grant write access to a folder",
+            manager.exportBackup().contains("trusted_fs_roots"),
+        )
+        assertFalse(manager.exportBackup().contains("/home/u/notes"))
+    }
+
+    @Test
+    fun `an unreadable trust record means ask again, not trust everything`() {
+        store.map["trusted_fs_roots"] = "not json"
+
+        assertEquals("the fail-closed direction: no roots, so every write asks", emptyList<String>(), manager.getTrustedFsRoots())
+    }
 }
