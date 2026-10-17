@@ -1009,7 +1009,11 @@ fun MainScreen(
             // room (see personaBackdropPath): a room is a shared conversation with no
             // persona of its own, and it used to inherit whichever persona was selected when
             // it was opened — someone else's photo, and their scrim, behind the transcript.
-            Box(modifier = Modifier.fillMaxSize()) {
+            // M17: behind a width breakpoint, so a narrow window keeps the ported layout exactly.
+            // A maximised window gets the desktop shape: personas and rooms as a rail beside the
+            // conversation, the same shape Settings uses for its categories.
+            BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+                val showDesktopSidebar = maxWidth >= DESKTOP_SIDEBAR_MIN_WIDTH
                 personaBackdropPath(activeRoom, currentPersona.backgroundImageUri)?.let { path ->
                     AsyncImage(
                         model = File(path),
@@ -1046,13 +1050,39 @@ fun MainScreen(
                 // only the inset value is read inside the derived state.)
                 val imeInsets = WindowInsets.ime
                 val imeVisible by remember(imeInsets) { derivedStateOf { imeInsets.getBottom(imeDensity) > 0 } }
-                Column(
+                Row(
                     modifier = Modifier
                         .fillMaxSize()
                         .padding(innerPadding)
-                        .imePadding(),
-                    horizontalAlignment = Alignment.CenterHorizontally
+                        .imePadding()
                 ) {
+                    if (showDesktopSidebar) {
+                        DesktopSidebar(
+                            personas = personaList,
+                            currentPersonaName = currentPersona.name,
+                            rooms = rooms,
+                            activeRoomId = activeRoomId,
+                            accentColor = personaColor,
+                            // The same service paths as the picker — no local assignment to a
+                            // selection mirror, for the reason recorded at the picker below.
+                            onPersonaSelected = { persona ->
+                                service?.switchPersonaFromPicker(persona)
+                                if (persona.isTranslator) {
+                                    service?.clearMessages()
+                                }
+                            },
+                            onRoomSelected = { room -> service?.switchRoom(room) }
+                        )
+                        VerticalDivider(
+                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)
+                        )
+                    }
+                    Column(
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxHeight(),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
                     // Deleted: the `UpdateBanner`, which stood here. Upstream showed it when the
                     // throttled GitHub check found a newer version, with a View button that opened
                     // the release URL through `context.startActivity(Intent(ACTION_VIEW, …))` and
@@ -1203,6 +1233,7 @@ fun MainScreen(
                         currentPersona = currentPersona
                         )
                     } // end celestial-if/else (HUD body vs classic ControlBar)
+                }
                 }
             }
         }

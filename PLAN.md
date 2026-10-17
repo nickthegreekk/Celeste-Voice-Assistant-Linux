@@ -1960,6 +1960,19 @@ bubble's callback, a primary press (selection) does not, and the compact HUD bod
 is a popup window the desktop test runner cannot see into — the same boundary as `DialogWindow` — so its items are
 judged in the live run. Next: the wide-window layouts.]
 
+[Progress, 2026-10-17 — slice 5, the wide layouts. Behind a width breakpoint, so a narrow window keeps the
+ported layout exactly: a main window at 1100 dp or wider grows `DesktopSidebar` — personas and rooms as rows
+beside the conversation, the active one tinted, both callbacks on the same service paths as the picker — and
+the Settings window at 840 dp or wider becomes two panes: the category list stays visible as a left rail with
+the current page marked, and the page sits beside it without a back arrow. The category `when` was extracted
+so both shapes render the same content rather than two copies. "Chats" in the plan's sidebar line are the
+persona rows: upstream has one conversation per persona plus rooms, and inventing a thread list would be a new
+feature (§10). `DesktopSidebarTest` (2) proves every row is listed and reports exactly its persona/room, and
+that an empty room list renders no Rooms section. The breakpoint itself and the rail's colours are judged in
+the live run. One full suite run during this slice reported the known false attribution — a leaked Main
+continuation blamed on `FsToolTurnTest` — and three runs after it were green; the leak is unidentified and is
+the first item for the hardening pass after M17. Next: packaging and the live run.]
+
 **Total: 33–50 focused days** (about 4–8 weeks full time, 3–5 months at evenings and weekends).
 A first usable milestone is **M2**: roughly **15–23 days**.
 

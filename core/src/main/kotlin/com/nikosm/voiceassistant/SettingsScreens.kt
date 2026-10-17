@@ -325,7 +325,12 @@ internal fun settingsCategorySummaries(
 internal fun SettingsCategoryList(
     accentColor: Color,
     summaries: Map<SettingsCategory, String>,
-    onCategorySelected: (SettingsCategory) -> Unit
+    onCategorySelected: (SettingsCategory) -> Unit,
+    /**
+     * M17, two-pane Settings: the category whose page the right-hand pane is showing. Null for
+     * the one-pane drill-down, where no row is "current" because the list itself is the screen.
+     */
+    activeTitle: String? = null,
 ) {
     LazyColumn(
         // fillMaxSize, not weight(): AnimatedContent already carries the weight(1f) that
@@ -367,6 +372,7 @@ internal fun SettingsCategoryList(
                     category = category,
                     summary = summaries[category].orEmpty(),
                     accentColor = accentColor,
+                    selected = category.title == activeTitle,
                     onClick = { onCategorySelected(category) },
                     modifier = Modifier.padding(bottom = 6.dp)
                 )
@@ -390,7 +396,9 @@ private fun SettingsCategoryRow(
     summary: String,
     accentColor: Color,
     onClick: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    /** M17: the rail's current page (two-pane Settings only); see [SettingsCategoryList]. */
+    selected: Boolean = false,
 ) {
     Surface(
         modifier = modifier
@@ -406,7 +414,9 @@ private fun SettingsCategoryRow(
         shape = RoundedCornerShape(12.dp),
         // The same container the existing settings cards use (SettingsSection), not a new
         // color: tonal fill, and borderless — the outline is what made this read as a form.
-        color = Color.Black.copy(alpha = 0.2f)
+        // The current page's row carries the persona accent instead, which is how the rail
+        // says where you are without a second selection control.
+        color = if (selected) accentColor.copy(alpha = 0.18f) else Color.Black.copy(alpha = 0.2f)
     ) {
         Row(
             modifier = Modifier
@@ -536,6 +546,11 @@ private fun SettingsCategoryScreen(
     category: SettingsCategory,
     accentColor: Color,
     onBack: () -> Unit,
+    /**
+     * M17, two-pane Settings: the category rail is always visible, so there is nothing to go
+     * back to and the arrow would point at a screen that is already beside the content.
+     */
+    showBack: Boolean = true,
     content: @Composable () -> Unit
 ) {
     Column(modifier = Modifier.fillMaxSize()) {
@@ -545,14 +560,18 @@ private fun SettingsCategoryScreen(
                 .padding(start = 4.dp, end = 20.dp, top = 8.dp, bottom = 8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            IconButton(onClick = onBack) {
-                Icon(
-                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                    contentDescription = "Back to Settings",
-                    tint = accentColor
-                )
+            if (showBack) {
+                IconButton(onClick = onBack) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                        contentDescription = "Back to Settings",
+                        tint = accentColor
+                    )
+                }
+                Spacer(Modifier.width(4.dp))
+            } else {
+                Spacer(Modifier.width(16.dp))
             }
-            Spacer(Modifier.width(4.dp))
             Text(
                 text = category.title,
                 style = MaterialTheme.typography.headlineSmall,
@@ -602,6 +621,9 @@ internal fun personaEditorIndex(personas: List<Persona>, name: String?): Int? {
     val index = personas.indexOfFirst { it.name == name }
     return if (index >= 0) index else null
 }
+
+/** M17: the width at which Settings replaces the drill-down with the two-pane desktop shape. */
+private val SETTINGS_TWO_PANE_MIN_WIDTH = 840.dp
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -734,6 +756,59 @@ fun SettingsDialog(
         skills = skills.size
     )
 
+    // One `when` for every category's page, shared by the one-pane drill-down and the two-pane
+    // layout below. Extracted rather than duplicated: the content must not depend on which
+    // navigation shape happens to be hosting it.
+    val categoryContent: @Composable (SettingsCategory) -> Unit = { category ->
+        when (category.title) {
+            "General" -> GeneralSettings(
+                service = svc,
+                totalCost = totalCost,
+                onDismiss = onDismiss
+            )
+            "Audio" -> AudioSettings(service = svc)
+            "Health" -> ServerHealthSettings(service = svc)
+            "Filesystem" -> FsToolSettings(service = svc)
+            "Terminal" -> CommandSettings(service = svc)
+            "MCP" -> McpSettings(service = svc)
+            "Servers" -> ServerSettings(
+                service = svc,
+                gateways = serverBases,
+                ollama = ollamaBases,
+                ollamaLoaded = ollamaLoaded,
+                imageGen = imageGenBases,
+                currentThemeColor = personaColor
+            )
+            "Cloud" -> CloudSettings(
+                service = svc,
+                apis = cloudApis
+            )
+            "Personas" -> PersonaSettings(
+                service = svc,
+                personas = personas,
+                currentThemeColor = personaColor,
+                initialEditingIndex = pendingEditIndex,
+                onInitialEditConsumed = { pendingEditIndex = null }
+            )
+            "Rooms" -> RoomSettings(
+                service = svc,
+                rooms = rooms,
+                personas = personas,
+                currentThemeColor = personaColor
+            )
+            // One `when` branch, as the M1 marker said, and the reasoning it
+            // recorded travels with the arguments: personas are passed so each
+            // row can say who would lose a shared skill on delete.
+            "Skills" -> SkillSettings(
+                service = svc,
+                skills = skills,
+                personas = personas,
+                currentThemeColor = personaColor,
+                scheduledSkills = scheduledSkills
+            )
+        }
+    }
+
     // The content is a value rather than an inline block so the desktop can host it in an
     // application Window (embedded = true) without the dialog wrapper. The wrapper below keeps
     // the Android-shaped presentation for every other caller.
@@ -744,96 +819,93 @@ fun SettingsDialog(
             color = MaterialTheme.colorScheme.surface,
             tonalElevation = 6.dp
         ) {
-            Column(modifier = Modifier.fillMaxSize()) {
-                // System back/gesture: leave the category screen before dismissing Settings,
-                // matching the header arrow. On the flat list it falls through to the
-                // dialog's own onDismissRequest. A shortcut-opened dialog leaves all the way
-                // out (see leaveCategory), so back from the editor lands on the chat.
-                // Deleted: `BackHandler(enabled = shownCategory != null) { leaveCategory() }`,
-                // the system back gesture. A desktop window has no back button, and the header
-                // arrow the comment above refers to is the affordance that remains — which is
-                // also what upstream's own comment called the equivalent ("matching the header
-                // arrow"). The Escape key would be the natural desktop addition and is M3's, with
-                // the rest of the settings navigation.
-
-                // Crossfade between the flat list and the active category screen. Replaces
-                // the accordion's expand/shrink: exactly one of the two is ever on screen.
-                AnimatedContent(
-                    targetState = shownCategory,
-                    transitionSpec = {
-                        fadeIn(animationSpec = tween(220)) togetherWith
-                            fadeOut(animationSpec = tween(150))
-                    },
-                    modifier = Modifier.weight(1f),
-                    label = "settingsCategoryNav"
-                ) { category ->
-                    if (category == null) {
-                        SettingsCategoryList(
-                            accentColor = personaColor,
-                            summaries = categorySummaries,
-                            onCategorySelected = { activeCategory = it }
-                        )
-                    } else {
-                        SettingsCategoryScreen(
-                            category = category,
-                            accentColor = personaColor,
-                            onBack = leaveCategory
+            BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+                // M17: the desktop shape. A wide window keeps the category list visible as a
+                // rail on the left and puts the page beside it; the narrow path below is the
+                // ported drill-down, unchanged, for the same window when it is narrowed (and
+                // for every phone-shaped host and UI test).
+                if (maxWidth >= SETTINGS_TWO_PANE_MIN_WIDTH) {
+                    // The first category is the default page, but the state is NOT written:
+                    // `activeCategory` stays ephemeral, so opening Settings always lands on
+                    // General and a rotation behaves as it always has.
+                    val railCategory = shownCategory ?: SETTINGS_CATEGORIES.first()
+                    Row(modifier = Modifier.fillMaxSize()) {
+                        Surface(
+                            modifier = Modifier.width(340.dp).fillMaxHeight(),
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.18f)
                         ) {
-                            when (category.title) {
-                                "General" -> GeneralSettings(
-                                    service = svc,
-                                    totalCost = totalCost,
-                                    onDismiss = onDismiss
-                                )
-                                "Audio" -> AudioSettings(service = svc)
-                                "Health" -> ServerHealthSettings(service = svc)
-                                "Filesystem" -> FsToolSettings(service = svc)
-                                "Terminal" -> CommandSettings(service = svc)
-                                "MCP" -> McpSettings(service = svc)
-                                "Servers" -> ServerSettings(
-                                    service = svc,
-                                    gateways = serverBases,
-                                    ollama = ollamaBases,
-                                    ollamaLoaded = ollamaLoaded,
-                                    imageGen = imageGenBases,
-                                    currentThemeColor = personaColor
-                                )
-                                "Cloud" -> CloudSettings(
-                                    service = svc,
-                                    apis = cloudApis
-                                )
-                                "Personas" -> PersonaSettings(
-                                    service = svc,
-                                    personas = personas,
-                                    currentThemeColor = personaColor,
-                                    initialEditingIndex = pendingEditIndex,
-                                    onInitialEditConsumed = { pendingEditIndex = null }
-                                )
-                                "Rooms" -> RoomSettings(
-                                    service = svc,
-                                    rooms = rooms,
-                                    personas = personas,
-                                    currentThemeColor = personaColor
-                                )
-                                // One `when` branch, as the M1 marker said, and the reasoning it
-                                // recorded travels with the arguments: personas are passed so each
-                                // row can say who would lose a shared skill on delete.
-                                "Skills" -> SkillSettings(
-                                    service = svc,
-                                    skills = skills,
-                                    personas = personas,
-                                    currentThemeColor = personaColor,
-                                    scheduledSkills = scheduledSkills
-                                )
+                            SettingsCategoryList(
+                                accentColor = personaColor,
+                                summaries = categorySummaries,
+                                activeTitle = railCategory.title,
+                                onCategorySelected = { activeCategory = it }
+                            )
+                        }
+                        VerticalDivider(
+                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)
+                        )
+                        Column(modifier = Modifier.weight(1f).fillMaxHeight()) {
+                            SettingsCategoryScreen(
+                                category = railCategory,
+                                accentColor = personaColor,
+                                onBack = {},
+                                showBack = false
+                            ) {
+                                categoryContent(railCategory)
                             }
+                            SettingsFooter(accentColor = personaColor, onDismiss = onDismiss)
                         }
                     }
-                }
+                } else {
+                    Column(modifier = Modifier.fillMaxSize()) {
+                        // System back/gesture: leave the category screen before dismissing
+                        // Settings, matching the header arrow. On the flat list it falls
+                        // through to the dialog's own onDismissRequest. A shortcut-opened
+                        // dialog leaves all the way out (see leaveCategory), so back from the
+                        // editor lands on the chat.
+                        // Deleted: `BackHandler(enabled = shownCategory != null) { leaveCategory() }`,
+                        // the system back gesture. A desktop window has no back button, and the
+                        // header arrow the comment above refers to is the affordance that
+                        // remains — which is also what upstream's own comment called the
+                        // equivalent ("matching the header arrow"). The Escape key would be the
+                        // natural desktop addition and is M3's, with the rest of the settings
+                        // navigation.
 
-                // One footer for the whole dialog, so it is pinned below the scrolling
-                // content on the category list AND on every category screen. Same close
-                // affordance as before, now a single caption/Close row.
-                SettingsFooter(accentColor = personaColor, onDismiss = onDismiss)
+                        // Crossfade between the flat list and the active category screen.
+                        // Replaces the accordion's expand/shrink: exactly one of the two is
+                        // ever on screen.
+                        AnimatedContent(
+                            targetState = shownCategory,
+                            transitionSpec = {
+                                fadeIn(animationSpec = tween(220)) togetherWith
+                                    fadeOut(animationSpec = tween(150))
+                            },
+                            modifier = Modifier.weight(1f),
+                            label = "settingsCategoryNav"
+                        ) { category ->
+                            if (category == null) {
+                                SettingsCategoryList(
+                                    accentColor = personaColor,
+                                    summaries = categorySummaries,
+                                    onCategorySelected = { activeCategory = it }
+                                )
+                            } else {
+                                SettingsCategoryScreen(
+                                    category = category,
+                                    accentColor = personaColor,
+                                    onBack = leaveCategory
+                                ) {
+                                    categoryContent(category)
+                                }
+                            }
+                        }
+
+                        // One footer for the whole dialog, so it is pinned below the scrolling
+                        // content on the category list AND on every category screen. Same close
+                        // affordance as before, now a single caption/Close row.
+                        SettingsFooter(accentColor = personaColor, onDismiss = onDismiss)
+                    }
+                }
             }
         }
     }
