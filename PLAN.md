@@ -1557,7 +1557,10 @@ three editor-parser cap cases, all against `RoomTurnServer`). The triage table i
 (each named), 0 remaining, 11 dropped with a reason. **The one-hour acceptance is met (2026-10-17):**
 `CELESTE_SOAK_SECONDS=3600` ran 3,600.27 seconds of real start/shutdown cycles and the final thread/descriptor checks
 passed — the test now has a duration mode for exactly this claim, and `CELESTE_SOAK_CYCLES` remains the bounded run
-used earlier (50,000 cycles in 40 s).]
+used earlier (50,000 cycles in 40 s). **The final packages were rebuilt after the room auto-scroll fix and verified
+(2026-10-17):** Arch `celeste-linux-0.1.0-1-x86_64.pkg.tar.zst` (20:16) extracted and `--selftest` exit 0;
+`celeste-linux_0.1.0_amd64.deb` (20:19) installed in a clean `debian:trixie` container and `--selftest` exit 0
+(no audio devices there, which the self-test reports and does not treat as a failure).]
 
 **M8 — Filesystem tools (new scope, not a port; not counted in the total below).** The user wants Celeste to read and write
 files on this machine so the assistant can be used as a local agent, **and the app's user chooses where and how**: a
