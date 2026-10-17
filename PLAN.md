@@ -1935,6 +1935,13 @@ persona-icon actions and the menu's search reach the right window; the tray gain
 `--headless`, like Open). Suite: core 940, platform 81, desktop compiles. Next: the visual pass, then the editors as
 dialog windows.]
 
+[Progress, 2026-10-17 — slice 2, the visual pass. The desktop's UI font is resolved with `fc-match` in `:platform`
+(`SystemFont.kt`, ProcessBuilder's home) and passed into `VoiceAssistantTheme` from `:desktop`, so `:core` stays free of
+the platform and `Type.kt` (a COPY file) is untouched; the theme maps all fifteen Material styles onto the family. The
+chat list is now a centred reading column capped at 960 dp with a visible `VerticalScrollbar` at the window edge, and
+Enter sends / Shift+Enter newlines from the composer while Escape closes a dialog or stops a live turn. Hover states
+and focus rings move to the interaction slice, where the same pass touches every clickable row.]
+
 **Total: 33–50 focused days** (about 4–8 weeks full time, 3–5 months at evenings and weekends).
 A first usable milestone is **M2**: roughly **15–23 days**.
 

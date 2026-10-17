@@ -10,10 +10,12 @@ package com.nikosm.voiceassistant.ui.theme
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontFamily
 
 // Static fallback schemes — the app's identity colors. They are `internal` rather
 // than private so the instrumented Adaptive Theme tests can assert exact equality
@@ -90,14 +92,47 @@ fun VoiceAssistantTheme(
     // rather than silently no-opping — upstream's own comment on the gate asked for exactly that,
     // for the same reason.
     dynamicColor: Boolean = false, // Disabled by default to maintain the green/amber vibe
+    /**
+     * M17: the desktop's own UI font — resolved in `:desktop` through `fc-match` in `:platform`
+     * (ProcessBuilder may not appear in `:core`) and passed in here. Null keeps Compose's
+     * default family, which is what tests, previews and a machine without fontconfig get.
+     */
+    fontFamily: FontFamily? = null,
     content: @Composable () -> Unit
 ) {
     val colorScheme = baseColorScheme(darkTheme)
 
     MaterialTheme(
         colorScheme = colorScheme,
-        typography = Typography,
+        typography = Typography.withFontFamily(fontFamily),
         shapes = Shapes,
         content = content
     )
 }
+
+/**
+ * Applies [family] to every Material type style.
+ *
+ * `Type.kt` is a byte-identical COPY file and may not change, so the desktop's font arrives here,
+ * in the port-side theme that owns presentation. Copying each style rather than replacing the
+ * typography wholesale keeps the sizes, weights and line heights `Type.kt` declares — the font is
+ * the only thing being substituted.
+ */
+private fun Typography.withFontFamily(family: FontFamily?): Typography =
+    if (family == null) this else copy(
+        displayLarge = displayLarge.copy(fontFamily = family),
+        displayMedium = displayMedium.copy(fontFamily = family),
+        displaySmall = displaySmall.copy(fontFamily = family),
+        headlineLarge = headlineLarge.copy(fontFamily = family),
+        headlineMedium = headlineMedium.copy(fontFamily = family),
+        headlineSmall = headlineSmall.copy(fontFamily = family),
+        titleLarge = titleLarge.copy(fontFamily = family),
+        titleMedium = titleMedium.copy(fontFamily = family),
+        titleSmall = titleSmall.copy(fontFamily = family),
+        bodyLarge = bodyLarge.copy(fontFamily = family),
+        bodyMedium = bodyMedium.copy(fontFamily = family),
+        bodySmall = bodySmall.copy(fontFamily = family),
+        labelLarge = labelLarge.copy(fontFamily = family),
+        labelMedium = labelMedium.copy(fontFamily = family),
+        labelSmall = labelSmall.copy(fontFamily = family),
+    )

@@ -11,6 +11,7 @@ import androidx.compose.ui.platform.LocalWindowInfo
 import java.nio.file.Path
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.VerticalScrollbar
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
@@ -19,11 +20,14 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.rememberScrollbarAdapter
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -389,7 +393,16 @@ fun ChatList(
     var editingText by rememberSaveable { mutableStateOf("") }
 
     Box(modifier = modifier.fillMaxWidth()) {
-        LazyColumn(state = listState, modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        // M17: a reading column, not a phone layout stretched to a maximised window. The list is
+        // centred and capped at a comfortable measure; a narrow window is narrower than the cap
+        // and is unaffected. The scrollbar sits at the WINDOW edge (the outer Box), where a
+        // desktop user looks for it, rather than at the reading column's edge.
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
+            LazyColumn(
+                state = listState,
+                modifier = Modifier.fillMaxHeight().widthIn(max = 960.dp).fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
             itemsIndexed(messages) { index, message ->
                 val isUser = message.role == "user"
                 val isLastAssistant = index == messages.size - 1 && !isUser
@@ -559,6 +572,12 @@ fun ChatList(
             // carries the accumulated stream content (updated per chunk by the
             // NDJSON loop) - no separate overlay needed here (double-render).
         }
+        }
+
+        VerticalScrollbar(
+            adapter = rememberScrollbarAdapter(listState),
+            modifier = Modifier.align(Alignment.CenterEnd).fillMaxHeight()
+        )
 
         if (editingMessageIndex != null) {
             AlertDialog(

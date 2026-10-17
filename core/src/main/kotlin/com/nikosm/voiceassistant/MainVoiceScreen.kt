@@ -34,6 +34,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.isAltPressed
+import androidx.compose.ui.input.key.isCtrlPressed
+import androidx.compose.ui.input.key.isShiftPressed
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.*
 import java.nio.file.Files
@@ -910,7 +918,19 @@ fun MainScreen(
             !currentPersona.isImageGenerator &&
             currentPersona.requestRouting(service.ollamaServerNames(), service.cloudProviderNames()).isDirectOllama
         Scaffold(
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier.fillMaxSize().onPreviewKeyEvent { event ->
+                // M17: Escape is the desktop "get me out or stop" key. Dialogs close first;
+                // otherwise a live turn is stopped, exactly as the Stop button does. An idle
+                // screen does nothing, so Escape never becomes a surprise.
+                if (event.type == KeyEventType.KeyDown && event.key == Key.Escape) {
+                    when {
+                        showTranscriptSearch -> { showTranscriptSearch = false; true }
+                        showSettings -> { showSettings = false; true }
+                        state != AssistantState.IDLE -> { service?.stopEverything(); true }
+                        else -> false
+                    }
+                } else false
+            },
             containerColor = MaterialTheme.colorScheme.background,
             topBar = {
                 if (activeRoom != null) {
@@ -2147,7 +2167,27 @@ fun TextInputRow(
         OutlinedTextField(
             value = textInput,
             onValueChange = onTextInputChange,
-            modifier = Modifier.weight(1f).focusRequester(focusRequester).testTag(COMPOSER_DRAFT_TAG),
+            modifier = Modifier
+                .weight(1f)
+                .focusRequester(focusRequester)
+                .testTag(COMPOSER_DRAFT_TAG)
+                // M17: Enter sends, Shift+Enter inserts a newline — the desktop composer
+                // convention. Ctrl/Alt+Enter are left alone for input methods and future
+                // shortcuts. The action mirrors the send button: stop while speaking or
+                // listening, send when there is something to send.
+                .onPreviewKeyEvent { event ->
+                    if (event.type != KeyEventType.KeyDown || event.key != Key.Enter ||
+                        event.isShiftPressed || event.isCtrlPressed || event.isAltPressed
+                    ) {
+                        return@onPreviewKeyEvent false
+                    }
+                    when {
+                        state == AssistantState.SPEAKING -> { onStopClick(); true }
+                        isListening -> { onMicClick(); true }
+                        hasContent -> { onSendClick(); true }
+                        else -> false
+                    }
+                },
             placeholder = { Text(if (isImageGenerator) "Describe the image you want..." else "Type something...", style = MaterialTheme.typography.bodyMedium) },
             shape = RoundedCornerShape(24.dp),
             leadingIcon = {

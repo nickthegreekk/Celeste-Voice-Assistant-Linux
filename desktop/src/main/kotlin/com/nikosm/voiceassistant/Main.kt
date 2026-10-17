@@ -11,6 +11,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.painter.BitmapPainter
 import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.res.loadImageBitmap
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.application
@@ -30,6 +31,7 @@ import com.nikosm.voiceassistant.linux.ProcessTextToSpeech
 import com.nikosm.voiceassistant.linux.ShutdownWatchdog
 import com.nikosm.voiceassistant.linux.SingleInstance
 import com.nikosm.voiceassistant.linux.SystemLookAndFeel
+import com.nikosm.voiceassistant.linux.systemUiFontPath
 import com.nikosm.voiceassistant.ui.theme.VoiceAssistantTheme
 import java.awt.Toolkit
 import java.awt.event.InputEvent
@@ -293,6 +295,17 @@ fun main(args: Array<String>) {
         val settingsWindowState = rememberWindowState(width = 980.dp, height = 760.dp)
         val aboutWindowState = rememberWindowState(width = 460.dp, height = 340.dp)
 
+        // M17: the desktop's own UI font, resolved once through fontconfig. Skiko's default is
+        // not the system UI font, and that difference is the largest single "ported" tell after
+        // the layout. Null (no fontconfig, a broken font file) keeps Compose's default family.
+        val appFontFamily = remember {
+            runCatching {
+                systemUiFontPath()?.let { path ->
+                    FontFamily(androidx.compose.ui.text.platform.Font(path.toFile()))
+                }
+            }.getOrNull()
+        }
+
         Window(
             onCloseRequest = ::closeTheApplication,
             title = "Celeste",
@@ -321,7 +334,7 @@ fun main(args: Array<String>) {
             // light), so the setting is the source of truth. Collected here, at the root, so the
             // Settings switch repaints the whole window immediately.
             val darkTheme by service.darkTheme.collectAsState()
-            VoiceAssistantTheme(darkTheme = darkTheme) {
+            VoiceAssistantTheme(darkTheme = darkTheme, fontFamily = appFontFamily) {
                 // Held in composition state so the landing can clear it. Nothing else clears it, and
                 // nothing needs to: the payload is a start-up argument, and this window is the only
                 // one there will be.
@@ -400,7 +413,7 @@ fun main(args: Array<String>) {
                 icon = remember { windowIcon() },
             ) {
                 val darkTheme by service.darkTheme.collectAsState()
-                VoiceAssistantTheme(darkTheme = darkTheme) {
+                VoiceAssistantTheme(darkTheme = darkTheme, fontFamily = appFontFamily) {
                     val personaColor = service.currentPersonaFlow.collectAsState().value?.themeColor
                         ?: MaterialTheme.colorScheme.primary
                     // `embedded = true` is the half that matters: the content renders directly in
@@ -426,7 +439,7 @@ fun main(args: Array<String>) {
                 icon = remember { windowIcon() },
             ) {
                 val darkTheme by service.darkTheme.collectAsState()
-                VoiceAssistantTheme(darkTheme = darkTheme) {
+                VoiceAssistantTheme(darkTheme = darkTheme, fontFamily = appFontFamily) {
                     AboutContent(version = APP_VERSION, upstreamCommit = upstreamPin())
                 }
             }
