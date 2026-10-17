@@ -64,24 +64,95 @@ it makes.
 | `LogSinkTest.kt` | 6 | The shim's contract: a COPY file's `android.util.Log` call reaches the configured logger, at the right level, with the throwable form intact. |
 | `FakeAudioPlayback.kt` | — | Not a test class. The double for seam 2, which **enforces** the one-playback-at-a-time contract rather than tolerating violations — a fake that allowed two would let the sequencer be wrong without saying so. |
 
-## Instrumented tests — triage
+## Instrumented tests — triage (2026-10-17)
 
-Not yet done. PLAN.md §11 says the 59 files (20,889 lines) are triaged here, and the triage belongs
-with the milestone that reaches each area: a Compose-device test cannot be judged before the screen
-it drives exists, and a `WorkManager` test cannot be judged before the scheduler does. Filling this
-in early would be guessing at what a test needs rather than reading it.
+All 59 files (20,889 lines) now have a verdict. The categories PLAN.md §11 names are applied per
+file below; the counts are 6 to the desktop Compose runner, 43 rewritten against the port's seams
+(39 tests plus 4 portable loopback fixtures), and 10 dropped with a written reason.
 
-The categories PLAN.md §11 already names, so the shape is on the record:
+The moved-and-rewritten tests are **not ported yet** — this table decides their fate, it does not
+land them. Each belongs with the milestone that reaches its area, and the seam-based ones become
+`:core` JVM tests against the fakes that already exist (`FakeProviderServer`, `ServiceFakes`) or the
+four socket fixtures this triage found portable.
 
-| Upstream kind | Fate |
-|---|---|
-| Compose UI tests | move to the desktop `runComposeUiTest` runner |
-| `AndroidJUnit4` / `WorkManager` / `TestWorkerBuilder` | rewritten against the seams (M4, with the scheduler) |
-| shortcut and permission tests | retargeted or deleted with a written reason (M4: `.desktop` entries; permissions have no counterpart) |
-| service-lifecycle / isolation rules | re-expressed against the ported service core, which is an ordinary object here rather than an Android `Service` |
+### Move to the desktop Compose runner (6)
 
-Each row above becomes a per-file line as the milestone that owns it lands, with the reason
-recorded whether the test was kept, rewritten or dropped.
+| Upstream file | What it tests | Note | Lines |
+|---|---|---|---:|
+| `AdaptiveThemeInstrumentedTest.kt` | Dynamic wallpaper schemes, fallback, persistence | Static-scheme and persistence cases move; dynamic-wallpaper cases drop (no desktop `WallpaperManager`) | 247 |
+| `FullScreenImageViewerInstrumentedTest.kt` | Image opens full-screen; close/tap dismisses | Swap the `Bitmap` fixture for `ImageCodec` | 133 |
+| `HeaderPersonaTapComposeTest.kt` | Header icon vs. name are separate tap targets | Pure parameter-fed composable, no service | 115 |
+| `ModelPickerComposeTest.kt` | Picker favourites, chips, selection, loading, failure | Pure composable | 554 |
+| `ModelsScreenComposeTest.kt` | Model rows, filters, favourites, empty/error, back | Pure composable | 405 |
+| `SettingsCategoryListComposeTest.kt` | Every category title/summary, accessible tap | Static list, no service or clock | 177 |
+
+### Rewrite against the seams (39 tests)
+
+| Upstream file | What it tests | Port-side target | Lines |
+|---|---|---|---:|
+| `AssistantReplayRoutingInstrumentedTest.kt` | Replay re-synthesises through the gateway voice | Audio/TTS + gateway seams with fake playback | 346 |
+| `AssistantServiceConcurrencyInstrumentedTest.kt` | Overlapping model fetches preserve live statuses | Ported core + held loopback responses | 427 |
+| `AudioFocusDelayedRetryInstrumentedTest.kt` | Delayed audio focus retried within a bound | Audio-focus seam with an injected framework answer | 345 |
+| `CloudVoiceHistoryInstrumentedTest.kt` | Cloud voice turns record the transcript and carry history to all three providers | Service chat core + `FakeProviderServer` | 479 |
+| `ComfyImageInstrumentedTest.kt` | ComfyUI submit → poll → download, cancel, no file on failure | Ported core + a ComfyUI stub fixture | 817 |
+| `Fix4StreamingDotsInstrumentedTest.kt` | Thinking dots hide once streamed text exists | UI half to the Compose runner; state via ported core | 547 |
+| `Fix6NumCtxOverflowInstrumentedTest.kt` | Over-budget requests refused before sending | Budget logic on the ported core; UI half to the runner | 837 |
+| `GatewayCredentialResolutionInstrumentedTest.kt` | Trailing-slash/name backend URLs resolve credentials; unresolvable sends nothing | Config resolution on the ported core | 551 |
+| `GatewayTestVoiceSupersedeInstrumentedTest.kt` | A superseded test-voice turn does not force IDLE or leak focus | State/focus ownership + focus seam | 499 |
+| `H3StaleStreamUnwindInstrumentedTest.kt` | A stale stream unwind does not blank the newer placeholder | Streaming state machine on the ported core | 540 |
+| `ImageGenAuthInstrumentedTest.kt` | Basic auth on generate/regenerate/test-connection | Image-gen flow + A1111 stub | 416 |
+| `ImageGenBackendMismatchInstrumentedTest.kt` | 404/405 diagnosed as the other backend only when its probe succeeds | Probe logic on the ported core | 355 |
+| `ImageGenSaveProbeInstrumentedTest.kt` | Save probes the backend-appropriate endpoint | Save path through the ported core | 210 |
+| `ImageGenSettingsComposeTest.kt` | Image-gen switch/sections; state restoration | Service state via the port; the rotation/restoration case drops | 167 |
+| `M2HandsFreeToggleFocusInstrumentedTest.kt` | Hands-free off mid-turn does not force IDLE or leak focus | Hands-free ownership in the ported core | 621 |
+| `MessageStampEchoInstrumentedTest.kt` | Echoed timestamp stripped; injected exactly once next request | History/stamp logic + fake server | 249 |
+| `MessageTimestampInstrumentedTest.kt` | Stamps in local history, not cloud; budgeted and rendered | Request assembly on the ported core; UI half to the runner | 634 |
+| `ModelCatalogCacheInstrumentedTest.kt` | Cache states, refresh, merge, stale-on-failure | Catalog cache in the ported core | 512 |
+| `ModelPickerInstrumentedTest.kt` | Favourites and selection through the service | Catalog/favourites on the ported core | 304 |
+| `PersonaEditorCommitInstrumentedTest.kt` | Closing inside the debounce still commits a cloud identity | Commit builder on the ported core | 177 |
+| `PersonaEditorEmptyListsInstrumentedTest.kt` | First-frame close does not rewrite identity from empty lists | Editor commit against the state seam | 201 |
+| `PersonaNameUniquenessInstrumentedTest.kt` | Duplicate add/rename refused; victim's history preserved | Name guard on the ported core | 265 |
+| `PersonaSelectionInstrumentedTest.kt` | Selection follows switch/edit/rename/delete/deep link/room exit | Selection flow in the ported core | 430 |
+| `PersonaSwitchStopsPlaybackInstrumentedTest.kt` | Switch/clear stops chunked playback | Playback + sequencer seams | 654 |
+| `RoomAutoScrollInstrumentedTest.kt` | Opens at newest, follows streaming, stable identity | UI half to the runner; room state via the core | 377 |
+| `RoomEditorUiPersistenceInstrumentedTest.kt` | Room name/cap/reorder persist on close/Done/back | Editor commit to the settings seam | 387 |
+| `RoomPersistenceInstrumentedTest.kt` | Room edits survive a write-read cycle | Settings seam (JSON store) | 238 |
+| `RoomRoundLoopInstrumentedTest.kt` | Order, cap, local-only autonomy, stop, supersede | Room loop + fake servers | 919 |
+| `ServerIdentityInstrumentedTest.kt` | Server rename rewrites favourites/personas/cache | Identity/rename + settings store | 351 |
+| `SkillInjectionInstrumentedTest.kt` | Skills reach the prompt in order, do not persist, count against budget | Prompt assembly on the core | 699 |
+| `SkillUiInstrumentedTest.kt` | Toggle survives edit+rename; screenshots | Regression half via the core; screenshot halves drop | 369 |
+| `SpontaneousDeepLinkInstrumentedTest.kt` | Deep link selects the persona, ignores a missing one, leaves a room | Notifier/tray seam + selection | 178 |
+| `SpontaneousEditorUiInstrumentedTest.kt` | Gate reads live lists on the first frame; switch reaches the service | Gate against the state seam; UI half to the runner | 289 |
+| `SpontaneousTurnInstrumentedTest.kt` | Output lands in that persona's history; silence writes nothing | Turn execution on the core | 258 |
+| `SpontaneousWorkerInstrumentedTest.kt` | WorkManager arming/disarming, state, date rollover | Scheduler seam 10 (coroutine in-process) | 601 |
+| `SpontaneousWriteGuardInstrumentedTest.kt` | Cloud personas stripped; eligible local ones armed | Guard in the ported core | 311 |
+| `Stage2RevealStateInstrumentedTest.kt` | Playback fraction/timestamps clear and arm per path | TTS sequencing/playback seams | 282 |
+| `SuggestedRepliesDirectOllamaAuthInstrumentedTest.kt` | Suggested replies reach `/api/chat` with Basic auth | Routing/credentials on the core | 190 |
+| `SuggestedRepliesInstrumentedTest.kt` | Default translator/image flags filter correctly | Portable; move to `:core` and drop the unused Compose rule | 31 |
+
+### Portable fixtures (4)
+
+| Upstream file | What it is | Port-side target | Lines |
+|---|---|---|---:|
+| `ComfyUiStub.kt` | Loopback ComfyUI (`system_stats`, `prompt`, `history`, `queue`, `view`) | Reuse as a JVM fixture | 310 |
+| `ImageGenStub.kt` | Loopback A1111 requiring Basic auth | Reuse as a JVM fixture | 146 |
+| `ModelCatalogStub.kt` | Loopback Ollama catalogue (`/api/tags`, `/api/show`, `/v1/models`) | Reuse as a JVM fixture | 156 |
+| `OllamaSuggestionStub.kt` | Loopback Ollama `/api/chat` for suggestions | Reuse as a JVM fixture | 136 |
+
+### Drop with a written reason (10)
+
+| Upstream file | What it tests | Reason | Lines |
+|---|---|---|---:|
+| `ExampleInstrumentedTest.kt` | The instrumentation target's package name | Template test; asserts no behaviour | 23 |
+| `ImageGenScreenshotsInstrumentedTest.kt` | Screenshots of image-gen surfaces | Capture only, no behavioural assertion | 177 |
+| `PersonaShortcutInstrumentedTest.kt` | Launcher shortcut intent, icons, pin probe | Launcher shortcuts have no desktop counterpart; per-persona `.desktop` entries are a different surface | 136 |
+| `PersonaShortcutLaunchInstrumentedTest.kt` | Launching a pinned shortcut opens that chat | Android-launcher-only | 192 |
+| `PhoneCallGuardInstrumentedTest.kt` | Call-state detection and proximity barge-in | Telephony permission, call state and proximity sensor are Android-only | 479 |
+| `ServiceIsolationRule.kt` | Process-global service/WorkManager/notification isolation | Android harness; the desktop suite needs its own fixture | 447 |
+| `ShareTargetHarness.kt` | ACTION_SEND Activity harness | Android share-target plumbing | 391 |
+| `ShareTargetImageInstrumentedTest.kt` | Shared MediaStore image becomes an attachment | `content://`/MediaStore flow has no desktop counterpart (`--send-file` is the substitute) | 229 |
+| `ShareTargetInstrumentedTest.kt` | Shared text lands once in the draft | Android ACTION_SEND flow (`--send-text` is the substitute) | 73 |
+| `SpontaneousDeepLinkActivityInstrumentedTest.kt` | Activity singleTop, PendingIntent extra, recreation | Activity/manifest/PendingIntent semantics; the selection half is covered service-side | 300 |
 
 ## Adapted rather than copied (one file so far)
 
@@ -149,18 +220,14 @@ blockers rather than left implied.
 | `VoiceErrorPathTest` | 1 | The gateway being down when the user speaks produces a **readable error bubble** in the transcript and leaves the application running — the failure a user meets first. The URL is a closed loopback port, so the refusal is immediate and no real service is involved. The exact sentence is deliberately not pinned beyond "it names the connection": which layer reports the refusal depends on whether the transcription call throws or returns null, and both are honest. |
 | `NoMicrophoneTest` | 1 | The capture seam refusing to open: the recorder reports it **exactly once**, stops monitoring, never asks the detector about audio that does not exist, and calls neither speech callback. The second log line this test denies is the hot loop the recorder's own comment records from before the fix. The detector is a fake, which is why `SpeechDetector` was extracted — the real `VADDetector` loads ONNX in its constructor. |
 | `ComfyRestartMidJobTest` | 1 | ComfyUI dies between the submit and the history poll (a real loopback server stopped mid-run): the run fails with "stopped responding" at once instead of polling a dead socket for the ten-minute budget. The four-failure streak is the loop's own contract; the refusal is a real connection where a scripted 500 would have tested a different branch. |
+| `GatewaySynthesisTest` | 3 | The gateway's `/synthesize` leg over real HTTP: audio plus the `X-Word-Timestamps-B64` header on a non-JSON response; a 200 `application/json` "no voice for this language" note reported with its note, engine and detected language; and empty text sending nothing. The content-type branch is the point — a canned `GatewaySpeech` would not exercise the decision between a WAV body and a JSON decision. |
 
 **Still open in M7, with the reason:**
 
 - **Desktop UI tests** need Compose's test runtime on the classpath (`runComposeUiTest`), which is a
   new dependency. AGENTS.md §10 makes that a stop-and-ask, so it is not added by this hardening
   pass.
-- **The fake gateway's synthesis leg**: `FakeProviderServer` serves `/transcribe`, and the chunked
-  TTS sequencer is tested against a fake `synthesize` lambda, but no test drives `/synthesize` over
-  HTTP end to end. The leg that matters (sequencing, cancel, progress) is covered at the seam; the
-  remaining gap is the HTTP shape.
+- **The triaged instrumented tests are not ported yet.** The per-file table above decides each
+  one's fate; landing them belongs with the milestone that reaches their area.
 - **No Secret Service**: moot rather than missing — seam 8 is not in v1 (PLAN.md §5a), so
   credentials are the 0600 settings file and there is no daemon whose absence can fail a start.
-- **The 59 instrumented tests** still have no per-file triage. The categories are written down above;
-  turning them into per-file verdicts means reading each test, which belongs with the milestone that
-  reaches its area rather than with a soak pass.
