@@ -900,6 +900,12 @@ fun GeneralSettings(
         service.darkTheme.collect { darkTheme = it }
     }
 
+    // M14: reply notifications when the window is elsewhere.
+    var notifyReplies by remember { mutableStateOf(true) }
+    LaunchedEffect(Unit) {
+        service.notifyRepliesWhenUnfocused.collect { notifyReplies = it }
+    }
+
     var chatFontSize by remember { mutableStateOf(14f) }
     LaunchedEffect(Unit) {
         service.chatFontSize.collect { chatFontSize = it }
@@ -1074,6 +1080,29 @@ Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
     // that reopens at a size chosen by accident, on a screen that is no longer attached — and a person
     // should be able to turn that off without editing a settings file.
     var rememberWindowSize by remember { mutableStateOf(service.settingsManager.getRememberWindowSize()) }
+    SettingsSectionHeader(title = "Notifications", icon = Icons.Default.Notifications)
+    SettingsSection {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text("Reply notifications", style = MaterialTheme.typography.titleMedium)
+                Text(
+                    "Notify when a reply arrives while the window is in the background. A notification " +
+                        "disappears when you come back, and silent mode still wins.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                )
+            }
+            Switch(
+                checked = notifyReplies,
+                onCheckedChange = { service.setNotifyRepliesWhenUnfocused(it) }
+            )
+        }
+    }
+
     SettingsSectionHeader(title = "Window", icon = Icons.Default.OpenInFull)
     SettingsSection {
         Row(

@@ -279,6 +279,20 @@ fun main(args: Array<String>) {
             // on the resource path). See `windowIcon` for why this is not `painterResource`.
             icon = remember { windowIcon() },
         ) {
+            // M14: tell the service when the window has focus, so a reply that settles while it
+            // does not can notify. AWT focus (not a Compose local) because losing focus to another
+            // application — the case this feature is for — is exactly what the listener reports;
+            // regaining it also clears any standing notification.
+            DisposableEffect(window) {
+                val listener = object : java.awt.event.WindowAdapter() {
+                    override fun windowGainedFocus(e: java.awt.event.WindowEvent?) = service.setWindowFocused(true)
+                    override fun windowLostFocus(e: java.awt.event.WindowEvent?) = service.setWindowFocused(false)
+                }
+                window.addWindowListener(listener)
+                service.setWindowFocused(window.isFocused)
+                onDispose { window.removeWindowListener(listener) }
+            }
+
             // The application's own dark/light choice, not the desktop's: Compose's
             // `isSystemInDarkTheme()` cannot see an Xfce theme (Skiko returns UNKNOWN, mapped to
             // light), so the setting is the source of truth. Collected here, at the root, so the

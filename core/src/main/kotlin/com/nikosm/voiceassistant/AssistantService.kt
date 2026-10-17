@@ -605,6 +605,55 @@ class AssistantService(
     val _silenced = MutableStateFlow(false)
     val silenced = _silenced.asStateFlow()
 
+    // ------------------------------------------------------------------ reply notifications (M14)
+
+    /** Whether a settled reply notifies the user when the window is elsewhere. Default ON. */
+    val _notifyRepliesWhenUnfocused = MutableStateFlow(true)
+    val notifyRepliesWhenUnfocused = _notifyRepliesWhenUnfocused.asStateFlow()
+
+    fun setNotifyRepliesWhenUnfocused(enabled: Boolean) {
+        _notifyRepliesWhenUnfocused.value = enabled
+        settingsManager.saveNotifyRepliesWhenUnfocused(enabled)
+    }
+
+    /**
+     * The window's focus, reported by `Main`'s AWT focus listener. Volatile because the state
+     * collector reads it from the service scope while the UI writes it from the EDT.
+     */
+    @Volatile
+    internal var windowFocused: Boolean = false
+
+    /**
+     * Focus changes are also the moment to clear a standing notification: the user is back, and a
+     * notification for what is now on screen is noise.
+     */
+    fun setWindowFocused(focused: Boolean) {
+        windowFocused = focused
+        if (focused) runCatching { appEnv.notifier.cancel(REPLY_NOTIFICATION_ID) }
+    }
+
+    /** Transcript size when the current turn entered THINKING; a stopped turn does not grow. */
+    @Volatile
+    private var turnStartTranscriptSize: Int = -1
+
+    private var lastNotifiedReplyKey: String? = null
+
+    /**
+     * Called on the THINKING/SPEAKING → IDLE transition. Notifies the last assistant message if
+     * nobody is looking, the feature is on, silent mode is off, and the turn actually replied.
+     */
+    private fun notifyReplyIfAway() {
+        if (!_notifyRepliesWhenUnfocused.value || windowFocused || _silenced.value) return
+        val messages = _messages.value
+        if (messages.size <= turnStartTranscriptSize) return
+        val body = replyNotificationBody(messages.lastOrNull() ?: return) ?: return
+        val key = "${messages.size}:${body.hashCode()}"
+        if (key == lastNotifiedReplyKey) return
+        lastNotifiedReplyKey = key
+        runCatching { appEnv.notifier.post(REPLY_NOTIFICATION_ID, "Celeste", body) }
+            .onFailure { logger.d("ReplyNotify", "could not post the reply notification: ${it.message}") }
+    }
+
     /**
      * The status line, published so a surface outside this class can show it (seam 11's tray).
      *
@@ -1094,6 +1143,7 @@ class AssistantService(
         // its own Ollama no longer reaches openrouter.ai first.
 
         serviceScope.launch {
+            var previousState: AssistantState? = null
             assistantState.collect { state ->
                 when (state) {
                     // M2 companion: the hands-free toggle releases the recorder, so this
@@ -1103,10 +1153,20 @@ class AssistantService(
                     // with the ownership check that write is now skipped while a turn is
                     // in flight — so the guard has to live here where the recorder itself
                     // is decided.
-                    AssistantState.IDLE -> if (_handsFreeMode.value) vadRecorder?.resume()
+                    AssistantState.IDLE -> {
+                        if (_handsFreeMode.value) vadRecorder?.resume()
+                        // M14: the single settle point every manual route shares. A room writes to
+                        // its own transcript and a spontaneous turn never enters THINKING, so
+                        // neither reaches this; both have their own surfaces.
+                        if (previousState == AssistantState.THINKING || previousState == AssistantState.SPEAKING) {
+                            notifyReplyIfAway()
+                        }
+                    }
+                    AssistantState.THINKING -> turnStartTranscriptSize = _messages.value.size
                     AssistantState.SPEAKING -> vadRecorder?.pause()
                     else -> {}
                 }
+                previousState = state
             }
         }
 
@@ -1341,6 +1401,7 @@ class AssistantService(
         _celestialUi.value = settingsManager.getCelestialUi()
         _adaptiveTheme.value = settingsManager.getAdaptiveTheme()
         _darkTheme.value = settingsManager.getDarkTheme()
+        _notifyRepliesWhenUnfocused.value = settingsManager.getNotifyRepliesWhenUnfocused()
         _chatFontSize.value = settingsManager.getChatFontSize()
 
         // Fetch models for all enabled cloud providers

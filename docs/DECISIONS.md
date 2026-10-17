@@ -13,6 +13,30 @@ not stop for it. Stop only for the four cases listed in AGENTS.md §10.
 
 ---
 
+## 2026-10-17 — Reply notifications: one settle point, never while focused
+
+The user picked reply notifications from the post-M9 list. **Decided: notify on the service's
+`THINKING`/`SPEAKING` → `IDLE` transition with "the transcript grew", only when the window is unfocused and silent mode
+is off; on by default with a switch in General.**
+
+**One settle point, not a hook per route.** Every manual route — text, voice, cloud, tool loops — ends in the same state
+transition, and every one of them appends to the same transcript. Hooking the transition plus a size check covers them
+all without eight append-site hooks that a future route could miss. The size check is what makes Stop honest: a stopped
+turn leaves the last message as the user's own, and a stale earlier reply cannot be re-announced.
+
+**Rooms and spontaneous turns are out by construction**: rooms write to `_roomMessages`, and a spontaneous turn never
+enters THINKING — it has its own notification already. Neither can double-notify.
+
+**Focus is AWT's, not Compose's.** `Main` adds a `WindowFocusListener` and reports focus to the service; regaining focus
+cancels the standing notification, because a notification for what is now on screen is noise. Rejected: Compose's
+`LocalWindowInfo` (the AWT event is the one this feature is literally about, and it also covers minimize).
+
+**On by default.** The failure it fixes — looking away for a minute and not knowing an answer arrived — is the ordinary
+case, and silent mode is the immediate runtime override. One id means a newer reply replaces the older one. Errors are
+replies: an error arriving while the window is away is exactly what the user needs to see.
+
+→ PLAN.md §10 (M14), `ReplyNotifications.kt`, `AssistantService.kt`, `SettingsScreens.kt`, `Main.kt`
+
 ## 2026-10-17 — Transcript search: no index, text only, opens the conversation
 
 The user picked transcript search from the post-M9 list. **Decided: an on-demand, local substring search over the JSON

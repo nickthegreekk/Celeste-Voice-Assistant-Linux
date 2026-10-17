@@ -1723,6 +1723,28 @@ Debian test batch.**
 newest first; tap the room hit and land in that room; tap a persona hit from inside a room and land in that persona's
 chat.
 
+**M14 — Reply notifications when unfocused (new scope, not a port; not counted in the total below).** The user picked
+it from the post-M9 list. When a manual turn settles while the window is not focused, the reply appears as a desktop
+notification. **Built 2026-10-17; live run pending.**
+
+- **One settle point.** The service watches its own state: `THINKING`/`SPEAKING` → `IDLE`, plus "the transcript grew
+  during this turn". That covers text, voice, cloud and tool loops without a per-route hook that could drift; a stopped
+  turn leaves the last message as the user's own and does not grow, so it never notifies. Rooms write to their own
+  transcript and spontaneous turns never enter these states (they already have their own notification), so neither
+  double-notifies.
+- **Not while you are looking.** The window's AWT focus listener reports focus to the service; a focused window posts
+  nothing, and regaining focus cancels the standing notification. Silent mode overrides everything.
+- **On by default, switchable** in Settings → General → Notifications, because the failure it fixes — looking away for a
+  minute and not knowing an answer arrived — is the ordinary case. One notification id, so a newer reply replaces the
+  older one; the body is the reply collapsed to one line, capped at 180 characters; an image-only reply says
+  "Sent an image."; errors are replies too.
+- **`notify-send` is the transport** (seam 9, the same notifier spontaneous delivery uses), so a machine without it logs
+  and continues rather than failing a turn.
+
+*Accept:* with the window focused, a reply posts nothing; switch to another app and send a turn; the notification
+appears with the reply's first line; click back into Celeste and the notification disappears; turn the switch off and
+nothing posts.
+
 **Total: 33–50 focused days** (about 4–8 weeks full time, 3–5 months at evenings and weekends).
 A first usable milestone is **M2**: roughly **15–23 days**.
 

@@ -161,6 +161,13 @@ class SettingsManager(
         const val PERSONA_MEMORY_ENABLED_PREFIX = "persona_memory_enabled_"
 
         /**
+         * M14: notify when a reply settles while the window is not focused. Default ON — the
+         * failure this feature fixes is looking away for a minute and not knowing an answer
+         * arrived; silent mode is the runtime switch that overrides it.
+         */
+        const val NOTIFY_REPLIES_WHEN_UNFOCUSED = "notify_replies_when_unfocused"
+
+        /**
          * The window's size in **dp**, as the user left it — "WIDTHxHEIGHT", the shape a person can
          * read in the settings file and a test can write by hand (2026-10-17, by request).
          *
@@ -1624,6 +1631,13 @@ class SettingsManager(
 
     fun saveWindowSize(width: Int, height: Int) {
         store.edit().putString(WINDOW_SIZE, "${width}x${height}").commit()
+    }
+
+    fun getNotifyRepliesWhenUnfocused(): Boolean =
+        store.getBoolean(NOTIFY_REPLIES_WHEN_UNFOCUSED, true)
+
+    fun saveNotifyRepliesWhenUnfocused(enabled: Boolean) {
+        store.edit().putBoolean(NOTIFY_REPLIES_WHEN_UNFOCUSED, enabled).commit()
     }
 
     fun getRememberWindowSize(): Boolean = store.getBoolean(REMEMBER_WINDOW_SIZE, true)
