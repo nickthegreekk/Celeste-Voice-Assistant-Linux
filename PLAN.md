@@ -1872,6 +1872,11 @@ run; ask for a command with one line of input and see the input in the dialog be
 and the tool is absent from the persona's next request; the audit lists both, and a restart asks again for a command
 trusted in the previous session.
 
+**M0–M16 are closed (2026-10-17).** The user's live acceptance run is green for M11, M12, M13, M14 and M15; M10 was
+accepted on Arch and Debian, M9 and M16 were accepted live, and M7's one-hour soak and empty triage table close the
+port. The only milestone left is M17. M15.1's cloud route is recorded with M15; no separate cloud-only check was
+reported.
+
 **M17 — Native desktop application (new scope, not a port; not counted in the total below).** The user's decision,
 2026-10-17, corrected the same day: **scheduled last, and only when every milestone and every test is green.** The
 application stops being one window that does everything — the Android shape, where Settings is a screen pushed inside
