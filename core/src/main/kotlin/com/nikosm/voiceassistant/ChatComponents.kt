@@ -10,7 +10,11 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalWindowInfo
 import java.nio.file.Path
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.ContextMenuItem
+import androidx.compose.foundation.ContextMenuRepresentation
+import androidx.compose.foundation.ContextMenuState
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.LocalContextMenuRepresentation
 import androidx.compose.foundation.VerticalScrollbar
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -86,6 +90,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -109,6 +114,20 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import java.io.File
+
+/**
+ * M17 follow-up (2026-10-18): the message's own actions menu is the ONE answer to a secondary
+ * click. Compose's text-selection context menu opens on the same gesture, so right-clicking a
+ * message showed two menus — ours (Speak/Copy/Edit/Delete) and the platform's (Copy/Select all).
+ * This representation renders nothing inside a bubble, and only there: selection by drag and the
+ * platform's Ctrl+C copy are untouched, they are not context menus.
+ */
+private object NoMessageSelectionMenu : ContextMenuRepresentation {
+    @Composable
+    override fun Representation(state: ContextMenuState, items: () -> List<ContextMenuItem>) {
+        // Intentionally empty — see the KDoc.
+    }
+}
 
 @OptIn(ExperimentalComposeUiApi::class)
 @Composable
@@ -263,22 +282,24 @@ fun ChatMessageBubble(
             Modifier.fillMaxWidth().padding(bottom = 6.dp)
         }
 
-        SelectionContainer(modifier = textModifier) {
-            Text(
-                text = highlightedAnnotated(
-                    displayText,
-                    if (isUser) null else highlightRange,
-                    highlightColor
-                ),
-                color = when {
-                    isUser && isCompact -> personaColor
-                    isUser -> MaterialTheme.colorScheme.onSurface
-                    else -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f)
-                },
-                fontSize = fontSize.sp,
-                style = if (isUser && isCompact) MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold) else MaterialTheme.typography.bodyMedium,
-                textAlign = if (isCompact) TextAlign.Center else TextAlign.Start
-            )
+        CompositionLocalProvider(LocalContextMenuRepresentation provides NoMessageSelectionMenu) {
+            SelectionContainer(modifier = textModifier) {
+                Text(
+                    text = highlightedAnnotated(
+                        displayText,
+                        if (isUser) null else highlightRange,
+                        highlightColor
+                    ),
+                    color = when {
+                        isUser && isCompact -> personaColor
+                        isUser -> MaterialTheme.colorScheme.onSurface
+                        else -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f)
+                    },
+                    fontSize = fontSize.sp,
+                    style = if (isUser && isCompact) MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold) else MaterialTheme.typography.bodyMedium,
+                    textAlign = if (isCompact) TextAlign.Center else TextAlign.Start
+                )
+            }
         }
 
         if (isUser && message.imagePath != null) {

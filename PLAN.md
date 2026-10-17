@@ -2003,6 +2003,15 @@ at the bottom of Settings. The Debian package is built from the same tree and aw
 M0–M16 closed earlier the same day, **the milestone list is complete** — what remains for a release is
 packaging the same tree for both distributions and the upstream sync policy of §13.
 
+[Follow-up, 2026-10-18 — one menu for a secondary click. `SelectionContainer` (slice 4) also brought
+Compose's text-selection context menu, which opens on the same right-click as the message's own actions
+menu: two menus at once, each with a Copy. `CompositionLocalProvider(LocalContextMenuRepresentation
+provides NoMessageSelectionMenu)`, scoped to the bubble's text, suppresses the platform menu and only
+there; selection by drag and the platform's Ctrl+C copy are untouched, and Speak/Copy/Edit/Delete is the
+single answer to a secondary click. The desktop test harness cannot see into popup windows (the boundary
+recorded above), so the single-menu behaviour is judged in the live run; `MessageContextMenuTest` still
+proves a secondary press reaches the callback and a primary press does not.]
+
 [Correction, 2026-10-17 — the intermittent `FsToolTurnTest` failure recorded at slice 5 is fixed, in the
 test rather than in the service. `shutdown()` cancels the scope and returns; a child still unwinding from
 `Dispatchers.IO` resumes its cancellation ON `Dispatchers.Main`, and the class's teardown reset Main before
