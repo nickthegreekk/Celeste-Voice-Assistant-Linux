@@ -201,6 +201,12 @@ class AssistantService(
      * the process hands it over rather than having it built here.
      */
     internal val settingsManager: SettingsManager,
+    /**
+     * M9: the platform transports for MCP servers. Defaulted to [McpTransportFactory.NONE] — the
+     * one that refuses every open in words — so a test that never configures MCP cannot spawn a
+     * process or open a socket by accident, and a build without the implementation still compiles.
+     */
+    internal val mcpTransportFactory: McpTransportFactory = McpTransportFactory.NONE,
 ) {
 
     /**
@@ -231,6 +237,15 @@ class AssistantService(
     val logger: AppLogger get() = appEnv.logger
 
     val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+
+    /**
+     * M9: the live MCP connections. Lazy in the only sense that matters — nothing is opened until a
+     * turn asks for a configured server's tools, and a persona with no servers never asks.
+     */
+    internal val mcpRegistry = McpRegistry(mcpTransportFactory, appEnv.logger)
+
+    /** M9: the confirmation an MCP call may need, and the state the dialog reads. */
+    internal val mcpApprovalGate = McpApprovalGate()
 
     /**
      * Set by the first [shutdown]. Two callers now reach that teardown on an ordinary close — the
@@ -515,6 +530,7 @@ class AssistantService(
      */
     internal fun nextChatRequestSeq(): Long {
         fsWriteGate.denyPending()
+        mcpApprovalGate.denyPending()
         return ++chatRequestSeq
     }
     internal fun isChatRequestCurrent(seq: Long): Boolean = seq == chatRequestSeq
@@ -2544,6 +2560,9 @@ class AssistantService(
         saveSettingsJob?.cancel()
         runBlocking { saveMutex.withLock { persistSettings() } }
         serviceScope.cancel()
+        // M9: every MCP child process and HTTP connection ends with the service, before the
+        // watchdog would have to end them for us.
+        mcpRegistry.close()
         stopAudio()
         tts.stopSystem()
         // Upstream's `tts.shutdown()` and the `synchronized(espeakLock) { _espeakEngine?.release()

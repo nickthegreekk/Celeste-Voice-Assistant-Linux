@@ -20,6 +20,7 @@ import com.nikosm.voiceassistant.linux.AwtTray
 import com.nikosm.voiceassistant.linux.ImageIoCodec
 import com.nikosm.voiceassistant.linux.JsonSettingsStore
 import com.nikosm.voiceassistant.linux.LinuxAppEnv
+import com.nikosm.voiceassistant.linux.LinuxMcpTransportFactory
 import com.nikosm.voiceassistant.linux.ProcessAudioCapture
 import com.nikosm.voiceassistant.linux.LinuxAudioDevices
 import com.nikosm.voiceassistant.linux.PwPlayback
@@ -115,6 +116,7 @@ fun main(args: Array<String>) {
         audioCapture = ProcessAudioCapture(audioDevices, appEnv.logger),
         fileDialogs = AwtFileDialogs(appEnv.logger),
         settingsManager = settingsManager,
+        mcpTransportFactory = LinuxMcpTransportFactory(appEnv.logger),
     )
     service.start()
 
