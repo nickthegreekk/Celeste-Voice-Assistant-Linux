@@ -1326,11 +1326,12 @@ already pins — scans the page's source for the call, which is a narrow guard a
 **Noted during the live run, recorded rather than fixed** — each is small, none is a defect, and all four are the kind of
 thing that evaporates if it is only said out loud:
 
-- **A spoken turn carrying tools is the one acceptance case still unmeasured.** JVM-tested (`FsToolTurnTest`, on
-  `FakeProviderServer`'s `/transcribe`), but no real microphone has exercised it. So: every live attempt so far was typed,
-  and the tells are worth keeping — a voice turn leaves `recording_*.wav` or `vad_recording_*.wav` in
-  `~/.cache/celeste-linux/`, and the voice flow appends the user message *with* the reply at apply, so a user turn sitting
-  in the transcript with no reply after it is a text turn.
+- **A spoken turn carrying tools — the last unmeasured case — is measured, 2026-10-17 09:24.** Hands-free, one
+  utterance: `vad_recording_…wav` in the cache (the microphone's own artefact) and one audit record from that turn,
+  `list_files . 121 bytes ok`. The tells that identified the earlier attempts as typed are worth keeping, because they
+  cost an hour: a voice turn leaves `recording_*.wav` or `vad_recording_*.wav` **and** a `response_*.wav` (the voice path
+  synthesises separately, where the text path leaves `tts_chunk_*`), and the voice flow appends the user message *with*
+  the reply at apply, so a user turn sitting in the transcript with no reply after it is a text turn.
 - **The two screens still have no test**, which is the bill item 6 names. Compose UI tests are M7's, and the source-scan in
   `SettingsCategoriesTest` covers the one crash shape a test could reach.
 - **Created files land mode 0600** — an atomic write's temp file, kept as-is for a *new* file (overwrites copy the target's
