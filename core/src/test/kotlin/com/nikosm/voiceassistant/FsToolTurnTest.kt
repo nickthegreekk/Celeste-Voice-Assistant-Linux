@@ -2,8 +2,10 @@ package com.nikosm.voiceassistant
 
 import androidx.compose.ui.graphics.Color
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.TestDispatcher
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.resetMain
@@ -68,13 +70,15 @@ class FsToolTurnTest {
     private lateinit var workspace: Path
     private val started = mutableListOf<AssistantService>()
     private var proxyBefore: ProxySelector? = null
+    private lateinit var mainDispatcher: TestDispatcher
 
     @Before
     fun setUp() {
         // `serviceScope` is `Dispatchers.Main`, and a JVM test supplies one. Standard rather than
         // Unconfined: the turn should advance when this test says so, not whenever a thread happens
-        // to resume it.
-        Dispatchers.setMain(StandardTestDispatcher())
+        // to resume it. Kept in a field because teardown has to pump it while the scopes finish.
+        mainDispatcher = StandardTestDispatcher()
+        Dispatchers.setMain(mainDispatcher)
         proxyBefore = ProxySelector.getDefault()
         ProxySelector.setDefault(DirectOnly)
         // A recording notifier rather than the throwing one: this suite has a case where the app is
@@ -94,8 +98,17 @@ class FsToolTurnTest {
         // AGENTS.md §6 records: the state collector and the health check outlive a `runTest` and
         // then fail whichever test runs next, with nothing in the report pointing here.
         started.forEach { runCatching { it.shutdown() } }
-        started.clear()
         provider.close()
+        // `shutdown()` cancels the scope; it does not wait for the cancellation to be delivered.
+        // A child unwinding from `Dispatchers.IO` resumes ON `Dispatchers.Main`, and if that
+        // resume lands after `resetMain()` it throws "Dispatchers.Main was accessed when the
+        // platform dispatcher was absent" on a worker thread — reported against the NEXT test.
+        // That is exactly how this class failed `a workspace you trusted is remembered after a
+        // restart` intermittently (2026-10-17: three full runs in a row, each green on rerun).
+        // Wait here, pumping the scheduler while Main is still installed, until the scopes have
+        // completed. Bounded, so a scope that refuses to finish cannot hang the build.
+        awaitServiceScopes()
+        started.clear()
         ProxySelector.setDefault(proxyBefore)
         Dispatchers.resetMain()
         // The workspace holds real files the tests wrote, so `deleteOnExit` cannot help — it only
@@ -104,6 +117,24 @@ class FsToolTurnTest {
             if (Files.exists(workspace)) {
                 Files.walk(workspace).sorted(Comparator.reverseOrder()).forEach { runCatching { Files.delete(it) } }
             }
+        }
+    }
+
+    /**
+     * Pumps the test Main dispatcher until every service scope this test built has completed.
+     *
+     * Cancellation is delivered asynchronously: [AssistantService.shutdown] cancels the scope and
+     * returns, and a child still unwinding from `Dispatchers.IO` then resumes its cancellation on
+     * `Dispatchers.Main`. Teardown keeps Main installed while that happens; resetting it earlier is
+     * what produced the intermittent failure this helper exists to prevent (see the call site).
+     */
+    private fun awaitServiceScopes(timeoutMs: Long = 3_000L) {
+        val deadline = System.currentTimeMillis() + timeoutMs
+        while (System.currentTimeMillis() < deadline) {
+            mainDispatcher.scheduler.runCurrent()
+            val settled = started.all { it.serviceScope.coroutineContext[Job]?.isCompleted != false }
+            if (settled) return
+            Thread.sleep(2)
         }
     }
 

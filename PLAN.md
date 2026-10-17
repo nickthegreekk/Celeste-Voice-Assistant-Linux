@@ -1992,6 +1992,15 @@ resource was already on `:core`'s classpath, beside the files it describes. `Set
 proves both halves of "at the bottom": in a short list the section is below the fold, and scrolling to it
 reveals the four facts.]
 
+[Correction, 2026-10-17 — the intermittent `FsToolTurnTest` failure recorded at slice 5 is fixed, in the
+test rather than in the service. `shutdown()` cancels the scope and returns; a child still unwinding from
+`Dispatchers.IO` resumes its cancellation ON `Dispatchers.Main`, and the class's teardown reset Main before
+that landed, so the exception surfaced against whichever test ran next. Teardown now closes the fake
+provider first, then pumps the test scheduler until every service scope has completed, with Main still
+installed — bounded at 3 s so a scope that refuses to finish cannot hang the build. Two consecutive full
+suite runs are green. Nothing in the production close path changed: there Main exists for the process's
+lifetime, and the failure was a teardown ordering bug in the test.]
+
 **Total: 33–50 focused days** (about 4–8 weeks full time, 3–5 months at evenings and weekends).
 A first usable milestone is **M2**: roughly **15–23 days**.
 
