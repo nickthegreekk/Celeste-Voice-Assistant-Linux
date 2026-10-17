@@ -1539,7 +1539,9 @@ the name-identity group (`PersonaNameGuardTest` (7), `PersonaNameUniquenessTest`
 (`RoomPersistenceTest` (5)), server identity (the byte-identical `ServerIdentityTest` (15) plus
 `ServerIdentityServiceTest` (10)), the conversation-state group (`H3StaleStreamUnwindTest` (2),
 `AssistantServiceConcurrencyTest` (3), `GatewayTestVoiceSupersedeTest` (2) — its focus case dropped because §9 deletes
-the focus stack, so there is no retained focus to leak). The rest of the table decides their fate and belongs with
+the focus stack, so there is no retained focus to leak) and the room loop (`RoomRoundLoopTest` (8): order and
+attribution, the cap exactly, local-only rotating autonomy, Stop removing the blank placeholder, supersede, and the
+three editor-parser cap cases, all against `RoomTurnServer`). The rest of the table decides their fate and belongs with
 the area's milestone. The one-hour acceptance is not claimed: the
 cycle count is the thing that grows, and 50,000 cycles is more start/stop than an hour of manual use.]
 

@@ -119,7 +119,7 @@ four socket fixtures this triage found portable.
 | `RoomAutoScrollInstrumentedTest.kt` | Opens at newest, follows streaming, stable identity | UI half to the runner; room state via the core | 377 |
 | `RoomEditorUiPersistenceInstrumentedTest.kt` | Room name/cap/reorder persist on close/Done/back | Editor commit to the settings seam | 387 |
 | `RoomPersistenceInstrumentedTest.kt` | Room edits survive a write-read cycle | **Ported** as `RoomPersistenceTest` (5) | 238 |
-| `RoomRoundLoopInstrumentedTest.kt` | Order, cap, local-only autonomy, stop, supersede | Room loop + fake servers | 919 |
+| `RoomRoundLoopInstrumentedTest.kt` | Order, cap, local-only autonomy, stop, supersede | **Ported** as `RoomRoundLoopTest` (8) over `RoomTurnServer`: every property above plus the editor-parser cap cases | 919 |
 | `ServerIdentityInstrumentedTest.kt` | Server rename rewrites favourites/personas/cache | **Ported** as `ServerIdentityServiceTest` (10), with the pure half as the byte-identical `ServerIdentityTest` (15) | 351 |
 | `SkillInjectionInstrumentedTest.kt` | Skills reach the prompt in order, do not persist, count against budget | Prompt assembly on the core | 699 |
 | `SkillUiInstrumentedTest.kt` | Toggle survives edit+rename; screenshots | Regression half via the core; screenshot halves drop | 369 |
@@ -230,10 +230,10 @@ Since that table, M7 has landed the desktop Compose runner and its six ports (65
 `ModelsScreenComposeTest`), and the first of the seam rewrites from the triage table: the name
 identity group (`PersonaNameGuardTest`, `PersonaNameUniquenessTest`), room persistence
 (`RoomPersistenceTest`), server identity (`ServerIdentityTest` byte-identical plus
-`ServerIdentityServiceTest`), and the conversation-state group (`H3StaleStreamUnwindTest`,
-`AssistantServiceConcurrencyTest`, `GatewayTestVoiceSupersedeTest`). Their fixtures
-(`SteppedNdjsonServer` and the held loopback servers) are JVM loopback stubs; no instrumented
-runner is involved.
+`ServerIdentityServiceTest`), the conversation-state group (`H3StaleStreamUnwindTest`,
+`AssistantServiceConcurrencyTest`, `GatewayTestVoiceSupersedeTest`) and the room loop
+(`RoomRoundLoopTest`, 8). Their fixtures (`SteppedNdjsonServer`, `RoomTurnServer`) are JVM
+loopback stubs; no instrumented runner is involved.
 
 **Still open in M7, with the reason:**
 
