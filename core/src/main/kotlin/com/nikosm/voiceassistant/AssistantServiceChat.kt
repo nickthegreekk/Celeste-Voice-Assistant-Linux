@@ -2089,7 +2089,7 @@ internal suspend fun AssistantService.performDirectOllamaChat(baseUrl: String, m
 internal class StreamCancelledByUserException(val partialContent: String, val partialThinking: String) : java.io.IOException("Cancelled")
 internal class StreamPersonaChangedException(val partialContent: String, val partialThinking: String) : java.io.IOException("Persona changed mid-stream")
 
-private suspend fun AssistantService.buildCloudRequest(api: CloudApiSetting, persona: Persona, text: String, currentTurnInHistory: Boolean, attachments: List<Path> = emptyList(), imagePath: String? = null, turnContext: TurnContext = TurnContext.Default): Request {
+internal suspend fun AssistantService.buildCloudRequest(api: CloudApiSetting, persona: Persona, text: String, currentTurnInHistory: Boolean, attachments: List<Path> = emptyList(), imagePath: String? = null, turnContext: TurnContext = TurnContext.Default): Request {
     val mediaType = "application/json; charset=utf-8".toMediaType()
     val json = JSONObject()
     
@@ -2271,7 +2271,7 @@ private suspend fun AssistantService.buildCloudRequest(api: CloudApiSetting, per
     }
 }
 
-private fun AssistantService.parseCloudResponse(api: CloudApiSetting, persona: Persona, body: String): Triple<String, String?, UsageInfo> {
+internal fun AssistantService.parseCloudResponse(api: CloudApiSetting, persona: Persona, body: String): Triple<String, String?, UsageInfo> {
     // S4: logs the first 500 chars of the model response (conversation content) — debug only.
     if (appEnv.debugLogging) android.util.Log.d("UsageTracking", "Parsing response from ${api.name}: ${body.take(500)}")
     val json = JSONObject(body)

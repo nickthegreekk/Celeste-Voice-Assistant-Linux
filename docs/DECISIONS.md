@@ -96,10 +96,16 @@ not throw away the time and persona the user typed.
 scheduled run can fire while the user is mid-conversation with the same persona, which is exactly the concurrency the
 spontaneous file was built to avoid. So the run is a non-streaming direct-Ollama completion with the same prompt
 composition, budget, history sink, silence sentinel and per-persona notification. The skill's instructions ride the
-one-turn system suffix, where the budget counts them. The consequence is stated rather than hidden: **local
-direct-Ollama personas only** in this slice; cloud and gateway personas are blocked in the editor with the reason, and
-a cloud builder is a recorded later slice. The request builder is necessarily a twin of the spontaneous one, which is
-private inside a COPY file nothing may edit.
+one-turn system suffix, where the budget counts them.
+
+**Added (M15.1): the cloud route, through the builder that already exists.** The slice was recorded as "cloud would
+need a cloud request builder", but the manual route's `buildCloudRequest` is exactly that builder — prompt composition,
+memory, budget, the three provider shapes — once its visibility was opened to `internal`. The scheduled cloud run
+calls it with the persona's own history and the skills suffix, executes the request without streaming or touching any
+UI state, and parses with the same `parseCloudResponse`; the cost is added to the session totals, because a paid turn
+nobody clicked must still show. The persona's web-search and RAG flags apply as in a manual turn (a scheduled briefing
+that needs the news is the point). Gateway-only, image and translator personas remain blocked: the gateway assembles
+its own prompt and cannot carry the framing or return a history-bearing answer.
 
 **Why a poll and not one long delay.** `delay` is monotonic: it stops across machine suspend and ignores wall-clock
 changes, so a timer armed at 8:00 yesterday would not fire correctly on a laptop that slept. A 30-second poll re-reads

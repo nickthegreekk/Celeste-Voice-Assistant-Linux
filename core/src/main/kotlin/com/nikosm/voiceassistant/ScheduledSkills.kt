@@ -162,12 +162,13 @@ internal fun dueScheduledSkills(
 /**
  * Which personas a scheduled skill can run on.
  *
- * The run is a NON-STREAMING direct-Ollama completion (see [AssistantService.runScheduledSkill]),
- * so the answer is exactly the direct-Ollama routing branch: a cloud persona would need a
- * different request builder, and a gateway-only persona has no history-carrying path at all.
- * The reasons are written for this feature rather than reusing [Persona.roomEligibility]'s
- * "(can't converse in a room)" wording, but the routing decision itself comes from the same
- * [Persona.requestRouting], so the editor and the runner cannot disagree.
+ * Both routes the app builds a request for are supported: a direct-Ollama persona (non-streaming
+ * `/api/chat`) and a cloud persona (the same `buildCloudRequest` a manual cloud turn uses). A
+ * gateway-only persona is still blocked — the gateway assembles its own prompt and would neither
+ * carry this run's framing nor return a history-bearing answer. The reasons are written for this
+ * feature rather than reusing [Persona.roomEligibility]'s "(can't converse in a room)" wording, but
+ * the routing decision itself comes from the same [Persona.requestRouting], so the editor and the
+ * runner cannot disagree.
  */
 internal fun scheduledSkillEligibility(
     persona: Persona,
@@ -179,7 +180,7 @@ internal fun scheduledSkillEligibility(
     if (persona.model.isBlank()) return RoomEligibility.Blocked("No model selected")
     val routing = persona.requestRouting(ollamaServerNames, cloudProviderNames)
     return when {
-        routing.routesToCloud -> RoomEligibility.Blocked(SCHEDULED_CLOUD_BLOCK_REASON)
+        routing.routesToCloud -> RoomEligibility.Eligible(cloud = true)
         routing.isDirectOllama -> RoomEligibility.Eligible(cloud = false)
         else -> RoomEligibility.Blocked(SCHEDULED_GATEWAY_BLOCK_REASON)
     }
@@ -189,9 +190,6 @@ internal const val SCHEDULED_IMAGE_BLOCK_REASON =
     "Image generators can't carry out a scheduled skill."
 internal const val SCHEDULED_TRANSLATOR_BLOCK_REASON =
     "Translators replace the conversation with a single translation request."
-internal const val SCHEDULED_CLOUD_BLOCK_REASON =
-    "Local (Ollama) personas only — a scheduled run addresses the model directly, so a cloud " +
-        "provider can't be used."
 internal const val SCHEDULED_GATEWAY_BLOCK_REASON =
     "Only reachable through the gateway, which can't carry a conversation history for this run."
 

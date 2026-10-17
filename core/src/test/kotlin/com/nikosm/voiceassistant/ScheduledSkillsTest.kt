@@ -171,21 +171,25 @@ class ScheduledSkillsTest {
     }
 
     @Test
-    fun `cloud gateway image translator and no-model personas are blocked with a reason`() {
+    fun `a cloud persona is eligible, for the same builder a manual turn uses`() {
         val cloud = scheduledSkillEligibility(
             persona(model = "[Cloud] model", isCloud = true), setOf("Home"), setOf("Cloud")
         )
+
+        assertEquals(RoomEligibility.Eligible(cloud = true), cloud)
+    }
+
+    @Test
+    fun `gateway image translator and no-model personas are blocked with a reason`() {
         val gateway = scheduledSkillEligibility(persona(model = "llama3"), setOf("Home"), setOf("Cloud"))
         val image = scheduledSkillEligibility(persona(isImageGenerator = true), setOf("Home"), setOf("Cloud"))
         val translator = scheduledSkillEligibility(persona(isTranslator = true), setOf("Home"), setOf("Cloud"))
         val noModel = scheduledSkillEligibility(persona(model = ""), setOf("Home"), setOf("Cloud"))
 
-        assertEquals(RoomEligibility.Blocked(SCHEDULED_CLOUD_BLOCK_REASON), cloud)
         assertEquals(RoomEligibility.Blocked(SCHEDULED_GATEWAY_BLOCK_REASON), gateway)
         assertEquals(RoomEligibility.Blocked(SCHEDULED_IMAGE_BLOCK_REASON), image)
         assertEquals(RoomEligibility.Blocked(SCHEDULED_TRANSLATOR_BLOCK_REASON), translator)
         assertEquals(RoomEligibility.Blocked("No model selected"), noModel)
-        assertTrue((cloud as RoomEligibility.Blocked).reason.contains("cloud"))
         assertTrue((gateway as RoomEligibility.Blocked).reason.contains("gateway"))
     }
 

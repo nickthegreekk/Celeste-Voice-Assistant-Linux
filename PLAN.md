@@ -1748,8 +1748,8 @@ nothing posts.
 
 **M15 — Scheduled skills (new scope, not a port; not counted in the total below).** The user picked it from the
 post-M9 list. A skill can run on a clock: every day at a chosen time, as a chosen persona, producing one message in
-that persona's chat and a per-persona notification. **Built 2026-10-17; the Arch run is green the same day, and the
-Debian run is green with the M11–M15 batch.**
+that persona's chat and a per-persona notification. **Built 2026-10-17; the Arch and Debian runs are green (M11–M15
+batch). M15.1 added the cloud route the same day; its live run is pending.**
 
 - **A schedule is its own record, not a field on `Skill`.** `Models.kt` is a COPY file and may not grow one, so
   `ScheduledSkill` lives in its own file and its own settings key. It references the skill by id and the persona by
@@ -1762,10 +1762,12 @@ Debian run is green with the M11–M15 batch.**
   via `PersonaHistorySink`, the silence sentinel, and the per-persona notification card. It never touches the streaming
   pipeline or the VAD, so it can fire while the user is mid-conversation. A skill with blank instructions is skipped,
   and the editor already warns about the inert state.
-- **Who can speak it.** Local direct-Ollama personas only, for the same structural reason spontaneous messages are so
-  restricted: the turn addresses `/api/chat` directly. Cloud, gateway-only, image and translator personas are blocked
-  in the editor with a reason from the same `requestRouting` the router uses. Cloud schedules would need a cloud
-  request builder and are a recorded later slice.
+- **Who can speak it.** Both routes the app builds a request for (M15.1): a direct-Ollama persona through the
+  non-streaming twin in the runner, and a cloud persona through the **same `buildCloudRequest` a manual cloud turn
+  uses** — so the scheduled framing, the skill's instructions, the budget and the provider shapes cannot drift from the
+  chat route, and the persona's web-search/RAG flags apply as in a manual turn. Gateway-only, image and translator
+  personas are blocked in the editor with a reason from the same `requestRouting` the router uses. The cloud route also
+  adds the turn's usage to the session totals, because a paid turn nobody clicked must still show in the cost.
 - **The clock.** One loop on `serviceScope` polls every 30 seconds against the wall clock, rather than one long
   `delay`, because a monotonic delay stops across machine suspend and ignores wall-clock changes. An occurrence is due
   from its minute until a 2-minute grace ends, is handled once, and is never replayed after that: the application has

@@ -145,30 +145,40 @@ internal suspend fun AssistantService.runScheduledSkill(schedule: ScheduledSkill
         return
     }
 
-    val target = resolveSpontaneousTarget(persona, _ollamaBaseUrls.value)
-    val baseUrl = target.baseUrl
-    if (baseUrl == null) {
-        logger.i(TAG, "scheduled run skipped — no direct Ollama server for '${persona.name}'")
-        return
-    }
-    if (!preflightSpontaneousServer(baseUrl, _ollamaBaseUrls.value, scheduledSkillPreflightClient)) {
-        logger.i(TAG, "scheduled run skipped — '$baseUrl' unreachable")
-        return
-    }
-
     val history = withContext(Dispatchers.IO) {
         settingsManager.getPersonaMessages(persona.name) ?: emptyList()
     }
     val sink = PersonaHistorySink(this, persona.name, history)
+    val turnInstruction = scheduledSkillTurnInstruction(skill, persona)
+    val suffix = scheduledSkillSystemPromptSuffix(skill, persona)
+    val routing = persona.requestRouting(ollamaServerNames(), cloudProviderNames())
     val startedAt = System.currentTimeMillis()
-    val (content, thinking) = performScheduledSkillOllamaCall(
-        baseUrl = baseUrl,
-        model = target.actualModel,
-        persona = persona,
-        history = history,
-        turnInstruction = scheduledSkillTurnInstruction(skill, persona),
-        suffix = scheduledSkillSystemPromptSuffix(skill, persona)
-    )
+
+    // M15.1: both routes the app builds a request for. The cloud one reuses the request builder a
+    // manual cloud turn uses, so its budget, prompt order and provider shapes cannot drift; the
+    // Ollama one is the non-streaming twin beside this function.
+    val (content, thinking) = if (routing.routesToCloud) {
+        performScheduledCloudCall(persona, history, turnInstruction, suffix)
+    } else {
+        val target = resolveSpontaneousTarget(persona, _ollamaBaseUrls.value)
+        val baseUrl = target.baseUrl
+        if (baseUrl == null) {
+            logger.i(TAG, "scheduled run skipped — no direct Ollama server for '${persona.name}'")
+            return
+        }
+        if (!preflightSpontaneousServer(baseUrl, _ollamaBaseUrls.value, scheduledSkillPreflightClient)) {
+            logger.i(TAG, "scheduled run skipped — '$baseUrl' unreachable")
+            return
+        }
+        performScheduledSkillOllamaCall(
+            baseUrl = baseUrl,
+            model = target.actualModel,
+            persona = persona,
+            history = history,
+            turnInstruction = turnInstruction,
+            suffix = suffix
+        )
+    }
     val responseTimeMs = System.currentTimeMillis() - startedAt
 
     // Silence is a first-class outcome, exactly as in a spontaneous turn: the model is allowed
@@ -194,6 +204,66 @@ internal suspend fun AssistantService.runScheduledSkill(schedule: ScheduledSkill
         "scheduled skill '${skill.name}' ran for '${persona.name}' " +
             "(${text.length} chars, ${responseTimeMs}ms)"
     )
+}
+
+/**
+ * One non-streaming cloud completion, through the SAME request builder a manual cloud turn uses.
+ *
+ * `buildCloudRequest` is the real thing — prompt composition, memory, budget, the three provider
+ * shapes — so a scheduled run cannot drift from the chat route. What differs is that nothing
+ * streams, no THINKING state is entered, and the answer goes to the persona's history rather than
+ * a chat bubble. The persona's web-search and RAG flags apply exactly as in a manual turn; a
+ * scheduled briefing that needs the news is the reason the builder is reused rather than a second
+ * one written.
+ */
+private suspend fun AssistantService.performScheduledCloudCall(
+    persona: Persona,
+    history: List<ChatMessage>,
+    turnInstruction: String,
+    suffix: String
+): Pair<String, String?> = withContext(Dispatchers.IO) {
+    val model = persona.model.trim()
+    val providerName = if (model.startsWith("[") && model.contains("] ")) {
+        model.substring(1, model.indexOf("]"))
+    } else ""
+    val api = (_cloudApis.value + _customCloudApis.value).find { it.name == providerName }
+        ?: throw Exception("No config for provider '$providerName'")
+    if (api.apiKey.isBlank() && api.icon != "C") throw Exception("API Key for ${api.name} is missing")
+
+    // The persona's own history, not the active chat's; the suffix is the scheduled framing plus
+    // the skill's instructions, appended LAST so resolveHistoryBudget counts it.
+    val context = TurnContext(history = history, systemPromptSuffix = suffix)
+    val request = buildCloudRequest(
+        api = api,
+        persona = persona,
+        text = turnInstruction,
+        currentTurnInHistory = false,
+        attachments = emptyList(),
+        imagePath = null,
+        turnContext = context
+    )
+    getDynamicClient(persona).newCall(request).execute().use { response ->
+        val body = response.body.string()
+        if (!response.isSuccessful) {
+            val detail = runCatching { JSONObject(body).optJSONObject("error")?.optString("message") }.getOrNull()
+            throw Exception("Error ${response.code}: ${detail ?: body.take(200)}")
+        }
+        val (content, thinking, usage) = parseCloudResponse(api, persona, body)
+        // A paid turn nobody clicked, so its cost belongs in the same total every manual cloud
+        // turn updates — otherwise the scheduled runs would be invisible in the usage figures.
+        withContext(Dispatchers.Main) {
+            val current = _sessionUsage.value
+            _sessionUsage.value = UsageInfo(
+                current.promptTokens + usage.promptTokens,
+                current.completionTokens + usage.completionTokens,
+                current.totalTokens + usage.totalTokens,
+                current.cost + usage.cost,
+            )
+            _totalCost.value += usage.cost
+            saveSettings()
+        }
+        content to thinking
+    }
 }
 
 /**
