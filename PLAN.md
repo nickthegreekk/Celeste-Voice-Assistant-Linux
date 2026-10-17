@@ -1549,7 +1549,20 @@ earlier with it. It also belongs after the voice loop is trusted rather than bef
 the user runs. Its next capability is to let *those servers be tools*: the Model Context Protocol gives that a standard
 shape, so a persona can call tools exposed by an MCP server — a filesystem or git server on this machine, a Home Assistant
 sidecar on another host, anything that speaks the protocol — and M8's loop, approval gate and audit carry them. The scope
-correction is M8's: capability is configuration, never a build-time decision. **Designed 2026-10-17; not started.**
+correction is M8's: capability is configuration, never a build-time decision. **Designed 2026-10-17; implementation
+started the same day.**
+
+**Landed (2026-10-17, seven commits):** the pure JSON-RPC protocol layer; the stdio and Streamable HTTP transports,
+each tested against a real process and a loopback server; the registry (handshake, paged tool lists, cache,
+`tools/list_changed`, per-request timeouts, reconnect); the provider declarations and the prompt contract built from
+one neutral `ToolSpec`; settings storage (`mcp_servers_v1`, per-persona enablement, trust that survives a rename but
+dies on a connection edit, backups that carry definitions and never trust); the approval gate (deny on dismissal, deny
+on timeout, deny on a superseded turn) and the audit; and the loop integration on all four routes — text and voice,
+Ollama and cloud — with the gateway refusal widened from "has a workspace" to "has tools". No package has been rebuilt
+with M9 yet, and the feature is unreachable from the UI until the screen below lands.
+
+**Remaining:** the MCP Servers settings screen (list, editor, Test), the per-persona server toggles in the persona
+editor, the confirmation dialog's host, a package rebuild, and the live acceptance the *Accept* line above names.
 
 - **Tools only.** `initialize`, `notifications/initialized`, `tools/list` (paginated), `tools/call` and `ping`, protocol
   version `2025-06-18` with the server's counter-version accepted. Resources, prompts, sampling, roots and elicitation
