@@ -120,8 +120,8 @@ four socket fixtures this triage found portable.
 | `RoomPersistenceInstrumentedTest.kt` | Room edits survive a write-read cycle | **Ported** as `RoomPersistenceTest` (5) | 238 |
 | `RoomRoundLoopInstrumentedTest.kt` | Order, cap, local-only autonomy, stop, supersede | **Ported** as `RoomRoundLoopTest` (8) over `RoomTurnServer`: every property above plus the editor-parser cap cases | 919 |
 | `ServerIdentityInstrumentedTest.kt` | Server rename rewrites favourites/personas/cache | **Ported** as `ServerIdentityServiceTest` (10), with the pure half as the byte-identical `ServerIdentityTest` (15) | 351 |
-| `SkillInjectionInstrumentedTest.kt` | Skills reach the prompt in order, do not persist, count against budget | Prompt assembly on the core | 699 |
-| `SkillUiInstrumentedTest.kt` | Toggle survives edit+rename; screenshots | Regression half via the core; screenshot halves drop | 369 |
+| `SkillInjectionInstrumentedTest.kt` | Skills reach the prompt in order, do not persist, count against budget | **Ported** as `SkillInjectionTest` (7): text and voice routes, library order, the one-turn guarantee, the budget refusal, and both non-matching controls | 699 |
+| `SkillUiInstrumentedTest.kt` | Toggle survives edit+rename; screenshots | **Ported** as `SkillUiTest` (1); the screenshot halves drop with the instrumentation host | 369 |
 | `SpontaneousDeepLinkInstrumentedTest.kt` | Deep link selects the persona, ignores a missing one, leaves a room | **Ported** as `SpontaneousDeepLinkTest` (3) at the service layer | 178 |
 | `SpontaneousEditorUiInstrumentedTest.kt` | Gate reads live lists on the first frame; switch reaches the service | **Ported** as `SpontaneousEditorUiTest` (4), frozen clock and all | 289 |
 | `SpontaneousTurnInstrumentedTest.kt` | Output lands in that persona's history; silence writes nothing | **Ported** as `SpontaneousTurnServiceTest` (4) over `OllamaSuggestionStub` | 258 |
@@ -243,7 +243,8 @@ persona/editor group (`PersonaEditorCommitTest`, `PersonaEditorEmptyListsTest`,
 `HandsFreeToggleTest` (2)), the replay/reveal pair (`AssistantReplayRoutingTest`,
 `Stage2RevealStateTest` (4)), the spontaneous group (`SpontaneousWriteGuardTest` (8),
 `SpontaneousTurnServiceTest` (4), `SpontaneousDeepLinkTest` (3), `SpontaneousEditorUiTest` (4),
-`SpontaneousDeliveryTest` (10)). Their fixtures (`SteppedNdjsonServer`, `RoomTurnServer`,
+`SpontaneousDeliveryTest` (10)), and the skills pair (`SkillInjectionTest` (7),
+`SkillUiTest`). Their fixtures (`SteppedNdjsonServer`, `RoomTurnServer`,
 `OllamaSuggestionStub`, `ComfyUiStub`, `ImageGenStub`, `ModelCatalogStub`) are JVM loopback
 stubs; no instrumented runner is involved beyond the Compose one.
 
