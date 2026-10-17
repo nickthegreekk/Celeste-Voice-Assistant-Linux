@@ -1861,6 +1861,37 @@ run; ask for a command with one line of input and see the input in the dialog be
 and the tool is absent from the persona's next request; the audit lists both, and a restart asks again for a command
 trusted in the previous session.
 
+**M17 — Native desktop presentation (new scope, not a port; not counted in the total below).** The user's decision,
+2026-10-17: **scheduled last, and only when every milestone and every test is green.** The application keeps its one
+window and its character — Celeste's palette, doll-house header and voice — and stops reading as an Android app drawn
+into a window. "Native" means the conventions a Linux desktop application lives by, not GTK widgets: Compose will never
+draw Adwaita, and applications like VS Code and Slack are at home on the desktop without doing so. Presentation only:
+ported logic and the screens' semantics are untouched, and the existing UI tests must keep passing.
+
+The starting measurement (2026-10-17): the repository has **no** `VerticalScrollbar`, `hoverable`/`pointerHoverIcon`,
+`onPreviewKeyEvent`/`Key.Enter` or `SelectionContainer` anywhere in `:core`; the theme is a static Material 3 palette
+with Material's default type scale; the layout is one mobile column filling any width; one `ModalBottomSheet` and
+Snackbars carry mobile idioms. What is already native, and stays: window chrome and icon, Swing file dialogs on the
+system look-and-feel, the tray, libnotify, single-instance and hotkey launch, window-size persistence, and the
+PipeWire/TTS seams.
+
+1. **No longer reads as a port (the pass that buys most of the effect).** Resolve the desktop's UI font through
+   `fc-match` in `:platform` and load it as the Compose font family; a compact desktop type scale and density; visible
+   scrollbars on every scroll area; hover and hand cursor on clickable rows; a centred max-width reading column so a
+   maximised window does not stretch a phone layout; Enter to send, Shift+Enter for a newline, Esc to stop/close; visible
+   focus rings. Theme and shared components only — no screen is redesigned.
+2. **Feels native to use.** Right-click context menus (copy, regenerate, speak, delete), text selection in messages,
+   keyboard shortcuts (Ctrl+F search, Ctrl+K the persona/model picker, Esc), focus traversal, and desktop shapes for the
+   actions currently living in a bottom sheet.
+3. **Designed for the desktop.** Behind a width breakpoint, so the narrow window keeps today's layout exactly: a
+   sidebar of personas/rooms/chats beside the conversation, Settings as categories-left/content-right instead of a
+   drilled mobile list, and the search palette. The one window stays one window — this is layout, not multi-window.
+
+*Accept:* on a 1920×1080 maximised window the chat is a centred reading column with a visible scrollbar and the system
+font; every clickable row reacts to hover; Enter sends and Esc stops; a right-click on a message offers copy and
+regenerate; Settings shows its categories beside the content; a narrow window still renders the mobile layout; and the
+full suite (core, platform, desktop) plus all 65 UI tests are green before the pass starts and after it ends.
+
 **Total: 33–50 focused days** (about 4–8 weeks full time, 3–5 months at evenings and weekends).
 A first usable milestone is **M2**: roughly **15–23 days**.
 
