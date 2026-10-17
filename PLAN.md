@@ -1874,7 +1874,7 @@ trusted in the previous session.
 
 **M0–M16 are closed (2026-10-17).** The user's live acceptance run is green for M11, M12, M13, M14 and M15; M10 was
 accepted on Arch and Debian, M9 and M16 were accepted live, and M7's one-hour soak and empty triage table close the
-port. The only milestone left is M17. M15.1's cloud route is recorded with M15; no separate cloud-only check was
+port. The only milestone left is M17 (closed the same day — see its section). M15.1's cloud route is recorded with M15; no separate cloud-only check was
 reported.
 
 **M17 — Native desktop application (new scope, not a port; not counted in the total below).** The user's decision,
@@ -1994,6 +1994,14 @@ reveals the four facts. Both packages were rebuilt at `bb1065c`: Arch sha256
 `3e03025dea00d8fb81568d88dee52840a383d759351758f9b696e778f24e8f20` (112,139,408 bytes), Debian
 `celeste-linux_0.1.0_amd64.deb` sha256 `754e30319d86c2031985350c6fc71fbdfe17c10266eec2ecfe70064690697c67`
 (100,311,452 bytes).]
+
+**M17 is closed (2026-10-17).** The user's live run of the Arch package is green: Settings and About as
+their own windows beside the main window, the menu bar and the tray both opening Settings, the
+persona/room/skill editors as dialog windows, Ctrl+K, right-click message actions, text selection, hover
+and focus feedback, the sidebar at a maximised width, the two-pane Settings window, and the About section
+at the bottom of Settings. The Debian package is built from the same tree and awaits its own run. With
+M0–M16 closed earlier the same day, **the milestone list is complete** — what remains for a release is
+packaging the same tree for both distributions and the upstream sync policy of §13.
 
 [Correction, 2026-10-17 — the intermittent `FsToolTurnTest` failure recorded at slice 5 is fixed, in the
 test rather than in the service. `shutdown()` cancels the scope and returns; a child still unwinding from
