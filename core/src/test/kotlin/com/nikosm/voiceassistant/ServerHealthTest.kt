@@ -48,9 +48,16 @@ class ServerHealthTest {
 
     private fun base(): String = "http://127.0.0.1:${http.address.port}"
 
+    /** The tests' own client; the app passes the service's pinned `healthClient`. */
+    private val client = okhttp3.OkHttpClient.Builder()
+        .connectTimeout(2, java.util.concurrent.TimeUnit.SECONDS)
+        .readTimeout(2, java.util.concurrent.TimeUnit.SECONDS)
+        .callTimeout(4, java.util.concurrent.TimeUnit.SECONDS)
+        .build()
+
     @Test
     fun `an Ollama check reads the version`() = runBlocking {
-        val result = checkHealth(HealthTarget(HealthKind.OLLAMA, "O", base(), null))
+        val result = checkHealth(HealthTarget(HealthKind.OLLAMA, "O", base(), null), client)
 
         assertTrue("expected OK, got $result", result is HealthResult.Ok)
         result as HealthResult.Ok
@@ -62,7 +69,7 @@ class ServerHealthTest {
     fun `a ComfyUI queue is summarised`() = runBlocking {
         val config = ServerConfig("C", base(), backendType = ImageGenBackend.COMFYUI)
 
-        val result = checkHealth(HealthTarget(HealthKind.IMAGE, "C", base(), config)) as HealthResult.Ok
+        val result = checkHealth(HealthTarget(HealthKind.IMAGE, "C", base(), config), client) as HealthResult.Ok
 
         assertEquals("2 running, 1 pending", result.detail)
     }
@@ -71,14 +78,14 @@ class ServerHealthTest {
     fun `an A1111 answer is enough`() = runBlocking {
         val config = ServerConfig("A", base(), backendType = ImageGenBackend.A1111)
 
-        val result = checkHealth(HealthTarget(HealthKind.IMAGE, "A", base(), config)) as HealthResult.Ok
+        val result = checkHealth(HealthTarget(HealthKind.IMAGE, "A", base(), config), client) as HealthResult.Ok
 
         assertEquals("HTTP 200", result.detail)
     }
 
     @Test
     fun `a gateway that answers 404 is still reachable`() = runBlocking {
-        val result = checkHealth(HealthTarget(HealthKind.GATEWAY, "G", base(), null))
+        val result = checkHealth(HealthTarget(HealthKind.GATEWAY, "G", base(), null), client)
 
         assertTrue("a 404 is an answer, so the host is up: $result", result is HealthResult.Ok)
         assertEquals("HTTP 404", (result as HealthResult.Ok).detail)
@@ -88,7 +95,7 @@ class ServerHealthTest {
     fun `a closed port is a failure with a sentence`() = runBlocking {
         val freePort = ServerSocket(0).use { it.localPort }
 
-        val result = checkHealth(HealthTarget(HealthKind.OLLAMA, "O", "http://127.0.0.1:$freePort", null))
+        val result = checkHealth(HealthTarget(HealthKind.OLLAMA, "O", "http://127.0.0.1:$freePort", null), client)
 
         assertTrue(result is HealthResult.Failed)
         assertFalse((result as HealthResult.Failed).reason.isBlank())

@@ -64,7 +64,7 @@ internal fun ServerHealthSettings(service: AssistantService, contentPadding: Int
                     results = targets.associate { it.key to (HealthResult.Checking as HealthResult) }
                     val fresh = supervisorScope {
                         targets.map { target ->
-                            async(Dispatchers.IO) { target.key to checkHealth(target) }
+                            async(Dispatchers.IO) { target.key to checkHealth(target, service.healthClient) }
                         }.awaitAll()
                     }.toMap()
                     results = fresh

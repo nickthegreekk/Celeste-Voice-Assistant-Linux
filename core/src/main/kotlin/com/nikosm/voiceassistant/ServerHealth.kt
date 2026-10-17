@@ -77,21 +77,19 @@ internal fun healthTargetsFor(manager: SettingsManager): List<HealthTarget> {
     return targets.distinctBy { it.key }
 }
 
-private val healthClient: OkHttpClient by lazy {
-    OkHttpClient.Builder()
-        .connectTimeout(4, TimeUnit.SECONDS)
-        .readTimeout(4, TimeUnit.SECONDS)
-        .callTimeout(8, TimeUnit.SECONDS)
-        .build()
-}
-
 /**
  * Ask one target. Never throws: a failure is a [HealthResult.Failed] with a sentence the screen
  * can show, which is the same contract every other network path in the app follows.
+ *
+ * **The client is a parameter, and the caller must pass the service's `healthClient`.** It is born
+ * from the pinned TLS client, so a self-signed gateway the user already approved answers the check
+ * exactly as it answers chat. A bare `OkHttpClient` here once reported such a gateway as failed
+ * while the conversation route worked — the fix is the wiring, and a default would let it happen
+ * again.
  */
 internal suspend fun checkHealth(
     target: HealthTarget,
-    client: OkHttpClient = healthClient,
+    client: OkHttpClient,
 ): HealthResult = withContext(Dispatchers.IO) {
     val started = System.nanoTime()
     fun elapsed(): Long = (System.nanoTime() - started) / 1_000_000

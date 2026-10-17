@@ -1000,6 +1000,22 @@ class AssistantService(
         )
     }
     internal val publicClient: OkHttpClient by lazy { OkHttpClient.Builder().build() }
+
+    /**
+     * M12's health requests. **Born from the pinned [client], not from a bare builder**: a
+     * configured Voice Gateway may be HTTPS with a self-signed certificate the user has already
+     * approved, and a health check that bypassed the trust seam reported it as failed while chat
+     * worked. Measured on the user's gateway, 2026-10-17: `curl -k` answered 401, `curl` without
+     * it failed the handshake, and the health row said Failed. A status page must ask the same
+     * client the traffic uses, or it is reporting on a different connection.
+     */
+    internal val healthClient: OkHttpClient by lazy {
+        client.newBuilder()
+            .connectTimeout(4, TimeUnit.SECONDS)
+            .readTimeout(4, TimeUnit.SECONDS)
+            .callTimeout(8, TimeUnit.SECONDS)
+            .build()
+    }
     internal val standardClient: OkHttpClient by lazy {
         OkHttpClient.Builder()
             .connectTimeout(15, TimeUnit.SECONDS)
