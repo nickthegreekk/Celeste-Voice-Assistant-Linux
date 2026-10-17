@@ -1861,12 +1861,27 @@ run; ask for a command with one line of input and see the input in the dialog be
 and the tool is absent from the persona's next request; the audit lists both, and a restart asks again for a command
 trusted in the previous session.
 
-**M17 — Native desktop presentation (new scope, not a port; not counted in the total below).** The user's decision,
-2026-10-17: **scheduled last, and only when every milestone and every test is green.** The application keeps its one
-window and its character — Celeste's palette, doll-house header and voice — and stops reading as an Android app drawn
-into a window. "Native" means the conventions a Linux desktop application lives by, not GTK widgets: Compose will never
-draw Adwaita, and applications like VS Code and Slack are at home on the desktop without doing so. Presentation only:
-ported logic and the screens' semantics are untouched, and the existing UI tests must keep passing.
+**M17 — Native desktop application (new scope, not a port; not counted in the total below).** The user's decision,
+2026-10-17, corrected the same day: **scheduled last, and only when every milestone and every test is green.** The
+application stops being one window that does everything — the Android shape, where Settings is a screen pushed inside
+the app — and becomes a normal Linux desktop application: a main conversation window plus independent windows for the
+tasks that are not the conversation. It keeps its character: Celeste's palette, doll-house header and voice. D1 is not
+affected: it is about ONE PROCESS, not one window. Every window is a Compose window in the same JVM, talking through
+the same service and StateFlows — no IPC, no second executable.
+
+The window model:
+  - **Main window** — the conversation, the room view, the composer and playback. The window the tray's Open raises and
+    the hotkey targets.
+  - **Settings, its own window** — opened from the menu bar and the tray, resizable and non-modal: it can sit beside the
+    main window, move to another workspace, and close without touching the conversation. Categories left, content
+    right; none of the drilled mobile list.
+  - **Editors as dialog windows** — persona, room, skill, server and image-gen editors become real dialog windows with
+    their own title bar and close button (`DialogWindow`, already used by FullScreenImageViewer), modal to the main
+    window where the edit is about a live selection.
+  - **A native menu bar** — File (Quit), Edit, View, Settings (Preferences), Help (About); the tray menu gains Settings.
+    The AWT `MenuBar` is the native one and the system look-and-feel is already installed before the first Swing
+    component exists (see `Main.kt`), so the bar follows the desktop theme rather than Compose's.
+  - **About**, its own window: version, commit, licence, and the environment `--selftest` prints.
 
 The starting measurement (2026-10-17): the repository has **no** `VerticalScrollbar`, `hoverable`/`pointerHoverIcon`,
 `onPreviewKeyEvent`/`Key.Enter` or `SelectionContainer` anywhere in `:core`; the theme is a static Material 3 palette
@@ -1875,22 +1890,25 @@ Snackbars carry mobile idioms. What is already native, and stays: window chrome 
 system look-and-feel, the tray, libnotify, single-instance and hotkey launch, window-size persistence, and the
 PipeWire/TTS seams.
 
-1. **No longer reads as a port (the pass that buys most of the effect).** Resolve the desktop's UI font through
-   `fc-match` in `:platform` and load it as the Compose font family; a compact desktop type scale and density; visible
-   scrollbars on every scroll area; hover and hand cursor on clickable rows; a centred max-width reading column so a
-   maximised window does not stretch a phone layout; Enter to send, Shift+Enter for a newline, Esc to stop/close; visible
-   focus rings. Theme and shared components only — no screen is redesigned.
+1. **No longer reads as a port.** Resolve the desktop's UI font through `fc-match` in `:platform` and load it as the
+   Compose font family; a compact desktop type scale and density; visible scrollbars on every scroll area; hover and
+   hand cursor on clickable rows; a centred max-width reading column so a maximised window does not stretch a phone
+   layout; Enter to send, Shift+Enter for a newline, Esc to stop/close; visible focus rings. Theme and shared
+   components only — no screen is redesigned.
 2. **Feels native to use.** Right-click context menus (copy, regenerate, speak, delete), text selection in messages,
    keyboard shortcuts (Ctrl+F search, Ctrl+K the persona/model picker, Esc), focus traversal, and desktop shapes for the
    actions currently living in a bottom sheet.
-3. **Designed for the desktop.** Behind a width breakpoint, so the narrow window keeps today's layout exactly: a
-   sidebar of personas/rooms/chats beside the conversation, Settings as categories-left/content-right instead of a
-   drilled mobile list, and the search palette. The one window stays one window — this is layout, not multi-window.
+3. **Designed for the desktop.** Behind a width breakpoint, so a narrow window keeps today's layout exactly: a sidebar
+   of personas/rooms/chats beside the conversation in the main window, the categories/content split inside the Settings
+   window, and the search palette.
 
-*Accept:* on a 1920×1080 maximised window the chat is a centred reading column with a visible scrollbar and the system
-font; every clickable row reacts to hover; Enter sends and Esc stops; a right-click on a message offers copy and
-regenerate; Settings shows its categories beside the content; a narrow window still renders the mobile layout; and the
-full suite (core, platform, desktop) plus all 65 UI tests are green before the pass starts and after it ends.
+*Accept:* Settings opens as its own OS window with its own close button, moves independently of the main window, and
+closes without touching the conversation; the tray and the menu bar both open it; the main window has a File/Edit/View/
+Settings/Help menu bar; About is its own window; the persona editor is a dialog window; `ps` still shows one process.
+On a 1920×1080 maximised main window the chat is a centred reading column with a visible scrollbar and the system font;
+every clickable row reacts to hover; Enter sends and Esc stops; a right-click on a message offers copy and regenerate; a
+narrow window still renders the mobile layout. The full suite (core, platform, desktop) plus all 65 UI tests are green
+before the pass starts and after it ends.
 
 **Total: 33–50 focused days** (about 4–8 weeks full time, 3–5 months at evenings and weekends).
 A first usable milestone is **M2**: roughly **15–23 days**.
