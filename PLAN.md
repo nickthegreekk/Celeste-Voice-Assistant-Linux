@@ -1973,6 +1973,16 @@ the live run. One full suite run during this slice reported the known false attr
 continuation blamed on `FsToolTurnTest` — and three runs after it were green; the leak is unidentified and is
 the first item for the hardening pass after M17. Next: packaging and the live run.]
 
+[Progress, 2026-10-17 — slice 6, packaged. `./gradlew build` green (core 945, platform 81, desktop compiles),
+upstream `git status` clean, `tools/sync-from-android.sh --check` reports no drift. Both packages were rebuilt
+from this tree: Arch `celeste-linux-0.1.0-1-x86_64.pkg.tar.zst` (112,147,028 bytes,
+sha256 `1090250842c69577f3c3ad3355206887dec0f11b4c59ffac3ae77a4fcf0f8b37`) and Debian
+`celeste-linux_0.1.0_amd64.deb` (100,309,912 bytes,
+sha256 `52a20cce2b92f69cb69870c49acda9c2dbb429235336bbb16cd4b1df1db9daf4`) plus its dbgsym
+(`229c8b9f…`). The live acceptance — the two windows side by side, the menu bar, Ctrl+K, right-click, the
+sidebar at a maximised width, the two-pane Settings window — is the user's run; nothing in this pass was
+judged by the installed package yet.]
+
 **Total: 33–50 focused days** (about 4–8 weeks full time, 3–5 months at evenings and weekends).
 A first usable milestone is **M2**: roughly **15–23 days**.
 
