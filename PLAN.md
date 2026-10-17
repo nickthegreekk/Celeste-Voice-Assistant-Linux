@@ -1671,6 +1671,28 @@ Arch run is green the same day, and the Debian run is deferred to the end of the
 *Accept:* pick a model in the header, send a turn and see the Ollama request use it; pick another and it changes; use
 "Use the persona's model" and the persona's own returns; restart and the override is gone while the persona is unchanged.
 
+**M12 — Server health page (new scope, not a port; not counted in the total below).** The user picked it from the
+post-M9 list. Settings → Health lists the configured local services — Ollama servers, Voice Gateways and
+image-generation servers — and checks them **only when the user presses Check now**. **Built 2026-10-17; live run
+pending.**
+
+- **On demand, never polled.** Opening the page shows "Not checked"; the request happens on the button, once, and the
+  results live only while the page is open. A health check is a network call, and the no-unrequested-network rule
+  applies to a status line as much as to a model fetch.
+- **What each check asks, and what counts as up.** Ollama reads `/api/version` (2xx required; the version is shown);
+  ComfyUI reads `/queue` and summarises "N running, M pending"; A1111 reads `/sdapi/v1/options`; a Voice Gateway is
+  asked at its root and **any HTTP answer is reachable** — a 401 reads "authentication required", not failure. A
+  refused connection, a timeout, or a non-2xx from a defined endpoint is a failure with a sentence.
+- **Cloud providers are not on this page.** Their endpoints need each provider's own authentication shape, and every
+  provider already has a Test control where it is configured; a second implementation here could disagree with the
+  first.
+- **The configured auth is applied**, through the same NONE/BASIC/API_KEY rules the chat and image paths use.
+- Targets are the three configured lists, deduplicated within a kind by URL. The Settings row is static like the Files
+  and MCP rows, and the page brings no scroller of its own — it lives in the settings shell's `LazyColumn`.
+
+*Accept:* with the services up, Check now shows OK with latencies and details (an Ollama version, a ComfyUI queue);
+stop one and it shows Failed with a reason; the page makes no request until the button is pressed.
+
 **Total: 33–50 focused days** (about 4–8 weeks full time, 3–5 months at evenings and weekends).
 A first usable milestone is **M2**: roughly **15–23 days**.
 

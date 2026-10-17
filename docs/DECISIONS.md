@@ -13,6 +13,33 @@ not stop for it. Stop only for the four cases listed in AGENTS.md §10.
 
 ---
 
+## 2026-10-17 — Server health: on demand, local services only, reachable is not authorised
+
+The user picked the health page from the post-M9 list. **Decided: a Settings → Health page that checks the configured
+Ollama servers, Voice Gateways and image servers only when the user presses Check now, with no polling and no cloud
+providers.**
+
+**On demand only.** A health check is a network request; the plan forbids calls the user did not ask for, and "the page
+was open" is not an ask. Opening the page shows "Not checked", the button runs every check once, and the results are
+kept in composition only. Rejected: check-on-open, periodic polling, and a background status collector.
+
+**Reachable is not authorised.** A Voice Gateway is asked at its root and **any HTTP answer counts**; a 401 is reported
+as "reachable, authentication required" rather than as a failure. The question this page answers is whether the server
+is there — an auth failure is a different problem with a different fix, and calling it "down" would send the user
+debugging the wrong thing. Ollama and ComfyUI have cheap defined endpoints, so a non-2xx from those is a real failure.
+
+**Cloud providers are absent on purpose.** Each provider has its own authentication shape and model endpoint, and the
+Cloud settings screen already has a Test control built on that code. Reproducing it here would be a second
+implementation that could disagree with the first — the class of defect this project keeps writing down. Rejected:
+listing cloud providers with an unauthenticated reachability probe; it would look like a health check while testing
+almost nothing.
+
+**The configured auth is applied** with the same NONE/BASIC/API_KEY rules the chat and image paths use, so a gateway
+behind basic auth reports reachable instead of 401. Rejected: skipping auth to keep the checker simple — that is the
+same wrong-signal problem in the other direction.
+
+→ PLAN.md §10 (M12), `ServerHealth.kt`, `ServerHealthScreens.kt`, `SettingsScreens.kt`
+
 ## 2026-10-17 — Session model override: in memory, copy-on-entry, Ollama first
 
 The user picked the header model picker from the post-M9 list. **Decided: an in-memory, per-persona override, applied

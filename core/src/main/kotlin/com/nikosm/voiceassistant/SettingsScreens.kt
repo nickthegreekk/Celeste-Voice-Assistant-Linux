@@ -152,6 +152,9 @@ internal val SETTINGS_CATEGORIES = listOf(
     // before Personas because the persona editor's output picker lists the same devices, and a
     // user who has not chosen a microphone here meets that list with no idea what is in it.
     SettingsCategory("Audio", Icons.Default.Mic, SettingsGroup.CONNECTIONS),
+    // M12. In Connections, after the services it is about: this page's rows are exactly those
+    // entries, so it belongs beside them rather than in App.
+    SettingsCategory("Health", Icons.Default.MonitorHeart, SettingsGroup.CONNECTIONS),
     SettingsCategory("Personas", Icons.Default.Person, SettingsGroup.ASSISTANTS),
     SettingsCategory("Rooms", Icons.Default.Forum, SettingsGroup.ASSISTANTS),
     // After Personas, not beside them: a skill only means something once the persona that
@@ -287,6 +290,7 @@ internal fun settingsCategorySummaries(
                 // rather than a status line. Naming the device here would mean enumerating the
                 // audio graph to draw a settings list.
                 "Audio" -> "Which microphone the assistant listens to"
+                "Health" -> HEALTH_SETTINGS_SUMMARY
                 "Personas" -> personasSummary(personas)
                 "Rooms" -> roomsSummary(rooms)
                 "Skills" -> skillsSummary(skills)
@@ -771,6 +775,7 @@ fun SettingsDialog(
                                     onDismiss = onDismiss
                                 )
                                 "Audio" -> AudioSettings(service = svc)
+                                "Health" -> ServerHealthSettings(service = svc)
                                 "Filesystem" -> FsToolSettings(service = svc)
                                 "MCP" -> McpSettings(service = svc)
                                 "Servers" -> ServerSettings(
