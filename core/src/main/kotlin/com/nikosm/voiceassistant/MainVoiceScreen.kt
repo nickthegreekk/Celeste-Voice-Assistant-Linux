@@ -342,6 +342,16 @@ fun MainScreen(
     sharedRequest: SharedRequest? = null,
     /** Called exactly once per [sharedRequest] value, after it has landed. */
     onSharedHandled: () -> Unit = {},
+    /**
+     * M17: when non-null, Settings is hosted by the caller in its own window. Every settings
+     * request is forwarded here (with the persona whose editor was asked for, or null) and the
+     * in-window dialog is not used. The default keeps the ported behaviour.
+     */
+    openSettingsExternally: ((personaName: String?) -> Unit)? = null,
+    /** M17: the menu bar's Search command. A new, larger value opens the search dialog again. */
+    openSearchRequest: Long = 0L,
+    /** Called after [openSearchRequest] has been honoured. */
+    onOpenSearchHandled: () -> Unit = {},
 ) {
     val focusManager = LocalFocusManager.current
     
@@ -424,6 +434,30 @@ fun MainScreen(
     var showSessionModelPicker by remember { mutableStateOf(false) }
     // M13: the transcript search dialog.
     var showTranscriptSearch by remember { mutableStateOf(false) }
+
+    /**
+     * M17: the desktop hosts Settings in its own window. When a host is supplied, every
+     * settings request is handed to it instead of rendering the in-window dialog; the
+     * default (null) keeps the ported, single-window behaviour for every other caller.
+     */
+    fun requestSettings(personaName: String?) {
+        val external = openSettingsExternally
+        if (external != null) {
+            external(personaName)
+        } else {
+            editPersonaRequest = personaName
+            showSettings = true
+        }
+    }
+
+    // M17: the menu bar's "Search chats…" reaches the same dialog the header menu opens.
+    // A monotonic counter rather than a flag, so a second request is a new value and re-fires.
+    LaunchedEffect(openSearchRequest) {
+        if (openSearchRequest > 0L) {
+            showTranscriptSearch = true
+            onOpenSearchHandled()
+        }
+    }
     // M8: `notifyUser` has published `transientMessage` since M1 and **nothing has ever rendered
     // it** — every "Saved to…", "Shortcut added", "Import failed" the application has raised has
     // gone nowhere. The tool refusals and the write timeouts need a destination, so this is it, and
@@ -884,7 +918,7 @@ fun MainScreen(
                         room = activeRoom,
                         onRoomClick = { showPersonaPicker = true },
                         onLeaveClick = { service?.leaveRoom() },
-                        onSettingsClick = { showSettings = true }
+                        onSettingsClick = { requestSettings(null) }
                     )
                 } else {
                     Header(
@@ -897,12 +931,11 @@ fun MainScreen(
                         // turn. Both halves matter — `SettingsDialog` only composes while
                         // `showSettings` is true, so the request alone would be inert.
                         onPersonaIconClick = {
-                            editPersonaRequest = currentPersona.name
-                            showSettings = true
+                            requestSettings(currentPersona.name)
                         },
                         onEarpieceToggle = { service?.toggleEarpieceMode() },
                         isEarpieceMode = isEarpieceMode,
-                        onSettingsClick = { showSettings = true },
+                        onSettingsClick = { requestSettings(null) },
                         onTranslatorClick = {
                             // No local assignment: the button only ASKS the service to select.
                             // The screen's persona follows from `switchPersona` publishing the

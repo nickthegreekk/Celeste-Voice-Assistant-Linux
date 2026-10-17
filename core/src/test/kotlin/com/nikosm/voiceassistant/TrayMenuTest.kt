@@ -27,9 +27,9 @@ class TrayMenuTest {
     private fun actions(items: List<TrayMenuItem>) = items.mapNotNull { it.action }
 
     @Test
-    fun `the four actions are there, in the order a person reads them`() {
+    fun `the five actions are there, in the order a person reads them`() {
         assertEquals(
-            listOf(TrayAction.LISTEN, TrayAction.MUTE, TrayAction.OPEN, TrayAction.QUIT),
+            listOf(TrayAction.LISTEN, TrayAction.MUTE, TrayAction.OPEN, TrayAction.SETTINGS, TrayAction.QUIT),
             actions(trayMenu(state())),
         )
     }
@@ -64,9 +64,12 @@ class TrayMenuTest {
     @Test
     fun `there is no Open item where there is no window`() {
         // `--headless` has nothing to open, and an entry that opened nothing would be worse than its
-        // absence — the rule the message menu's Share entry was held to while M3 was pending.
+        // absence — the rule the message menu's Share entry was held to while M3 was pending. The
+        // Settings window follows the same rule.
         assertFalse(trayMenu(state(windowAvailable = false)).any { it.action == TrayAction.OPEN })
         assertTrue(trayMenu(state(windowAvailable = true)).any { it.action == TrayAction.OPEN })
+        assertFalse(trayMenu(state(windowAvailable = false)).any { it.action == TrayAction.SETTINGS })
+        assertTrue(trayMenu(state(windowAvailable = true)).any { it.action == TrayAction.SETTINGS })
     }
 
     @Test

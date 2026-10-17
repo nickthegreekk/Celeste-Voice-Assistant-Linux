@@ -1926,6 +1926,15 @@ every clickable row reacts to hover; Enter sends and Esc stops; a right-click on
 narrow window still renders the mobile layout. The full suite (core, platform, desktop) plus all 65 UI tests are green
 before the pass starts and after it ends.
 
+[Progress, 2026-10-17 — slice 1, the window model, is in. SettingsDialog gained an `embedded` switch and renders its
+content directly when the desktop hosts it; `Main.kt` owns a non-modal, resizable **Celeste Settings** window and a
+small **About** window, both with their own title bars, and the main window has a Swing/AWT menu bar (File → Quit,
+Edit → Search chats, View → toggle dark theme, Settings → Preferences, Help → About) that follows the system
+look-and-feel. `MainScreen` gained a settings host callback and a search request counter, so the header's settings and
+persona-icon actions and the menu's search reach the right window; the tray gained a Settings entry (absent in
+`--headless`, like Open). Suite: core 940, platform 81, desktop compiles. Next: the visual pass, then the editors as
+dialog windows.]
+
 **Total: 33–50 focused days** (about 4–8 weeks full time, 3–5 months at evenings and weekends).
 A first usable milestone is **M2**: roughly **15–23 days**.
 

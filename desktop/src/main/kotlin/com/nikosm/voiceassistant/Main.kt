@@ -1,5 +1,6 @@
 package com.nikosm.voiceassistant
 
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -31,10 +32,16 @@ import com.nikosm.voiceassistant.linux.SingleInstance
 import com.nikosm.voiceassistant.linux.SystemLookAndFeel
 import com.nikosm.voiceassistant.ui.theme.VoiceAssistantTheme
 import java.awt.Toolkit
+import java.awt.event.InputEvent
+import java.awt.event.KeyEvent
 import java.io.IOException
 import java.nio.file.Files
 import java.nio.file.Path
 import java.util.concurrent.CountDownLatch
+import javax.swing.JMenu
+import javax.swing.JMenuBar
+import javax.swing.JMenuItem
+import javax.swing.KeyStroke
 import kotlin.system.exitProcess
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -172,12 +179,13 @@ fun main(args: Array<String>) {
         windowAvailable = windowAvailable,
     )
 
-    fun handleTrayAction(action: TrayAction, onOpen: () -> Unit, onQuit: () -> Unit) {
+    fun handleTrayAction(action: TrayAction, onOpen: () -> Unit, onSettings: () -> Unit, onQuit: () -> Unit) {
         when (action) {
             TrayAction.LISTEN ->
                 if (service.handsFreeMode.value) service.stopVadListening() else service.startVadListening()
             TrayAction.MUTE -> service.toggleMicMute()
             TrayAction.OPEN -> onOpen()
+            TrayAction.SETTINGS -> onSettings()
             TrayAction.QUIT -> {
                 service.shutdown()
                 onQuit()
@@ -195,7 +203,7 @@ fun main(args: Array<String>) {
 
         val tray = AwtTray(
             state = { trayState(windowAvailable = false) },
-            onAction = { action -> handleTrayAction(action, onOpen = {}, onQuit = { exitProcess(0) }) },
+            onAction = { action -> handleTrayAction(action, onOpen = {}, onSettings = {}, onQuit = { exitProcess(0) }) },
             logger = appEnv.logger,
         )
         if (tray.install()) {
@@ -274,6 +282,17 @@ fun main(args: Array<String>) {
             exitApplication()
         }
 
+        // M17: Settings and About are windows of their own, not screens pushed inside the chat —
+        // the Android shape the user asked to leave behind. The settings window is non-modal and
+        // independent: it can sit beside the chat, move to another workspace and close without
+        // touching the conversation. D1 is untouched: one process, many Compose windows.
+        var settingsOpen by remember { mutableStateOf(false) }
+        var aboutOpen by remember { mutableStateOf(false) }
+        var settingsPersonaRequest by remember { mutableStateOf<String?>(null) }
+        var searchRequest by remember { mutableStateOf(0L) }
+        val settingsWindowState = rememberWindowState(width = 980.dp, height = 760.dp)
+        val aboutWindowState = rememberWindowState(width = 460.dp, height = 340.dp)
+
         Window(
             onCloseRequest = ::closeTheApplication,
             title = "Celeste",
@@ -318,6 +337,10 @@ fun main(args: Array<String>) {
                                     windowState.isMinimized = false
                                     windowState.placement = WindowPlacement.Floating
                                 },
+                                onSettings = {
+                                    settingsPersonaRequest = null
+                                    settingsOpen = true
+                                },
                                 onQuit = ::closeTheApplication,
                             )
                         },
@@ -333,6 +356,25 @@ fun main(args: Array<String>) {
                         .collect { tray.setStatus(it) }
                 }
 
+                // M17: the native menu bar. AWT/Swing draws it with the system look-and-feel,
+                // installed before any Swing component existed (SystemLookAndFeel.install above),
+                // so it follows the desktop theme rather than Compose's. The listeners fire on the
+                // AWT thread; writing Compose snapshot state from there is safe, and the actions
+                // read the service's own flows rather than a captured snapshot.
+                DisposableEffect(window) {
+                    window.jMenuBar = applicationMenuBar(
+                        onSearch = { searchRequest++ },
+                        onToggleDarkTheme = { service.setDarkTheme(!service.darkTheme.value) },
+                        onSettings = {
+                            settingsPersonaRequest = null
+                            settingsOpen = true
+                        },
+                        onAbout = { aboutOpen = true },
+                        onQuit = { closeTheApplication() },
+                    )
+                    onDispose { window.jMenuBar = null }
+                }
+
                 var pendingShare by remember { mutableStateOf(sharedRequest) }
                 var pendingPersona by remember { mutableStateOf(personaArg) }
                 MainScreen(
@@ -341,7 +383,52 @@ fun main(args: Array<String>) {
                     onSharedHandled = { pendingShare = null },
                     deepLinkPersona = pendingPersona,
                     onDeepLinkHandled = { pendingPersona = null },
+                    openSettingsExternally = { personaName ->
+                        settingsPersonaRequest = personaName
+                        settingsOpen = true
+                    },
+                    openSearchRequest = searchRequest,
                 )
+            }
+        }
+
+        if (settingsOpen) {
+            Window(
+                onCloseRequest = { settingsOpen = false },
+                title = "Celeste Settings",
+                state = settingsWindowState,
+                icon = remember { windowIcon() },
+            ) {
+                val darkTheme by service.darkTheme.collectAsState()
+                VoiceAssistantTheme(darkTheme = darkTheme) {
+                    val personaColor = service.currentPersonaFlow.collectAsState().value?.themeColor
+                        ?: MaterialTheme.colorScheme.primary
+                    // `embedded = true` is the half that matters: the content renders directly in
+                    // this window instead of opening an AlertDialog on top of it.
+                    SettingsDialog(
+                        service = service,
+                        onDismiss = { settingsOpen = false },
+                        personaColor = personaColor,
+                        openPersonaEditorFor = settingsPersonaRequest,
+                        onOpenPersonaEditorConsumed = { settingsPersonaRequest = null },
+                        embedded = true,
+                    )
+                }
+            }
+        }
+
+        if (aboutOpen) {
+            Window(
+                onCloseRequest = { aboutOpen = false },
+                title = "About Celeste",
+                state = aboutWindowState,
+                resizable = false,
+                icon = remember { windowIcon() },
+            ) {
+                val darkTheme by service.darkTheme.collectAsState()
+                VoiceAssistantTheme(darkTheme = darkTheme) {
+                    AboutContent(version = APP_VERSION, upstreamCommit = upstreamPin())
+                }
             }
         }
     }
@@ -451,6 +538,62 @@ private fun claimTheWindowClass(logger: AppLogger) {
 }
 
 private const val PIN_RESOURCE = "upstream-commit.txt"
+
+/**
+ * The application's version, shown in About.
+ *
+ * Kept in step by hand with `allprojects { version = "0.1.0" }` and the packaging files — the
+ * same discipline `PKGBUILD` documents for `pkgver`. There is no manifest entry to read: a
+ * jpackage app image does not install one, and inventing a resource for a constant that changes
+ * once a release would be more machinery than the field is worth.
+ */
+private const val APP_VERSION = "0.1.0"
+
+/**
+ * M17: the main window's native menu bar.
+ *
+ * Swing rather than a Compose-drawn bar, because `SystemLookAndFeel.install` has already told
+ * Swing which look and feel the desktop uses (GTK on a GTK desktop, dark variant included), and
+ * a Compose bar would have to re-implement that decision. The accelerators are the desktop
+ * conventions for these actions; Escape and the in-window controls remain the primary paths.
+ */
+private fun applicationMenuBar(
+    onSearch: () -> Unit,
+    onToggleDarkTheme: () -> Unit,
+    onSettings: () -> Unit,
+    onAbout: () -> Unit,
+    onQuit: () -> Unit,
+): JMenuBar {
+    fun item(label: String, accelerator: KeyStroke? = null, action: () -> Unit): JMenuItem =
+        JMenuItem(label).apply {
+            if (accelerator != null) this.accelerator = accelerator
+            addActionListener { action() }
+        }
+
+    return JMenuBar().apply {
+        add(JMenu("File").apply {
+            add(item("Quit", KeyStroke.getKeyStroke(KeyEvent.VK_Q, InputEvent.CTRL_DOWN_MASK), onQuit))
+        })
+        add(JMenu("Edit").apply {
+            add(item("Search chats…", KeyStroke.getKeyStroke(KeyEvent.VK_F, InputEvent.CTRL_DOWN_MASK), onSearch))
+        })
+        add(JMenu("View").apply {
+            add(item("Toggle dark theme", action = onToggleDarkTheme))
+        })
+        add(JMenu("Settings").apply {
+            add(
+                item(
+                    "Preferences…",
+                    KeyStroke.getKeyStroke(KeyEvent.VK_COMMA, InputEvent.CTRL_DOWN_MASK),
+                    onSettings
+                )
+            )
+        })
+        add(JMenu("Help").apply {
+            add(item("About Celeste", action = onAbout))
+        })
+    }
+}
 
 private fun selfTest(): Int {
     // The environment the rest of the process would run on, with its logger installed first —

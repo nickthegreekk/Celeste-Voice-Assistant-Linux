@@ -43,7 +43,7 @@ interface Tray {
  * `AwtTray` lives in `:platform`, and Kotlin shares `internal` only within one module. The seam
  * *interface* would be useless without the vocabulary its implementation renders.
  */
-enum class TrayAction { LISTEN, MUTE, OPEN, QUIT }
+enum class TrayAction { LISTEN, MUTE, OPEN, SETTINGS, QUIT }
 
 /**
  * One row of the menu.
@@ -86,6 +86,9 @@ fun trayMenu(state: TrayMenuState): List<TrayMenuItem> = buildList {
     add(TrayMenuItem(TrayAction.LISTEN, if (state.listening) "Stop listening" else "Listen now"))
     add(TrayMenuItem(TrayAction.MUTE, if (state.muted) "Unmute microphone" else "Mute microphone"))
     if (state.windowAvailable) add(TrayMenuItem(TrayAction.OPEN, "Open Celeste"))
+    // M17: Settings is its own window; a headless run has no settings surface to raise, so the
+    // entry follows the same windowAvailable rule as Open.
+    if (state.windowAvailable) add(TrayMenuItem(TrayAction.SETTINGS, "Settings…"))
     add(TrayMenuItem(action = null, label = ""))
     add(TrayMenuItem(TrayAction.QUIT, "Quit"))
 }

@@ -612,7 +612,14 @@ fun SettingsDialog(
      * never re-read, so a rotation cannot reopen the editor behind the user's back.
      */
     openPersonaEditorFor: String? = null,
-    onOpenPersonaEditorConsumed: () -> Unit = {}
+    onOpenPersonaEditorConsumed: () -> Unit = {},
+    /**
+     * M17: render the content WITHOUT the AlertDialog wrapper, for the desktop's own Settings
+     * window. An AlertDialog inside a desktop `Window` would open a second, modal OS window on
+     * top of a window that is already the settings surface; the desktop hosts the content
+     * directly instead. Defaulted, so every existing call site and UI test is untouched.
+     */
+    embedded: Boolean = false
 ) {
     // Drill-down navigation, one level above the Personas/Rooms list-then-editor pattern:
     // which category screen is showing, null = the flat top-level list.
@@ -724,15 +731,10 @@ fun SettingsDialog(
         skills = skills.size
     )
 
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        // Fullscreen settings: fill the whole screen (the previous 90%-height
-        // window with 16dp gutters wasted space on dense tabs like Servers).
-        // Scoped to the dialog only — the system back gesture/button still
-        // dismisses via onDismissRequest.
-        modifier = Modifier.fillMaxSize(),
-        properties = DialogProperties(usePlatformDefaultWidth = false)
-    ) {
+    // The content is a value rather than an inline block so the desktop can host it in an
+    // application Window (embedded = true) without the dialog wrapper. The wrapper below keeps
+    // the Android-shaped presentation for every other caller.
+    val content: @Composable () -> Unit = {
         Surface(
             modifier = Modifier.fillMaxSize(),
             shape = androidx.compose.ui.graphics.RectangleShape,
@@ -830,6 +832,21 @@ fun SettingsDialog(
                 // affordance as before, now a single caption/Close row.
                 SettingsFooter(accentColor = personaColor, onDismiss = onDismiss)
             }
+        }
+    }
+    if (embedded) {
+        content()
+    } else {
+        AlertDialog(
+            onDismissRequest = onDismiss,
+            // Fullscreen settings: fill the whole screen (the previous 90%-height
+            // window with 16dp gutters wasted space on dense tabs like Servers).
+            // Scoped to the dialog only — the system back gesture/button still
+            // dismisses via onDismissRequest.
+            modifier = Modifier.fillMaxSize(),
+            properties = DialogProperties(usePlatformDefaultWidth = false)
+        ) {
+            content()
         }
     }
 }
