@@ -4,126 +4,110 @@ import com.nikosm.voiceassistant.AppLogger
 import com.nikosm.voiceassistant.FileDialogs
 import com.nikosm.voiceassistant.StderrLogger
 import java.awt.EventQueue
-import java.awt.FileDialog
-import java.awt.Frame
 import java.io.File
 import java.nio.file.Path
 import javax.swing.JFileChooser
+import javax.swing.filechooser.FileNameExtensionFilter
 
 /**
- * Seam 13, implemented with `java.awt.FileDialog` (PLAN.md §5).
+ * Seam 13, implemented with `javax.swing.JFileChooser` (PLAN.md §5).
+ *
+ * ## Why Swing, and not the `java.awt.FileDialog` this used to be
+ *
+ * AWT's X11 file dialog is drawn by AWT's own peer. It never consults the Swing look and feel, so
+ * on a dark desktop every picker was the one light-grey surface left in the application. A Swing
+ * chooser is drawn by the look and feel, and [SystemLookAndFeel] installs the desktop's GTK theme —
+ * dark variant included — so the pickers now match the rest of the session. The user asked for
+ * exactly this on 2026-10-17, after the first day of real use.
+ *
+ * The directory mode already needed a `JFileChooser` (AWT's dialog has no third mode), so the
+ * switch also leaves one chooser for all five calls instead of two dialog types with different
+ * behaviour.
  *
  * ## Blocking, on purpose, and why that needs `invokeAndWait`
  *
- * An AWT `FileDialog` shows itself and does not return until the user answers — `isVisible = true`
- * blocks the calling thread. That is the opposite of the SAF contract this replaces, and it is
- * also the contract the port wants: a click handler that wants a path can simply ask for one.
+ * A chooser shows itself and does not return until the user answers — `showOpenDialog` blocks the
+ * calling thread. That is the opposite of the SAF contract this replaces, and it is also the
+ * contract the port wants: a click handler that wants a path can simply ask for one.
  *
- * The one hazard is *which* thread blocks. AWT requires the dialog to be shown on the
- * Event Dispatch Thread, and Compose Desktop runs its composition on the EDT already — so a click
- * handler is normally on the right thread and `invokeAndWait` is a no-op. It is called anyway
- * because a composition can also be driven from a `LaunchedEffect` on another dispatcher, and the
- * two failure modes there are both bad: AWT throws `IllegalStateException` if a dialog is shown
- * off the EDT, and calling it directly from a non-EDT thread deadlocks against the toolkit lock
- * rather than failing cleanly. `invokeAndWait` turns both into "it works".
+ * The one hazard is *which* thread blocks. Swing requires its dialogs to be shown on the Event
+ * Dispatch Thread, and Compose Desktop runs its composition on the EDT already — so a click handler
+ * is normally on the right thread and `invokeAndWait` is a no-op. It is called anyway because a
+ * composition can also be driven from a `LaunchedEffect` on another dispatcher, and the two
+ * failure modes there are both bad: AWT throws `IllegalStateException` if a dialog is shown off the
+ * EDT, and calling it directly from a non-EDT thread deadlocks against the toolkit lock rather than
+ * failing cleanly. `invokeAndWait` turns both into "it works".
  *
- * ## The filter is a hint, and on Linux it is sometimes only that
+ * ## The filter is a hint, and the caller still validates
  *
- * `setFilenameFilter` is honoured by AWT's own X11 dialog. Some distributions wire `FileDialog` to
- * a portal-backed chooser through `sun.awt.X11` or a toolkit-specific peer, and there the filter
- * is advisory — the user can type any name. So this class filters what it *can* and does not
- * promise more: every caller validates what it got, which it would have to do anyway, because a
- * file the user picked can always be unreadable.
+ * The chooser filters its listing and still offers "All Files", and a user can type a name the
+ * filter would hide. So this class does not promise more than a listing hint: every caller
+ * validates what it got, which it would have to do anyway, because a file the user picked can
+ * always be unreadable.
  *
  * ## `parent = null`
  *
- * A `FileDialog` takes an owner `Frame`. `null` is legal and AWT uses a shared hidden frame, which
- * is what is wanted here: `:platform` has no handle on the application window and should not — the
- * window is `:desktop`'s, and threading a `Frame` through the seam would put a desktop type in the
- * interface for the sake of a modality hint.
+ * The dialog takes an owner `Component`. `null` is legal and Swing uses a shared hidden frame,
+ * which is what is wanted here: `:platform` has no handle on the application window and should
+ * not — the window is `:desktop`'s, and threading a `Frame` through the seam would put a desktop
+ * type in the interface for the sake of a modality hint.
  */
 class AwtFileDialogs(
     private val logger: AppLogger = StderrLogger,
 ) : FileDialogs {
 
-    override fun openImage(title: String): Path? = show(FileDialog.LOAD, title, IMAGE_EXTENSIONS).firstOrNull()
+    override fun openImage(title: String): Path? = choose(title, IMAGE_EXTENSIONS).firstOrNull()
 
-    override fun openTextFile(title: String): Path? = show(FileDialog.LOAD, title, TEXT_EXTENSIONS).firstOrNull()
+    override fun openTextFile(title: String): Path? = choose(title, TEXT_EXTENSIONS).firstOrNull()
 
-    override fun openFiles(title: String): List<Path> =
-        show(FileDialog.LOAD, title, null, multiple = true)
+    override fun openFiles(title: String): List<Path> = choose(title, multiple = true)
 
     override fun save(defaultName: String, title: String): Path? =
-        show(FileDialog.SAVE, title, null, defaultName = defaultName).firstOrNull()
+        choose(title, save = true, defaultName = defaultName).firstOrNull()
 
     /**
-     * `JFileChooser`, and not the `FileDialog` the four above share, because **AWT's file dialog has
-     * no directory mode**: `FileDialog.LOAD` selects files, `SAVE` names one, and there is no third
-     * mode. The alternatives were a Swing picker or shelling out to a desktop's own (`zenity`,
-     * `kdialog`); the picker costs no dependency, no process and no assumption about which desktop
-     * is running, and it is `java.desktop` — already bundled in the packaged runtime, so the
-     * packaged application can open it on a machine with no JDK (PLAN.md §10/M6's module list).
-     *
-     * It starts at the user's home directory rather than at the process's working directory, which
-     * is where a `JFileChooser` opens by default — and which, for a development run, is a checkout.
-     * The threading rule is [show]'s: the picker must be on the EDT.
+     * The directory mode AWT's `FileDialog` could not express. It disables the "All Files" filter
+     * on purpose: a directory picker has nothing to filter, and leaving it on would let the user
+     * select a file and have this return one.
      */
-    override fun openDirectory(title: String): Path? {
-        var chosen: Path? = null
-        val show = {
-            val chooser = JFileChooser().apply {
-                dialogTitle = title
-                fileSelectionMode = JFileChooser.DIRECTORIES_ONLY
-                isMultiSelectionEnabled = false
-                // A directory picker has nothing to filter, and leaving the "all files" filter on
-                // would let the user select a file and have this return one.
-                isAcceptAllFileFilterUsed = false
-                currentDirectory = File(System.getProperty("user.home") ?: ".")
-            }
-            if (chooser.showOpenDialog(null) == JFileChooser.APPROVE_OPTION) {
-                chosen = chooser.selectedFile?.toPath()
-            }
-        }
-        if (EventQueue.isDispatchThread()) show() else EventQueue.invokeAndWait(show)
-        return chosen
-    }
+    override fun openDirectory(title: String): Path? = choose(title, directoryOnly = true).firstOrNull()
 
-    private fun show(
-        mode: Int,
+    private fun choose(
         title: String,
-        extensions: Set<String>?,
+        extensions: Set<String>? = null,
+        save: Boolean = false,
         multiple: Boolean = false,
         defaultName: String? = null,
+        directoryOnly: Boolean = false,
     ): List<Path> {
         var chosen: List<Path> = emptyList()
         val show = {
-            val dialog = FileDialog(null as Frame?, title, mode)
-            try {
-                if (multiple) dialog.isMultipleMode = true
-                if (defaultName != null) dialog.file = defaultName
+            val chooser = JFileChooser().apply {
+                dialogTitle = title
+                // A chooser opens at the process's working directory by default, which for a
+                // development run is a checkout and for an installed package is wherever the
+                // launcher happened to be. Home is the directory a person means.
+                currentDirectory = File(System.getProperty("user.home") ?: ".")
+                isMultiSelectionEnabled = multiple
+                fileSelectionMode =
+                    if (directoryOnly) JFileChooser.DIRECTORIES_ONLY else JFileChooser.FILES_ONLY
+                if (directoryOnly) isAcceptAllFileFilterUsed = false
                 if (extensions != null) {
-                    dialog.filenameFilter = java.io.FilenameFilter { _: java.io.File, name: String ->
-                        extensions.any { name.lowercase().endsWith(it) }
-                    }
+                    val suffixes = extensions.map { it.removePrefix(".") }.sorted()
+                    fileFilter = FileNameExtensionFilter(
+                        suffixes.joinToString(", ") { it.uppercase() },
+                        *suffixes.toTypedArray(),
+                    )
                 }
-                dialog.isVisible = true
-                // `directory` is null only when the dialog never opened; `files` is empty when it
-                // opened and the user pressed Cancel, which is the ordinary "changed my mind" path.
-                val dir = dialog.directory
-                if (dir != null) {
-                    chosen = if (multiple) {
-                        // `files` is `Array<File>` (the multi-select accessor), while `file`
-                        // below is a bare name to join onto `directory` — an AWT asymmetry, not
-                        // a mistake here.
-                        dialog.files.map { it.toPath() }
-                    } else {
-                        dialog.file?.let { listOf(Path.of(dir, it)) } ?: emptyList()
-                    }
+                if (save && defaultName != null) selectedFile = File(currentDirectory, defaultName)
+            }
+            val answer = if (save) chooser.showSaveDialog(null) else chooser.showOpenDialog(null)
+            if (answer == JFileChooser.APPROVE_OPTION) {
+                chosen = if (multiple) {
+                    chooser.selectedFiles.map { it.toPath() }
+                } else {
+                    listOfNotNull(chooser.selectedFile?.toPath())
                 }
-            } finally {
-                // AWT dialogs are heavyweight peers and are not collected on their own; without
-                // this every pick leaks a window's worth of native resources.
-                dialog.dispose()
             }
         }
         if (EventQueue.isDispatchThread()) show() else EventQueue.invokeAndWait(show)

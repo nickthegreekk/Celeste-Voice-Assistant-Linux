@@ -137,7 +137,7 @@ in this table that is not written down here is one nobody can review.
 | `PersonaShortcuts.kt` | **NEW** | `app/src/main/java/com/nikosm/voiceassistant/PersonaShortcuts.kt` (238 lines: launcher shortcuts) | The design is upstream's, translated: a shortcut adds no launch path of its own, it is another producer of the deep link — `--persona <name>` here, `EXTRA_TARGET_PERSONA_NAME` there — and the persona *name* is the id. The medium is what changed: a `.desktop` entry the application writes into `$XDG_DATA_HOME/applications`, with a hash in the file name so two names a file name cannot tell apart still get two entries. The launcher's confirmation dialog has no counterpart, and the snackbar says where the entry went instead. Detail below. |
 | `SkillScreens.kt` | ADAPT | `app/src/main/java/com/nikosm/voiceassistant/SkillScreens.kt` | M5's whole file, copied whole and **unchanged**: the fourth file whose §7 "Compose only" verdict was literally true — no `android.*` import, no `Context`, `Toast`, `Uri` or `BackHandler`. The pure half (trigger phrases, the summaries, the delete confirmation's wording, the editor's commit rule) sits above the three screens as upstream arranged it, and its two tests arrived byte-identical on a new `m5` group. |
 | `Tray.kt` | **NEW** | seam 11, and `CelesteTileService.kt`'s replacement | §9 drops the quick-settings tile and names the tray as its equivalent; §5's row sketches the menu as "Listen now, Mute mic, Open, Quit". The interface is one method because the *actions* travel the other way — the composition root builds the tray, so `:core` never calls `exitApplication`. Public with its menu model for the same module reason as `WavFile`. Detail below. |
-| `AwtTray.kt` | **NEW** | seam 11 | AWT `SystemTray`, which is the only tray API the JDK has and is why this lives in `:platform` beside `AwtFileDialogs` rather than in `:desktop`. Every call marshalled to the AWT event thread; the icon is drawn, because the real asset belongs to M6's packaging. Detail below. |
+| `AwtTray.kt` | **NEW** | seam 11 | AWT `SystemTray`, which is the only tray API the JDK has and is why this lives in `:platform` beside `AwtFileDialogs` rather than in `:desktop`. Every call marshalled to the AWT event thread; the icon is drawn. The menu became a Swing `JPopupMenu` on 2026-10-17, because AWT's own `PopupMenu` ignores the look and feel — detail below. |
 | `SpontaneousTimer.kt` | **NEW** | seam 10; replaces `StubScheduler` | A coroutine timer in `:core`, which is what §10's "spontaneous scheduler in the core" asks for and what retires the last `Stub*` in `:platform` (`grep -rn 'Stub' platform/src/main` now finds none). `alternateSpontaneousSlot` came across with it — upstream defined it in `SpontaneousDeliveryWorker.kt`, which stays out of the port, and the *caller's* contract depends on it. Detail below. |
 | `SpontaneousDelivery.kt` | **NEW** | `SpontaneousDeliveryWorker.kt`'s portable half | The worker's run without WorkManager: the decision, the preflight, the turn, the notification and the re-arm are upstream's expression for expression; `useAssistantService`, its `ServiceConnection` and its 15-second timeout dissolve into D1's one process. Detail below. |
 | `ImageSave.kt` | **NEW** | the save half of `ChatComponents.kt`'s "Save to gallery" | Upstream's `MediaStore` insert becomes a copy into `$XDG_PICTURES_DIR/VoiceAssistant/` under upstream's own `Gen_<millis>.png` name — same folder, same name shape, no content provider. Deliberately not a save dialog (PLAN.md §7's other option): the button's promise is already answered. |
@@ -492,12 +492,19 @@ gone with the URI, not ported. The read-then-validate order survives at each sit
 order the validation wants, not because a grant expires. That is the kind of thing a mechanical port
 preserves for the wrong reason and a reader six months later cannot tell apart.
 
-`AwtFileDialogs` is the implementation: `java.awt.FileDialog`, shown with `invokeAndWait` (a
+`AwtFileDialogs` is the implementation: `javax.swing.JFileChooser`, shown with `invokeAndWait` (a
 composition can be driven from a non-EDT dispatcher, and showing a dialog off the EDT either throws
-or deadlocks against the toolkit lock), disposed in a `finally` (AWT dialogs are heavyweight peers
-and are not collected on their own), and filtered by extension as a *hint* — the filter is honoured
-by AWT's own X11 dialog and advisory under peers that route to a portal chooser, so every caller
-validates what it got, which it would have to do anyway.
+or deadlocks against the toolkit lock), and filtered by extension as a *hint* — the chooser filters
+its listing and still offers "All Files", so every caller validates what it got, which it would
+have to do anyway.
+
+The chooser was `java.awt.FileDialog` until 2026-10-17, and the change is the system theme's: AWT's
+X11 dialog is drawn by AWT's own peer and never consults the Swing look and feel, so it stayed grey
+on a dark desktop. `SystemLookAndFeel` now installs the GTK look and feel before the first Swing
+component, and the same edit moved the tray's menu from AWT's `PopupMenu` to a Swing `JPopupMenu`
+for the identical reason (Compose Desktop's own `Tray` uses the AWT menu — measured against
+`ui-desktop` 1.12.2 — so adopting it would not have helped). The directory mode had already needed
+a `JFileChooser`, so all five calls now share one chooser.
 
 The seam went in as a constructor parameter on `AssistantService`, not on `AppEnv`: by the rule this
 milestone pinned down, `AppEnv` carries a seam only when a caller that cannot be edited forces it,

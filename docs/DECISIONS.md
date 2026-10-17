@@ -13,6 +13,56 @@ not stop for it. Stop only for the four cases listed in AGENTS.md §10.
 
 ---
 
+## 2026-10-17 — Chat memory sized for a desktop: 2000 stored messages, and a 128k context ceiling
+
+The persisted persona transcript was capped at 200 messages (100 exchanges) and the Context Window Size slider stopped
+at 32768. Both were the Android app's numbers. The user asked for more — *"increase the chat memory since in desktop
+there not a space problem"* — after a day of real conversation.
+
+**Decided: `MAX_PERSONA_MESSAGES` 200 → 2000, and the slider detents extended to 131072.** They are separate limits and
+both had to move: the cap decides what the chat screen keeps and restores, while the request budget in
+`resolveHistoryBudget` measures against `persona.numCtx`, so raising the transcript alone would leave the model reading
+the same tail. Eviction keeps its semantics exactly — newest kept, the cached audio and image files of every evicted
+message deleted — and `PersonaHistoryCapTest` pins both halves, because that cleanup is the part a careless raise would
+lose. The **default** `numCtx` stays 8192: the safe first-run value on unknown hardware, and a per-persona choice.
+
+**Rejected: removing the cap.** Every save rewrites one JSON entry in the settings file, so an unbounded transcript makes
+every turn's autosave grow without limit; 2000 exchanges is ten times what the cap allowed and more than any conversation
+this application sends. **Rejected: raising only the stored cap** — it would be a UI-only change presented as more
+memory, which is the kind of half-fix whose absence is invisible.
+
+**The room cap (400) was not touched.** Rooms are a different surface with a different message shape, and nothing asked
+for them.
+
+→ PLAN.md §10 (M8's note), `SettingsManager.kt`, `PersonaEditor.kt`
+
+## 2026-10-17 — The file pickers and the tray menu follow the system theme
+
+On a dark Xfce session the pickers and the tray menu were the last light-grey surfaces in the application. They shared
+one cause: **AWT draws its own `FileDialog` and its own `PopupMenu`, and neither consults the Swing look and feel.**
+Compose Desktop's `Tray` was checked as a possible replacement and is the same AWT `PopupMenu` underneath (against
+`ui-desktop` 1.12.2), so it could not have helped.
+
+**Decided: one look-and-feel install at startup, and both surfaces moved onto Swing.** `SystemLookAndFeel` tries GTK's
+look and feel first, then whatever `UIManager.getSystemLookAndFeelClassName()` names, then leaves the default — warning,
+never failing, because a machine without GTK libraries should lose colours, not its dialogs. **GTK must be tried first:
+on the packaged JDK 27 the "system" answer is Metal**, which is exactly the grey this change exists to remove. The file
+dialogs became `JFileChooser` (all five modes; the directory mode needed one already), and the tray menu a `JPopupMenu`
+shown at the pointer from a one-pixel `JWindow` anchor, since a popup needs an owning `Component` and a `TrayIcon` is not
+one. The dark rendering was measured offscreen before the code was written: a GTK-styled chooser renders a `#383c4a`
+panel with light text on this theme.
+
+**Rejected: shelling out to `zenity`.** It is installed and would follow GTK natively, but it makes a dialog a process
+with its own lifecycle, adds a runtime tool the packages would have to declare, and buys nothing the JDK's own GTK look
+and feel does not already do. **Rejected: a hand-rolled dark Swing theme** — the request was to follow the system, not to
+invent a palette and chase it.
+
+**The tray icon itself was not the problem.** It is drawn with an alpha channel (a purple disc), so it sits correctly on
+both light and dark panels — confirmed from a screenshot of the real one on the user's dark panel. What could not follow
+the theme was the menu it opens.
+
+→ PLAN.md §5 (seams 11 and 13), §10 (M8's note), `SystemLookAndFeel.kt`, `AwtFileDialogs.kt`, `AwtTray.kt`
+
 ## 2026-10-17 — Two post-acceptance choices: a created file is 0644, and the window remembers its size
 
 Both came out of the first day of real use, and both are the user's calls rather than judgements of mine.
@@ -958,7 +1008,7 @@ confirmation, and an autonomous turn must never write a file at all.
 transcript gets the final reply. Persisting them would re-send a file's contents with every later turn:
 a privacy cost on a cloud provider, a token cost on a small local model, and one more chance for a
 document to be read as instructions. It also avoids foreign `role`s reaching renderers, TTS, replay,
-the 200-message cap and the backup.
+the message cap and the backup.
 
 **A tool-only turn answers with a sentence.** "I used 2 file operations and have nothing to add." An
 empty bubble is worse than a sentence, and the sentence flows through the ordinary apply block — so it

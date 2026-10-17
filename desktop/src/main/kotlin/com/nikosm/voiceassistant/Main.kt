@@ -24,6 +24,7 @@ import com.nikosm.voiceassistant.linux.LinuxAudioDevices
 import com.nikosm.voiceassistant.linux.PwPlayback
 import com.nikosm.voiceassistant.linux.ProcessTextToSpeech
 import com.nikosm.voiceassistant.linux.SingleInstance
+import com.nikosm.voiceassistant.linux.SystemLookAndFeel
 import com.nikosm.voiceassistant.ui.theme.VoiceAssistantTheme
 import java.awt.Toolkit
 import java.io.IOException
@@ -69,6 +70,11 @@ fun main(args: Array<String>) {
     // `:core` sees only their interfaces. D1 says one process, so there is no binder, no intent and
     // no `onCreate` — the service exists before the first frame and the UI reads it directly.
     val appEnv = LinuxAppEnv.resolve().installLogging()
+    // Before the first Swing component exists — the file pickers and the tray menu are Swing, and
+    // a look and feel installed after a component is created does not reach it. On a GTK desktop
+    // this puts both on the system theme, dark variant included; on anything else it is one log
+    // line and a fallback, never a failure.
+    SystemLookAndFeel.install(appEnv.logger)
     val audioDevices = LinuxAudioDevices(appEnv.logger)
 
     // One copy of the program, because `--listen` makes a second launch easy: a hotkey fires

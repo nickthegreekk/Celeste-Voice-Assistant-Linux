@@ -187,9 +187,9 @@ implementation in `platform/`; `core` never imports from `platform`.
 | 8 | `SecretStore` | AES/GCM via Android Keystore | **Not in v1** — credentials live in the settings file at mode 0600, see §5a |
 | 9 | `Notifier` | `NotificationManager` + channels | `notify-send`, tracking the notification id so a cancel is possible. **Lands real in M1**, not as a stub, because a byte-identical COPY file calls `cancelSpontaneousNotification`; M4 adds the Open action and the click routing rather than replacing it |
 | 10 | `Scheduler` | `WorkManager` (self-rescheduling, reboot-safe) | coroutine timer inside the service core, driven by the already pure `SpontaneousScheduler`; optional systemd user timer. **Lands in M1 as an interface plus `StubScheduler`**, since a byte-identical COPY file calls `armSpontaneousWork`, `disarmSpontaneousWork` and `isSpontaneouslyArmed` three times each; M4 replaces the stub |
-| 11 | `Tray` | Quick-settings tile | AWT `SystemTray` menu (Listen now, Mute mic, Open, Quit) |
+| 11 | `Tray` | Quick-settings tile | AWT `SystemTray` icon with a **Swing** `JPopupMenu` (Listen now, Mute mic, Open, Quit) — AWT's own `PopupMenu` ignores the look and feel, and the menu must follow the system theme (2026-10-17) |
 | 12 | `Hotkey` | None (proximity "wave to interrupt") | **Landed in M2 as a CLI affordance rather than an interface** (2026-10-16): `celeste-linux --listen` comes up with the microphone armed, and the per-desktop bindings live in `docs/DEVICES.md` — Plasma, GNOME, Xfce, sway, i3 and Hyprland. There is no `Hotkey.kt` and no in-process key grabber — the compositor is the only thing that knows the user's layout and which keys are free, and the plan's answer was already this flag. A second launch while one is running finds the instance lock taken, names the holding pid and exits 1 (`SingleInstance`), because two copies are two microphones: both transcribe the user and both answer. **What the replacement lost is the part worth naming**, in §5's family: the phone's gesture reached a *running* service and could therefore interrupt a reply, and a key that starts a process cannot — so "arm or interrupt from outside" belongs to M4's tray, which is in-process. The optional XDG GlobalShortcuts portal is still unbuilt, and would restore exactly that |
-| 13 | `FileDialogs` | SAF `ActivityResult` pickers | AWT `FileDialog` / chooser |
+| 13 | `FileDialogs` | SAF `ActivityResult` pickers | Swing `JFileChooser` for all five modes, on the system's GTK look and feel (2026-10-17; AWT's `FileDialog` ignored it) |
 | 14 | `CertTrust` | `networkSecurityConfig` + TOFU prompt | OkHttp `X509TrustManager` + TOFU prompt. **Landed in M1 as ported code and needed no `:platform` work** — it is pure JVM (`javax.net.ssl`, `MessageDigest`), and it was already cross-platform. The store is **not** a file in `~/.local/share/celeste-linux/`; it is `trusted_certs_v2` inside the settings file (host → SHA-256 fingerprint), which is also what makes it travel in a backup. Exercised for real 2026-10-16: an Android backup's two pins (`192.0.2.73`, `api.deepseek.com`) survived the import unchanged, no re-approval was asked for, and `PinnedClientTlsTest` (2026-10-16) drives real handshakes against it — see §5's fourth family member for the defect that test exists to prevent |
 | 15 | `ImageCodec` | Android `BitmapFactory` / `Bitmap.compress` | `javax.imageio` decode, scale and encode, with JPEG quality 88 and the upstream dimension limits |
 
@@ -1322,6 +1322,22 @@ repository can *compose* a UI (there is no Compose test runtime on this classpat
 page. The screen now scrolls the way `AudioSettings` does, on the shell's list, and the rule is pinned twice: a comment
 at the shell where content is put inside that lazy item, and `SettingsCategoriesTest` — beside the registry rule it
 already pins — scans the page's source for the call, which is a narrow guard and says so.
+
+**[2026-10-17, after the acceptance — two requests from real use, both landed.]**
+
+**The pickers and the tray menu now follow the system theme.** They were the last two grey surfaces on a dark desktop,
+for one reason: AWT draws its own `FileDialog` and its own `PopupMenu`, and neither ever consults the Swing look and
+feel. `SystemLookAndFeel` now installs GTK's look and feel before the first Swing component exists — **GTK first, not
+`UIManager.getSystemLookAndFeelClassName()`**, which returns Metal on this JDK 27 GTK desktop and would have typed every
+dialog grey — and both surfaces were moved onto Swing (`JFileChooser` for all five file modes, `JPopupMenu` for the tray,
+shown from a one-pixel `JWindow` anchor because a popup needs an owning `Component`). The dark render was measured
+offscreen before any of it was written: panel `#383c4a`, light text. Compose Desktop's own `Tray` menu was checked and
+rejected as a replacement — it is the same AWT `PopupMenu` under the hood.
+
+**Chat memory is sized for a desktop: 2000 stored messages, and a 128k context ceiling.** The 200-message cap was the
+Android app's, and the persona slider stopped at 32768. Both were raised at the user's request; the second matters
+because the request budget is measured against `persona.numCtx`, so raising the transcript alone would still send the
+model the same tail. Eviction still drops the oldest first and deletes the cached audio/images of what it drops.
 
 **Noted during the live run, recorded rather than fixed** — each is small, none is a defect, and all four are the kind of
 thing that evaporates if it is only said out loud:
