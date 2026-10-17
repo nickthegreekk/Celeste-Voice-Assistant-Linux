@@ -13,6 +13,37 @@ not stop for it. Stop only for the four cases listed in AGENTS.md §10.
 
 ---
 
+## 2026-10-17 — Long-term memory: opt-in per persona, app-owned, unconfirmed
+
+The user picked memory from the post-M9 additions. **Decided: a per-persona list of notes in the settings file,
+injected into the system prompt as a framed data block, writable by a `remember` tool without a confirmation dialog,
+switched on per persona and off by default.**
+
+**Why no confirmation.** The filesystem gate exists because those writes touch the user's files; this is the
+application's own notebook, stored at mode 0600, visible and deletable in the persona editor. A dialog per "remember my
+anniversary" would make the feature useless, and the risk a dialog would answer — a poisoned document steering the
+assistant into persisting an instruction — is answered structurally instead: the block says *data, not instructions*,
+every note can be read and removed by the user, and the whole feature is opt-in. The tool contract also forbids storing
+secrets.
+
+**Why the settings file and not a notes file.** It is the one 0600 store the editor, the backup and the restore sweep
+already own, so visibility, migration on rename and deletion with the persona come for free. Rejected: a file under
+`dataDir` for memory alone — a second storage system with none of those properties.
+
+**Why this is main chat only.** A room can hold other personas' conversations; these notes are this persona's private
+recollection of its user, so `memoryBlockFor` returns "" when the turn is not single-chat. A spontaneous turn's prompt
+is built inside `AssistantServiceSpontaneous.kt`, **a byte-identical COPY file the port may not edit** — the first cut
+of M10 did edit it, to inject memory, and the drift check caught it before the commit; changing a COPY file is a
+deliberate demotion, not a decision an implementation makes on its own. Spontaneous turns therefore do not carry memory,
+the same narrowing the user chose for MCP tools. The Voice Gateway assembles its own prompt, so memory is absent there
+too; a persona with memory does not lose the gateway route.
+
+**Caps are enforced in words.** 100 notes, 500 characters each, 8000 total; the tool refuses over a cap and tells the
+model to ask the user to prune, instead of silently dropping the oldest note. Memory the user asked to keep is not ours
+to discard.
+
+→ PLAN.md §10 (M10), `Memory.kt`, `MemoryScreens.kt`, `SettingsManager.kt`, `AssistantServiceChat.kt`
+
 ## 2026-10-17 — MCP v1: both transports, per-server trust, main chat only
 
 The user chose MCP as the next capability — *"the app as is now is a portal to a server(s)"* — and answered the three

@@ -34,6 +34,7 @@ import androidx.compose.material.icons.filled.AddPhotoAlternate
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Extension
+import androidx.compose.material.icons.filled.Psychology
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Delete
@@ -1166,6 +1167,12 @@ fun PersonaEditor(
         SettingsSectionHeader(title = "MCP servers", icon = Icons.Default.Extension)
         SettingsSection {
             PersonaMcpSection(personaName = name, service = service)
+        }
+
+        // M10: what this persona remembers across conversations, beside the other capabilities.
+        SettingsSectionHeader(title = "Memory", icon = Icons.Default.Psychology)
+        SettingsSection {
+            PersonaMemorySection(personaName = name, service = service)
         }
 
         SettingsSectionHeader(title = "Skills", icon = Icons.Default.AutoAwesome)

@@ -160,9 +160,16 @@ internal class ToolRouter(
     private val fs: ToolCallExecutor?,
     private val mcpTools: Map<String, McpTool>,
     private val callMcp: suspend (McpTool, JSONObject) -> McpCallOutcome,
+    /** M10: the application's own `remember` tool, or null when the persona has memory off. */
+    private val remember: (suspend (FsToolCall) -> FsToolResult)? = null,
 ) : ToolCallExecutor {
 
     override suspend fun execute(call: FsToolCall): FsToolResult {
+        if (call.name == MEMORY_TOOL) {
+            val remember = remember
+                ?: return FsToolResult(call.id, call.name, "There is no tool named '${call.name}'.", ok = false)
+            return remember(call)
+        }
         val tool = mcpTools[call.name]
         if (tool != null) {
             val outcome = callMcp(tool, toolArgumentsOf(call))
@@ -196,13 +203,14 @@ internal suspend fun AssistantService.performOllamaChatWithTools(
     turnContext: TurnContext,
     workspace: FsWorkspace?,
     mcpTools: List<McpTool> = emptyList(),
+    memoryEnabled: Boolean = false,
 ): Triple<String, String?, ByteArray?> {
     val excluded = fsExcludedPaths()
     var context = turnContext
     var rounds = 0
     var callsMade = 0
     val touched = LinkedHashSet<String>()
-    val executor = toolExecutorFor(workspace, excluded, persona, mcpTools)
+    val executor = toolExecutorFor(workspace, excluded, persona, mcpTools, memoryEnabled)
 
     while (true) {
         var captured: JSONObject? = null
@@ -266,12 +274,13 @@ internal suspend fun AssistantService.performCloudChatWithTools(
     turnContext: TurnContext,
     workspace: FsWorkspace?,
     mcpTools: List<McpTool> = emptyList(),
+    memoryEnabled: Boolean = false,
 ): Job {
     val excluded = fsExcludedPaths()
     var context = turnContext
     var rounds = 0
     var callsMade = 0
-    val executor = toolExecutorFor(workspace, excluded, persona, mcpTools)
+    val executor = toolExecutorFor(workspace, excluded, persona, mcpTools, memoryEnabled)
 
     return serviceScope.launch {
         // M8: **the loop holds THINKING, not the round** — the rounds pass `ownsThinkingState =
@@ -374,10 +383,16 @@ private fun AssistantService.toolExecutorFor(
     excluded: List<Path>,
     persona: Persona,
     mcpTools: List<McpTool>,
+    memoryEnabled: Boolean,
 ): ToolCallExecutor = ToolRouter(
     fs = workspace?.let { FsToolAdapter(fsExecutorFor(it, excluded, persona)) },
     mcpTools = mcpTools.associateBy { it.declaredName },
     callMcp = { tool, arguments -> runMcpTool(tool, arguments, persona.name) },
+    remember = if (memoryEnabled) {
+        { call -> rememberTool(call, persona.name) }
+    } else {
+        null
+    },
 )
 
 /**

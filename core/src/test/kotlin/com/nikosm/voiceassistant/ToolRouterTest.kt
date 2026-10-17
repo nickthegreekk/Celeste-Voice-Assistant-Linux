@@ -79,6 +79,36 @@ class ToolRouterTest {
     }
 
     @Test
+    fun `the memory tool routes to the memory executor when the persona has it enabled`() = runTest {
+        var called = false
+        val router = ToolRouter(
+            fs = null,
+            mcpTools = emptyMap(),
+            callMcp = { _, _ -> error("the MCP path must not be used") },
+            remember = { call ->
+                called = true
+                FsToolResult(call.id, call.name, "Saved to memory.", ok = true)
+            },
+        )
+
+        val result = router.execute(FsToolCall("1", MEMORY_TOOL, """{"text":"hi"}"""))
+
+        assertTrue(called)
+        assertTrue(result.ok)
+        assertEquals("Saved to memory.", result.text)
+    }
+
+    @Test
+    fun `remember without memory enabled is an unknown tool`() = runTest {
+        val router = ToolRouter(null, emptyMap(), { _, _ -> error("the MCP path must not be used") })
+
+        val result = router.execute(FsToolCall("1", MEMORY_TOOL, "{}"))
+
+        assertFalse(result.ok)
+        assertTrue(result.text.contains(MEMORY_TOOL))
+    }
+
+    @Test
     fun `a refused call keeps the server's sentence and its failure`() = runTest {
         val router = router(callMcp = { _, _ -> McpCallOutcome("The user did not approve this call, so it was not run.", false) })
 

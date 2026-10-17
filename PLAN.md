@@ -1614,6 +1614,38 @@ server answers "unreachable" and the turn still completes. With no server enable
 opened. One hands-free turn uses an MCP tool.
 
 
+**M10 — Long-term memory per persona (new scope, not a port; not counted in the total below).** The user picked it
+from the post-M9 additions. A persona keeps a small list of notes — added by the model with a `remember` tool when the
+user asks, or by the user in the editor — that rides in the system prompt, so it survives the history budget's
+trimming; a 128k window is context, not memory. **Built 2026-10-17; live run pending.**
+
+- **Opt-in per persona, default off.** A persona with memory off sends no tool, no block and no settings read beyond
+  the switch; its requests are byte-identical to before. The switch is name-keyed state like the filesystem pair:
+  rename migrates it, delete removes it, and the restore sweep drops orphans.
+- **App-owned, not the filesystem.** Notes live in the settings file (mode 0600) and are visible and deletable in the
+  persona editor. That is why a write needs **no confirmation dialog**: the store is the application's own, every note
+  can be read and removed, and a dialog per "remember my anniversary" would make the feature unusable. The risk a
+  dialog would answer — a poisoned document steering the assistant into persisting an instruction — is answered by the
+  framing, the visibility and the opt-in.
+- **Data, not instructions**, in the prompt block and in the tool contract, and the contract forbids storing secrets.
+- **Caps in words, not silent drops:** 100 notes, 500 characters each, 8000 total. Over a cap the tool refuses and
+  tells the model to ask the user to prune.
+- **Main chat only** — the M9 narrowing, and it is enforced by where the code lives: the two builders that compose
+  their own prompt insert the block, while rooms use a room context and a spontaneous turn builds its prompt inside
+  `AssistantServiceSpontaneous.kt`, a byte-identical COPY file that may not be edited. **The first cut of M10 edited
+  it anyway**, to inject memory into spontaneous turns; the drift check caught it before commit and the edit was
+  reverted — changing a COPY file is a deliberate demotion, not an implementation detail. Spontaneous turns therefore
+  do not carry memory, the same narrowing the user chose for MCP tools. The Voice Gateway assembles its own prompt, so
+  memory is absent there too rather than refused as tools are. Voice turns in the main chat do carry it.
+- **Backups carry the notes and the switch.** Unlike a path or a grant, this is conversation content, which is what a
+  backup is for; an older backup without the fields leaves existing memory alone rather than wiping it.
+- **One trap worth recording:** `persona_memory_` is a prefix of `persona_memory_enabled_`, so a single generic restore
+  sweep read the switch key as a persona name and deleted it. The memory family is swept separately, and a test pins it.
+
+*Accept:* ask the assistant to remember a fact and see it saved; restart and it still knows it; ask what it remembers;
+the editor shows the note and "Forget" removes it; with memory off the request declares no `remember` tool; a room and a
+gateway turn never carry the notes.
+
 **Total: 33–50 focused days** (about 4–8 weeks full time, 3–5 months at evenings and weekends).
 A first usable milestone is **M2**: roughly **15–23 days**.
 

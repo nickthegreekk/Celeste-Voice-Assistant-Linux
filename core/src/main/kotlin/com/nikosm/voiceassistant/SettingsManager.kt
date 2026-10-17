@@ -153,6 +153,14 @@ class SettingsManager(
         const val MCP_PERSONA_PREFIX = "mcp_persona_"
 
         /**
+         * Long-term memory per persona (PLAN.md §10/M10): one JSON list of notes, and the switch
+         * that offers the `remember` tool. The switch is a key of its own rather than "enabled when
+         * notes exist", so a user can turn the feature on before there is anything to remember.
+         */
+        const val PERSONA_MEMORY_PREFIX = "persona_memory_"
+        const val PERSONA_MEMORY_ENABLED_PREFIX = "persona_memory_enabled_"
+
+        /**
          * The window's size in **dp**, as the user left it — "WIDTHxHEIGHT", the shape a person can
          * read in the settings file and a test can write by hand (2026-10-17, by request).
          *
@@ -622,6 +630,7 @@ class SettingsManager(
         migratePersonaOutputDevice(oldName, newName)
         migratePersonaFs(oldName, newName)
         migratePersonaMcp(oldName, newName)
+        migratePersonaMemory(oldName, newName)
         val data = store.getString("persona_messages_$oldName") ?: return
         store.edit()
             .putString("persona_messages_$newName", data)
@@ -823,6 +832,7 @@ class SettingsManager(
         store.edit().remove(PERSONA_OUTPUT_DEVICE_PREFIX + personaName).commit()
         removePersonaFs(personaName)
         removePersonaMcp(personaName)
+        removePersonaMemory(personaName)
     }
 
     /** The one place a referenced cache/artwork file is removed. Missing is not an error. */
@@ -889,6 +899,10 @@ class SettingsManager(
             // Definitions only — the grant is stripped below. Per-persona enablement is name-keyed
             // state like the filesystem pair and is deliberately not on the allowlist.
             mcpServers = getMcpServers().map { it.copy(trust = McpTrust.ASK) },
+            personaMemories = personas
+                .associate { it.name to getPersonaMemory(it.name) }
+                .filterValues { it.isNotEmpty() },
+            personaMemoryEnabled = personas.filter { isPersonaMemoryEnabled(it.name) }.map { it.name },
         )
         return json.encodeToString(backup)
     }
@@ -937,6 +951,16 @@ class SettingsManager(
             saveActiveImageGenBackend(backup.activeImageGenBackend)
             val restoredSkillIds = backup.skills.map { it.id }.toSet()
             val restoredWorkflowIds = backup.imageWorkflows.map { it.id }.toSet()
+            // Memory restores for the personas this backup carries. A backup from before the
+            // feature has neither field, and this deliberately leaves whatever memory this install
+            // already has for other names alone rather than wiping it on an old restore.
+            val restoredNamesForMemory = restoredPersonas.map { it.name }.toSet()
+            backup.personaMemories
+                .filterKeys { it in restoredNamesForMemory }
+                .forEach { (name, notes) -> savePersonaMemory(name, notes) }
+            backup.personaMemoryEnabled
+                .filter { it in restoredNamesForMemory }
+                .forEach { setPersonaMemoryEnabled(it, true) }
             savePersonas(
                 restoredPersonas.map { persona ->
                     val keptSkills = persona.enabledSkillIds.filter { it in restoredSkillIds }
@@ -1013,13 +1037,33 @@ class SettingsManager(
             // reason: a restore can leave either behind for a persona it did not bring back, and a
             // mode left behind is a *grant* left behind. The MCP enablement is name-keyed the same
             // way and would otherwise be inherited by a future persona of that name.
-            listOf(PERSONA_FS_MODE_PREFIX, PERSONA_FS_WORKSPACE_PREFIX, MCP_PERSONA_PREFIX).forEach { prefix ->
+            listOf(
+                PERSONA_FS_MODE_PREFIX,
+                PERSONA_FS_WORKSPACE_PREFIX,
+                MCP_PERSONA_PREFIX,
+            ).forEach { prefix ->
                 store.allKeys()
                     .filter { it.startsWith(prefix) }
                     .map { it.removePrefix(prefix) }
                     .filter { it !in restoredNames }
                     .forEach { store.edit().remove(prefix + it).commit() }
             }
+            // **The memory family is swept apart from the list above, and the reason is a real
+            // trap:** `persona_memory_` is a prefix of `persona_memory_enabled_`, so one generic
+            // pass over the notes prefix also matches every switch key, reads `enabled_A` as a
+            // persona name, finds it in no restored persona and deletes the switch. The notes pass
+            // therefore excludes the switch's prefix explicitly. A test caught this on the first
+            // run: the notes restored and the switch did not.
+            store.allKeys()
+                .filter { it.startsWith(PERSONA_MEMORY_ENABLED_PREFIX) }
+                .map { it.removePrefix(PERSONA_MEMORY_ENABLED_PREFIX) }
+                .filter { it !in restoredNames }
+                .forEach { store.edit().remove(PERSONA_MEMORY_ENABLED_PREFIX + it).commit() }
+            store.allKeys()
+                .filter { it.startsWith(PERSONA_MEMORY_PREFIX) && !it.startsWith(PERSONA_MEMORY_ENABLED_PREFIX) }
+                .map { it.removePrefix(PERSONA_MEMORY_PREFIX) }
+                .filter { it !in restoredNames }
+                .forEach { store.edit().remove(PERSONA_MEMORY_PREFIX + it).commit() }
             // Same orphan sweep for room transcripts: the restore overwrites the ROOM
             // list, so a room_messages_<id> entry for a room that existed before the
             // restore but isn't in this backup would otherwise survive forever,
@@ -1046,7 +1090,9 @@ class SettingsManager(
                 .forEach { deleteSpontaneousState(it) }
             true
         } catch (e: Exception) {
-            // Try legacy import if new format fails
+            // Try legacy import if new format fails. Logged because a silent fallback turns a
+            // decoder mismatch into "the import did nothing", with no way to tell why.
+            logger.w(TAG, "backup import failed — trying the legacy format", e)
             importLegacyBackup(jsonString)
         }
     }
@@ -1450,6 +1496,72 @@ class SettingsManager(
         store.edit().remove(MCP_PERSONA_PREFIX + personaName).commit()
     }
 
+    // ------------------------------------------------------------------ long-term memory (2026-10-17, M10)
+
+    /**
+     * The persona's notes. Unreadable JSON reads as none — the same rule as every stored
+     * collection in this file — and blank entries are dropped so a hand-edited file cannot render
+     * an empty bullet in the prompt.
+     */
+    fun getPersonaMemory(personaName: String): List<String> {
+        if (personaName.isBlank()) return emptyList()
+        val data = store.getString(PERSONA_MEMORY_PREFIX + personaName) ?: return emptyList()
+        return runCatching { json.decodeFromString<List<String>>(data) }
+            .onFailure { logger.w(TAG, "Corrupted/unreadable JSON in ${PERSONA_MEMORY_PREFIX}$personaName — none", it) }
+            .getOrDefault(emptyList())
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+    }
+
+    /**
+     * Replace the notes. The count is capped defensively at [MEMORY_MAX_ENTRIES]: the tool refuses
+     * over the cap in words, and the editor never adds beyond it, but a hand-edited file must not
+     * be able to turn the prompt into a memoir either.
+     */
+    fun savePersonaMemory(personaName: String, entries: List<String>) {
+        if (personaName.isBlank()) return
+        val key = PERSONA_MEMORY_PREFIX + personaName
+        val kept = entries.map { it.trim() }.filter { it.isNotEmpty() }.take(MEMORY_MAX_ENTRIES)
+        if (kept.isEmpty()) store.edit().remove(key).commit()
+        else store.edit().putString(key, json.encodeToString(kept)).commit()
+    }
+
+    fun isPersonaMemoryEnabled(personaName: String): Boolean =
+        store.getBoolean(PERSONA_MEMORY_ENABLED_PREFIX + personaName, false)
+
+    fun setPersonaMemoryEnabled(personaName: String, enabled: Boolean) {
+        if (personaName.isBlank()) return
+        val key = PERSONA_MEMORY_ENABLED_PREFIX + personaName
+        if (enabled) store.edit().putBoolean(key, true).commit() else store.edit().remove(key).commit()
+    }
+
+    /** The rename half, both keys, like every other name-keyed persona setting. */
+    fun migratePersonaMemory(oldName: String, newName: String) {
+        if (oldName == newName || oldName.isBlank()) return
+        val edit = store.edit()
+        var moved = false
+        store.getString(PERSONA_MEMORY_PREFIX + oldName)?.let {
+            edit.putString(PERSONA_MEMORY_PREFIX + newName, it)
+            edit.remove(PERSONA_MEMORY_PREFIX + oldName)
+            moved = true
+        }
+        if (isPersonaMemoryEnabled(oldName)) {
+            edit.putBoolean(PERSONA_MEMORY_ENABLED_PREFIX + newName, true)
+            edit.remove(PERSONA_MEMORY_ENABLED_PREFIX + oldName)
+            moved = true
+        }
+        if (moved) edit.commit()
+    }
+
+    /** The delete half: notes and switch die with the persona, like history and the filesystem pair. */
+    fun removePersonaMemory(personaName: String) {
+        if (personaName.isBlank()) return
+        store.edit()
+            .remove(PERSONA_MEMORY_PREFIX + personaName)
+            .remove(PERSONA_MEMORY_ENABLED_PREFIX + personaName)
+            .commit()
+    }
+
     // ------------------------------------------------------------------ the window (2026-10-17)
 
     fun getWindowSize(): Pair<Int, Int>? {
@@ -1608,6 +1720,12 @@ data class BackupData(
     // ASK, because a grant to run tools on this machine is a permission and a restored backup must
     // not confer one. Defaulted, so a backup written before MCP existed still decodes.
     val mcpServers: List<McpServerConfig> = emptyList(),
+    // Long-term memory travels with the personas it belongs to: entries keyed by persona name, and
+    // the names of the personas whose memory is switched on. Unlike a filesystem workspace or a
+    // tool trust, this is the conversation's own content, which is what a backup is for. Defaulted,
+    // so a backup written before memory existed still decodes.
+    val personaMemories: Map<String, List<String>> = emptyMap(),
+    val personaMemoryEnabled: List<String> = emptyList(),
 )
 
 // One persona's embedded artwork. Both slots are optional: a persona may have only an
