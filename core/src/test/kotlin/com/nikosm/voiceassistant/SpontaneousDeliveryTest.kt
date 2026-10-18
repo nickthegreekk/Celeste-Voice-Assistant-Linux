@@ -81,6 +81,10 @@ class SpontaneousDeliveryTest {
     @After
     fun tearDown() {
         services.forEach { runCatching { it.shutdown() } }
+        // Keep Main installed until the cancelled scopes have delivered their continuations; see
+        // ServiceScopeDrain. This class was the second one to fail the NEXT test with a stale
+        // Main access (2026-10-18).
+        drainServiceScopes(services, mainDispatcher.scheduler)
         services.clear()
         Dispatchers.resetMain()
     }

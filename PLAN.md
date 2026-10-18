@@ -2036,7 +2036,9 @@ that landed, so the exception surfaced against whichever test ran next. Teardown
 provider first, then pumps the test scheduler until every service scope has completed, with Main still
 installed — bounded at 3 s so a scope that refuses to finish cannot hang the build. Two consecutive full
 suite runs are green. Nothing in the production close path changed: there Main exists for the process's
-lifetime, and the failure was a teardown ordering bug in the test.]
+lifetime, and the failure was a teardown ordering bug in the test. The drain became a shared test helper
+(`ServiceScopeDrain`) on 2026-10-18, when the same failure surfaced against `SpontaneousEditorUiTest` with
+`SpontaneousDeliveryTest` as the leaker; that class now drains as well.]
 
 [Follow-up, 2026-10-18 — a persona is a folder (user's request): `~/.celeste-linux/<persona>/` holds
 `chat.json` and `images/` (attachments, generated images, icon and background artwork), and rooms get
