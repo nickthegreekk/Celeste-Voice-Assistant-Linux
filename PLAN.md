@@ -2053,7 +2053,9 @@ backup dropped. The backup now embeds every message image as base64 (keyed by pe
 position) in the same `celeste-backup.json`, so the existing password encryption covers everything; cached
 TTS audio is excluded as regenerable. Tests: `ConversationFoldersTest` (9) and `PersonaImagesFolderTest`
 (4). The user's real data migrates on the first launch of this build — export a backup before installing it.
-No packages were built for this change (not asked).]
+Both packages were rebuilt at `64a4d3c`: Arch sha256
+`4bb5a62045b9fe9758681a80d1c380a742246a32165b5bf704b7c092f528a4c1` (112,166,697 bytes), Debian
+`celeste-linux_0.1.0_amd64.deb` sha256 `7fccf36941181404dd70570d71142dcf49954e7d6afbe44897c2be8249800497` (100,365,104 bytes).]
 
 **Total: 33–50 focused days** (about 4–8 weeks full time, 3–5 months at evenings and weekends).
 A first usable milestone is **M2**: roughly **15–23 days**.
