@@ -2065,7 +2065,9 @@ replaces `LocalContextMenuRepresentation` in the theme: a Material surface of `D
 open rect (window coordinates — the anchor contract Compose's own default uses), reading the theme colours,
 so it follows Celeste and GTK alike. Message bubbles keep their no-op override, so a right-click there still
 shows only the actions menu. The popup cannot be inspected by the desktop test runner, so placement and look
-are judged in the live run.]
+are judged in the live run. Both packages were rebuilt at `0a0b84c`: Arch sha256
+`641b6b1f249851a4cf1f0dcd1ada0f2d8eaca7479b1d7babe6d822cf5943a071` (112,172,277 bytes), Debian
+`celeste-linux_0.1.0_amd64.deb` sha256 `6d8080b6ee5cd6cb072b854a2dfb94eaed44c538bcfd6080dcdea4426cc97392` (100,371,480 bytes).]
 
 **Total: 33–50 focused days** (about 4–8 weeks full time, 3–5 months at evenings and weekends).
 A first usable milestone is **M2**: roughly **15–23 days**.
