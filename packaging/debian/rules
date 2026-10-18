@@ -105,3 +105,12 @@ override_dh_auto_clean:
 # it. (`dh_makeshlibs` would otherwise process `libjvm.so` and friends and ask why they are not in a
 # public library path — the answer being that they are not libraries, they are this application.)
 override_dh_makeshlibs:
+
+# The systemd user unit ships installed and NOT enabled, by policy rather than by omission
+# (PLAN.md §9 and §12 leave autostart to the user). Debhelper's default for user units is the
+# opposite — "was-enabled defaults to true, so new installations run enable" — and that is what
+# happened on the Debian VM: the headless unit started at login, held the single-instance lock, and
+# the menu entry could not open a window (found 2026-10-18). `--no-enable` makes the package do what
+# the install message and README already claimed.
+override_dh_installsystemduser:
+	dh_installsystemduser --no-enable

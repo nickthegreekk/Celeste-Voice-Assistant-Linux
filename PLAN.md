@@ -2148,7 +2148,16 @@ report from Debian showed the other start-up source: that machine has **no worki
 (`systemctl --user` is not a command there), so the headless process was a manually started leftover holding
 the lock, not the unit. The refusal notification now names "the running instance" rather than assuming
 systemd, and README and the unit say the unit needs a working user session and that the fallback is starting
-`celeste-linux --headless` from the graphical session.]
+`celeste-linux --headless` from the graphical session. **The Debian cause was the packaging itself**:
+debian's `dh_installsystemduser` enables user units in GLOBAL scope by default ("was-enabled defaults to
+true, so new installations run enable"), so the unit was enabled by the .deb, contrary to the install
+message and README. `override_dh_installsystemduser: dh_installsystemduser --no-enable` makes a fresh
+install leave it disabled, and a new `packaging/debian/celeste-linux.postinst` runs after debhelper's
+snippet on upgrade and removes the global enable a previous release created; a per-user
+`systemctl --user enable` is left alone. Verified on the Debian VM (the enable symlink is
+`/etc/systemd/user/default.target.wants/celeste-linux.service`), and the regenerated maintainer script's
+order inspected. Fixed Debian package: sha256
+`3f521ee2662f72a0e996a8b539b50563de42694fe4dbf93964666a9ebe50ee9d` (100,368,380 bytes).]
 
 **Total: 33–50 focused days** (about 4–8 weeks full time, 3–5 months at evenings and weekends).
 A first usable milestone is **M2**: roughly **15–23 days**.

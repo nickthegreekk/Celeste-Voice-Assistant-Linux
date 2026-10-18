@@ -1,0 +1,15 @@
+#!/bin/sh
+set -e
+
+# 2026-10-18: releases before this one let dh_installsystemduser enable the systemd user unit in
+# GLOBAL scope, so every login started a headless instance which held the single-instance lock and
+# blocked the window (found on the Debian VM). The package's policy is installed-but-not-enabled, so
+# an upgrade removes the global enable this package created. A per-user enable
+# (`systemctl --user enable`) is the user's own choice and is deliberately not touched.
+#DEBHELPER#
+
+if [ "$1" = "configure" ] && [ -n "$2" ]; then
+    if [ -L /etc/systemd/user/default.target.wants/celeste-linux.service ]; then
+        systemctl --global disable celeste-linux.service >/dev/null 2>&1 || true
+    fi
+fi
