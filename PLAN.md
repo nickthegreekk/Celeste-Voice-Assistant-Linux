@@ -2115,6 +2115,16 @@ Both packages were rebuilt at `6144080` with this and the two preceding follow-u
 `743d664e8c90106481d6220b4d4638fd256b09819e156f20307be00a7cc6486d` (112,168,713 bytes), Debian
 `celeste-linux_0.1.0_amd64.deb` sha256 `ab2b7ba35178ad4a54b77bdd1be8342732c6c7ac4d49b3cbf5adb77ef0eb7f80` (100,363,784 bytes).]
 
+[**Open finding, 2026-10-18 — cloud personas inherit the 8192-token default.** Seen live on the DeepSeek
+persona: a turn of ~9,787 fixed tokens was refused by the client-side budget in `resolveHistoryBudget`
+because `Persona.numCtx` is 8,192, even though DeepSeek's API takes 64k+. Every seeded cloud persona
+(DeepSeek, GPT-4o, Gemini, Cline) carries that default, so a long system prompt, skill instructions or an
+attachment trips the same refusal while the provider would accept the request. Immediate workaround:
+Settings → Personas → Context Window Size → 65536 (or 32768). A port-side fix was proposed and **not
+implemented**: when a persona routes to a cloud provider and still sits on the seeded 8192, treat the
+budget as a provider-sized floor rather than the Ollama default; a deliberately-chosen value stays
+honoured. It needs its own decision record because it changes what the setting means for cloud personas.]
+
 **Total: 33–50 focused days** (about 4–8 weeks full time, 3–5 months at evenings and weekends).
 A first usable milestone is **M2**: roughly **15–23 days**.
 
