@@ -2069,7 +2069,9 @@ are judged in the live run. **First live run, same day: the menu was edge-to-edg
 corner** — `DropdownMenuItem` rows carry `fillMaxWidth` (fine inside a `DropdownMenu`, a window-wide strip in
 an unconstrained `Popup`), and the hand-rolled position provider misread the anchor. The surface is now
 width-capped (112–280 dp) and placed with `rememberPopupPositionProviderAtPosition(rect.left, rect.bottom)`,
-the same helper Compose's own default uses.]
+the same helper Compose's own default uses. Both packages were rebuilt at `66b52b4`: Arch sha256
+`d427e2a340e830839d45003f2d6d4f469fa1e8662a77776c0db97def58215e2b` (112,182,180 bytes), Debian
+`celeste-linux_0.1.0_amd64.deb` sha256 `40e5194cf1cffc435e8bb16c577026150c58e968c0f847138b49608d1ff66ab2` (100,371,904 bytes).]
 
 **Total: 33–50 focused days** (about 4–8 weeks full time, 3–5 months at evenings and weekends).
 A first usable milestone is **M2**: roughly **15–23 days**.
