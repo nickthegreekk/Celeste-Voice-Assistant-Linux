@@ -15,7 +15,6 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Test
@@ -129,7 +128,12 @@ class McpStdioTransportTest {
             transport.send(request(2, "ping"))
             fail("a closed transport must not accept a message")
         } catch (expected: McpTransportException) {
-            assertFalse(expected.message.isNullOrBlank())
+            // The fields are cleared under the send monitor, so the answer is the seam's own
+            // "not running" rather than an IOException from a writer that was closed underneath.
+            assertTrue(
+                "a closed transport says it is not running: ${expected.message}",
+                expected.message.orEmpty().contains("not running"),
+            )
         }
     }
 }

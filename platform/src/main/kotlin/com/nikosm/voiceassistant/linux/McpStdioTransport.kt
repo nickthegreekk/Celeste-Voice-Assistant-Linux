@@ -111,8 +111,24 @@ class McpStdioTransport(
         }
     }
 
+    /**
+     * Closes the child and refuses further sends.
+     *
+     * **The field capture is serialized with [send]**, which is why it takes the same monitor:
+     * closing the writer under a write in flight used to surface as a spurious transport failure
+     * at the caller. The process wait deliberately happens *outside* the monitor — it is bounded
+     * at two seconds, and a caller asking the transport to go away should not hold up a send for
+     * that long. Once the fields are cleared, a send sees "not running", which is the honest
+     * answer.
+     */
     override fun close() {
-        val process = process
+        val (process, writer) = synchronized(this) {
+            val p = this.process
+            val w = this.writer
+            this.process = null
+            this.writer = null
+            p to w
+        }
         runCatching { writer?.close() }
         if (process != null) {
             process.destroy()
