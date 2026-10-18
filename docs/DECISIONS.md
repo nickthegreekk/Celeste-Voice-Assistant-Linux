@@ -13,6 +13,52 @@ not stop for it. Stop only for the four cases listed in AGENTS.md §10.
 
 ---
 
+## 2026-10-18 — Hard links are refused at the filesystem gate, and the collapse order is pinned
+
+An adversarial run inside Celeste on Debian (workspace `~/Desktop/AI`) probed the M8 file tools with
+about forty escape shapes. Path containment held every path-shaped attempt; the one confirmed hole
+was a **hard link**: a regular file inside the workspace whose inode is also named outside it.
+`toRealPath` resolves the inside name to itself, both sides of the containment comparison agree, and
+the bytes are outside. Symlinks are visible because resolution follows them; a hard link resolves
+nowhere, so a path check has nothing to catch.
+
+**Decided: a regular file with `unix:nlink > 1` is refused for both reading and writing**, with a
+refusal that says why. It is a heuristic, not the structural fix — it also refuses legitimate
+hard-linked files (backup mirrors, dedup tools), and the real answer is a workspace on its own
+filesystem, where `link(2)` fails `EXDEV`. It is kept because the realistic entry paths are an archive
+extracted into the workspace or a command the user approved once, and a refusal the model can report
+is a better failure than a silent read. The attribute read is Linux's; if it cannot be made, the file
+is refused rather than allowed, because an uncheckable link count is exactly the unknown this gate
+must not widen.
+
+**The lexical collapse before resolution is now pinned.** `normalize()` before `toRealPath()` is what
+keeps `link-out/../notes.md` inside the workspace; resolving first would follow the link and `..` to
+the outside folder's parent. A test asserts the shape, so a refactor that reverses the order fails
+instead of opening every `symlink/..` path.
+
+**A percent-escape stays a file name.** `%2e%2e%2f` is inert because nothing decodes; a test reads a
+literal file with that name and fails if a decoder is added. Rejecting `%` outright (the audit's
+suggestion) was considered and rejected: it is not a vector today and would refuse ordinary names
+such as `100% done.txt`.
+
+**Left alone: the denial sentences stay specific.** The audit called the difference between "no such
+file" and "resolves outside" an existence oracle. It is one, but the recorded 2026-10-16 choice is
+that the specific refusal is more useful to the model and to the audit reader, and the exposure is
+one bit about a path the model already guessed. Collapsing them is a one-line change if the
+trade-off is ever revisited. The audit's "wrong reason" finding did not reproduce: an existing
+symlinked parent reports "resolves outside the workspace" (`FsWorkspaceTest`), while "the folder does
+not exist" fires only when the parent genuinely cannot be resolved.
+
+**Two audit findings were not acted on because they describe a different design.** The report says a
+standing `session-trust` made six commands run without a per-command look. In this source command
+trust is keyed to the exact command, stdin, tty and directory and lives only for the session
+(`CommandTools.kt`); the persistent grant is the **per-root file-write** trust, which the user chose
+to remember across restarts on 2026-10-17. And command confinement (bwrap, Landlock, a container) was
+not added: PLAN.md §10/M16 records the command workspace as a working directory rather than a jail,
+with the approval dialog as the boundary. Changing either is a new decision, not a hardening pass.
+
+→ PLAN.md §10/M8; `FsWorkspace.kt`, `FsWorkspaceTest.kt`
+
 ## 2026-10-17 — Terminal commands: the confirmation is the boundary, because a shell cannot be contained
 
 The user asked how to give the models terminal and code execution and chose a first-party tool over an MCP server.

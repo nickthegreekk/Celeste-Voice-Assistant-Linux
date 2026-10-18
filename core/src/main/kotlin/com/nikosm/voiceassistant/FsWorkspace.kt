@@ -134,6 +134,18 @@ internal fun workspaceRootRefusal(candidate: Path, excluded: List<Path>): String
  * that name already exists, its own real path is checked too, so overwriting *through* a symlink that
  * leaves the workspace is refused as well. Nothing here ever creates a symlink.
  *
+ * ## The order of the two steps is load-bearing
+ *
+ * The candidate is [Path.normalize]d *before* the filesystem is asked anything. That lexical
+ * collapse is what keeps `a-link-out/../notes.md` inside the workspace: the `..` cancels the link
+ * name as a string, so the answer is `root/notes.md`, whereas resolving the link first would land
+ * on the outside folder's parent. Reversing the order would turn every `symlink/..` into an
+ * escape, so the order is pinned by a test rather than left to a future refactor to preserve.
+ *
+ * Nothing here decodes percent-escapes. `%2e%2e%2fnotes.md` is an ordinary (if ugly) file name,
+ * and a test asserts that it is read as one, so a decoder added later fails a test instead of
+ * quietly opening the gate.
+ *
  * The excluded list is checked on the resolved path in every branch, which is what makes a workspace
  * of `$HOME` — the obvious mistake — refuse `~/.ssh` specifically rather than as a whole.
  */
@@ -164,6 +176,7 @@ private fun resolveForRead(rootReal: Path, candidate: Path, excluded: List<Path>
     if (!real.startsWith(rootReal)) {
         throw FsToolRefusal("that path resolves outside the workspace (a symlink can leave it), so it cannot be read.")
     }
+    refuseMultipleHardLinks(real, forWrite = false)
     return real
 }
 
@@ -207,9 +220,43 @@ private fun resolveForWrite(rootReal: Path, candidate: Path, excluded: List<Path
         if (!Files.isRegularFile(targetReal)) {
             throw FsToolRefusal("that path is not a regular file (a named pipe, socket or device), so it cannot be written.")
         }
+        refuseMultipleHardLinks(targetReal, forWrite = true)
         return targetReal
     }
     return target
+}
+
+/**
+ * Refuse a regular file that has more than one name.
+ *
+ * **This is the one containment hole a path check cannot see.** A hard link is an inode with two
+ * names, one on each side of the workspace boundary; the path inside the workspace is genuine,
+ * `toRealPath` resolves it to itself, and every comparison above agrees — yet the bytes belong to
+ * the file outside. Symlinks are visible because resolution follows them; a hard link resolves
+ * nowhere, so there is nothing for a path check to catch.
+ *
+ * The check is a heuristic, not the structural fix. It also refuses legitimate hard-linked files
+ * (backup mirrors, dedup tools), and the real answer is to keep the workspace on its own
+ * filesystem, where `link(2)` cannot cross an `EXDEV` boundary. It is kept because the realistic
+ * entry path — an archive extracted into the workspace, or a command the user approved once —
+ * otherwise turns a path inside the workspace into content outside it, and a refusal the model can
+ * report is a better failure than a silent read.
+ *
+ * The attribute is Linux's `unix:nlink`. If it cannot be read, the file is refused rather than
+ * allowed: an uncheckable link count is precisely the unknown this gate must not widen.
+ */
+private fun refuseMultipleHardLinks(real: Path, forWrite: Boolean) {
+    if (!Files.isRegularFile(real)) return
+    val links = runCatching { (Files.getAttribute(real, "unix:nlink") as Number).toLong() }
+        .getOrElse { throw FsToolRefusal("that file's link count cannot be checked, so it cannot be used.") }
+    if (links <= 1) return
+    throw FsToolRefusal(
+        if (forWrite) {
+            "that file has more than one hard link, so writing it could change a file outside the workspace; it cannot be written."
+        } else {
+            "that file has more than one hard link, so its content may live outside the workspace; it cannot be read."
+        },
+    )
 }
 
 /**

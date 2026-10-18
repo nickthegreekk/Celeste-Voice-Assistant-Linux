@@ -1323,6 +1323,16 @@ page. The screen now scrolls the way `AudioSettings` does, on the shell's list, 
 at the shell where content is put inside that lazy item, and `SettingsCategoriesTest` — beside the registry rule it
 already pins — scans the page's source for the call, which is a narrow guard and says so.
 
+**[2026-10-18, an adversarial run against the packaged Debian build: the path gate held; hard links did not.]**
+About forty traversal and symlink shapes were tried inside Celeste with a workspace on the Desktop. Every path-shaped
+attempt was refused, including symlinks to `/etc`, `..` shapes and encoded traversal; the one confirmed hole was a
+**hard link**. A file inside the workspace with a second name outside it passes every path check by construction —
+`toRealPath` returns the inside name, and the bytes are the outside inode. The gate now refuses any regular file whose
+`unix:nlink` is greater than one, for reading and writing, and says why. The check is a heuristic (it also refuses
+legitimate hard-linked files) and the structural answer is a workspace on its own filesystem; both facts are in
+docs/DECISIONS.md. Two properties the audit relied on are now pinned by tests: `normalize()` before `toRealPath()`
+(which keeps `link-out/../notes.md` inside) and the fact that `%2e%2e%2f` is never decoded.
+
 **[2026-10-17, after the acceptance — two requests from real use, both landed.]**
 
 **The pickers and the tray menu now follow the system theme.** They were the last two grey surfaces on a dark desktop,

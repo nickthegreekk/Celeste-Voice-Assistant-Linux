@@ -89,6 +89,38 @@ class FsWorkspaceTest {
     }
 
     @Test
+    fun `dot dot is collapsed before a symlink is resolved, so the link cancels lexically`() {
+        // The order the gate depends on: normalize() runs before toRealPath(). Resolving first
+        // would follow `link` to the outside folder and then `..` to *its* parent, which is how
+        // `link/../secret.txt` becomes an escape. Reversing the order is a one-line refactor that
+        // silently opens this, so the shape is asserted rather than commented.
+        Files.writeString(outside.resolve("secret.txt"), "outside")
+        val insideSecret = root.resolve("secret.txt").also { Files.writeString(it, "inside") }
+        root.resolve("link").also { Files.createSymbolicLink(it, outside) }
+
+        assertEquals(insideSecret.toRealPath(), resolveInside(root, "link/../secret.txt", false, excluded))
+    }
+
+    @Test
+    fun `an encoded traversal is a plain file name, never decoded`() {
+        // `%2e%2e%2f` is inert because nothing URL-decodes. If a decoder is ever added, this name
+        // becomes `../<outside>/secret.txt` and the assertion fails instead of the gate opening.
+        Files.writeString(outside.resolve("secret.txt"), "outside")
+        val literalName = "%2e%2e%2f${outside.fileName}%2fsecret.txt"
+        val literal = root.resolve(literalName).also { Files.writeString(it, "literal") }
+
+        assertEquals(literal.toRealPath(), resolveInside(root, literalName, false, excluded))
+    }
+
+    @Test
+    fun `a NUL byte is not a usable path`() {
+        assertTrue(
+            refusal { resolveInside(root, "hello.txt\u0000/../../etc/hostname", false, excluded) }
+                .contains("not a usable path"),
+        )
+    }
+
+    @Test
     fun `an absolute path outside the workspace is refused`() {
         val target = outside.resolve("secret.txt").also { Files.writeString(it, "x") }
 
@@ -120,6 +152,31 @@ class FsWorkspaceTest {
 
         assertTrue(refusal { resolveInside(root, "elsewhere/new.txt", forWrite = true, excluded) }.contains("resolves outside the workspace"))
         assertFalse("nothing was created out there", Files.exists(outside.resolve("new.txt")))
+    }
+
+    @Test
+    fun `a hardlinked file is refused for reading, though its path is inside`() {
+        // The escape a path check cannot see: the link inside the workspace is genuine, realpath
+        // resolves it to itself, and both sides of the comparison agree — the inode is also named
+        // outside. Found by an adversarial run against the packaged Debian build, 2026-10-18.
+        val target = outside.resolve("outside.txt").also { Files.writeString(it, "outside-content") }
+        root.resolve("hl-read.txt").also { Files.createLink(it, target) }
+
+        val reason = refusal { resolveInside(root, "hl-read.txt", false, excluded) }
+
+        assertTrue("it says why: $reason", reason.contains("more than one hard link"))
+        assertEquals("and the outside file is untouched", "outside-content", Files.readString(target))
+    }
+
+    @Test
+    fun `a hardlinked file is refused for writing, so the outside inode cannot be changed`() {
+        val target = outside.resolve("victim.txt").also { Files.writeString(it, "original") }
+        root.resolve("hl-write.txt").also { Files.createLink(it, target) }
+
+        val reason = refusal { resolveInside(root, "hl-write.txt", forWrite = true, excluded) }
+
+        assertTrue("it says why: $reason", reason.contains("more than one hard link"))
+        assertEquals("and the outside file is untouched", "original", Files.readString(target))
     }
 
     @Test
