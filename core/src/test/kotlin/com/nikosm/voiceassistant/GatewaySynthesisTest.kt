@@ -31,6 +31,8 @@ import org.junit.Test
  */
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class GatewaySynthesisTest {
+    private val mainDispatcher = StandardTestDispatcher()
+
 
     private val env = FakeAppEnv(notifier = RecordingNotifier())
     private val settings = SettingsManager(env, InMemoryStore(), NoImageCodec)
@@ -46,7 +48,7 @@ class GatewaySynthesisTest {
 
     @Before
     fun setUp() {
-        Dispatchers.setMain(StandardTestDispatcher())
+        Dispatchers.setMain(mainDispatcher)
         val http = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
         server = http
         http.createContext("/synthesize") { exchange ->
@@ -99,6 +101,7 @@ class GatewaySynthesisTest {
     fun tearDown() {
         server?.stop(0)
         service?.let { runCatching { it.shutdown() } }
+        drainServiceScopes(listOfNotNull(service), mainDispatcher.scheduler)
         Dispatchers.resetMain()
     }
 

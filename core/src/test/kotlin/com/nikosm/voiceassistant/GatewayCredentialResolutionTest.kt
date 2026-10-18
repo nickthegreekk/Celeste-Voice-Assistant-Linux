@@ -47,6 +47,8 @@ import org.junit.Test
  */
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class GatewayCredentialResolutionTest {
+    private val mainDispatcher = StandardTestDispatcher()
+
 
     private val env = FakeAppEnv(notifier = RecordingNotifier())
     private val store = InMemoryStore()
@@ -58,13 +60,14 @@ class GatewayCredentialResolutionTest {
 
     @Before
     fun setUp() {
-        Dispatchers.setMain(StandardTestDispatcher())
+        Dispatchers.setMain(mainDispatcher)
         newService()
     }
 
     @After
     fun tearDown() {
         services.forEach { runCatching { it.shutdown() } }
+        drainServiceScopes(services, mainDispatcher.scheduler)
         services.clear()
         scratchFiles.forEach { runCatching { Files.deleteIfExists(it) } }
         scratchFiles.clear()

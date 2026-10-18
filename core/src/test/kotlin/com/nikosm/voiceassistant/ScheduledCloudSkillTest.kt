@@ -24,6 +24,8 @@ import org.junit.Test
  */
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class ScheduledCloudSkillTest {
+    private val mainDispatcher = StandardTestDispatcher()
+
 
     private val env = FakeAppEnv(notifier = RecordingNotifier())
     private val store = InMemoryStore()
@@ -43,7 +45,7 @@ class ScheduledCloudSkillTest {
 
     @Before
     fun setUp() {
-        Dispatchers.setMain(StandardTestDispatcher())
+        Dispatchers.setMain(mainDispatcher)
         provider = FakeProviderServer()
         settings.saveCloudApis(
             listOf(
@@ -76,6 +78,7 @@ class ScheduledCloudSkillTest {
     @After
     fun tearDown() {
         started.forEach { runCatching { it.shutdown() } }
+        drainServiceScopes(started, mainDispatcher.scheduler)
         started.clear()
         provider.close()
         Dispatchers.resetMain()

@@ -21,6 +21,8 @@ import org.junit.Test
  */
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class ScheduledSkillServiceTest {
+    private val mainDispatcher = StandardTestDispatcher()
+
 
     private val env = FakeAppEnv()
     private val store = InMemoryStore()
@@ -39,7 +41,7 @@ class ScheduledSkillServiceTest {
 
     @Before
     fun setUp() {
-        Dispatchers.setMain(StandardTestDispatcher())
+        Dispatchers.setMain(mainDispatcher)
     }
 
     @After
@@ -47,6 +49,7 @@ class ScheduledSkillServiceTest {
         // Register what you build and tear it down (AGENTS.md §6): the service owns a scope,
         // and a test that walks away leaves coroutines for the next test to trip over.
         services.forEach { runCatching { it.shutdown() } }
+        drainServiceScopes(services, mainDispatcher.scheduler)
         services.clear()
         Dispatchers.resetMain()
     }

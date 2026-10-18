@@ -24,6 +24,8 @@ import org.junit.Test
  */
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class ServerIdentityServiceTest {
+    private val mainDispatcher = StandardTestDispatcher()
+
 
     private val env = FakeAppEnv(notifier = RecordingNotifier())
     private val store = InMemoryStore()
@@ -35,7 +37,7 @@ class ServerIdentityServiceTest {
 
     @Before
     fun setUp() {
-        Dispatchers.setMain(StandardTestDispatcher())
+        Dispatchers.setMain(mainDispatcher)
         val service = newService()
         service.addOllamaBase("Main", mainUrl)
         service.addOllamaBase("Work", workUrl)
@@ -44,6 +46,7 @@ class ServerIdentityServiceTest {
     @After
     fun tearDown() {
         services.forEach { runCatching { it.shutdown() } }
+        drainServiceScopes(services, mainDispatcher.scheduler)
         services.clear()
         Dispatchers.resetMain()
     }

@@ -110,6 +110,7 @@ class CloudVoiceHistoryTest {
     @After
     fun tearDown() {
         services.forEach { runCatching { it.shutdown() } }
+        drainServiceScopes(services, mainDispatcher.scheduler)
         services.clear()
         scratchFiles.forEach { runCatching { Files.deleteIfExists(it) } }
         scratchFiles.clear()

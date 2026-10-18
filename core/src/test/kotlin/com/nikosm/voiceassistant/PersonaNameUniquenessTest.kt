@@ -29,6 +29,8 @@ import org.junit.Test
  */
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class PersonaNameUniquenessTest {
+    private val mainDispatcher = StandardTestDispatcher()
+
 
     private val env = FakeAppEnv(notifier = RecordingNotifier())
     private val store = InMemoryStore()
@@ -37,12 +39,13 @@ class PersonaNameUniquenessTest {
 
     @Before
     fun setUp() {
-        Dispatchers.setMain(StandardTestDispatcher())
+        Dispatchers.setMain(mainDispatcher)
     }
 
     @After
     fun tearDown() {
         services.forEach { runCatching { it.shutdown() } }
+        drainServiceScopes(services, mainDispatcher.scheduler)
         services.clear()
         Dispatchers.resetMain()
     }

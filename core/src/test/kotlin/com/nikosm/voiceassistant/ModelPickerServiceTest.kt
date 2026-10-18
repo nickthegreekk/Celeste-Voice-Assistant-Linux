@@ -83,6 +83,7 @@ class ModelPickerServiceTest {
     @After
     fun tearDown() {
         services.forEach { runCatching { it.shutdown() } }
+        drainServiceScopes(services, mainDispatcher.scheduler)
         services.clear()
         Dispatchers.resetMain()
     }

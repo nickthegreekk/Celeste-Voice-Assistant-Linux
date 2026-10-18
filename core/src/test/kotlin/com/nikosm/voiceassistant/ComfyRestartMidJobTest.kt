@@ -31,6 +31,8 @@ import org.junit.Test
  */
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class ComfyRestartMidJobTest {
+    private val mainDispatcher = StandardTestDispatcher()
+
 
     private val env = FakeAppEnv()
     private val settings = SettingsManager(env, InMemoryStore(), NoImageCodec)
@@ -41,13 +43,14 @@ class ComfyRestartMidJobTest {
     fun setUp() {
         // The service builds its scope on Dispatchers.Main; the test dispatcher must be installed
         // before the constructor runs.
-        Dispatchers.setMain(StandardTestDispatcher())
+        Dispatchers.setMain(mainDispatcher)
     }
 
     @After
     fun tearDown() {
         server?.stop(0)
         service?.let { runCatching { it.shutdown() } }
+        drainServiceScopes(listOfNotNull(service), mainDispatcher.scheduler)
         Dispatchers.resetMain()
     }
 

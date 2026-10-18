@@ -47,6 +47,8 @@ import java.nio.file.Path
  * leaves the process. It is installed as a *witness*.
  */
 class FreshStartNetworkTest {
+    private val mainDispatcher = StandardTestDispatcher()
+
 
     private companion object {
         /**
@@ -70,7 +72,7 @@ class FreshStartNetworkTest {
         // `serviceScope` is `Dispatchers.Main`, which a JVM test has to supply. `StandardTestDispatcher`
         // rather than `UnconfinedTestDispatcher`: the point is to run what `start()` launched
         // *deliberately*, so a test that forgot to would fail rather than pass on a technicality.
-        Dispatchers.setMain(StandardTestDispatcher())
+        Dispatchers.setMain(mainDispatcher)
 
         env = FakeAppEnv()
         store = InMemoryStore()
@@ -119,6 +121,7 @@ class FreshStartNetworkTest {
         // whose teardown throws would otherwise turn into a failure blamed on the next test — the
         // same misattribution this teardown exists to remove.
         started.forEach { runCatching { it.shutdown() } }
+        drainServiceScopes(started, mainDispatcher.scheduler)
         started.clear()
         ProxySelector.setDefault(proxyBefore)
         Dispatchers.resetMain()

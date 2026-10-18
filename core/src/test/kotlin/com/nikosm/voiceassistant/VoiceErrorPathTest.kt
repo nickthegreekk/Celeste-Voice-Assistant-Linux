@@ -30,6 +30,8 @@ import org.junit.Test
  */
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class VoiceErrorPathTest {
+    private val mainDispatcher = StandardTestDispatcher()
+
 
     private val env = FakeAppEnv(notifier = RecordingNotifier())
     private val settings = SettingsManager(env, InMemoryStore(), NoImageCodec)
@@ -39,7 +41,7 @@ class VoiceErrorPathTest {
 
     @Before
     fun setUp() {
-        Dispatchers.setMain(StandardTestDispatcher())
+        Dispatchers.setMain(mainDispatcher)
         settings.saveServerBases(listOf(ServerConfig(name = "GW", url = gatewayUrl)))
         settings.savePersonas(
             listOf(
@@ -58,6 +60,7 @@ class VoiceErrorPathTest {
     @After
     fun tearDown() {
         services.forEach { runCatching { it.shutdown() } }
+        drainServiceScopes(services, mainDispatcher.scheduler)
         services.clear()
         Dispatchers.resetMain()
     }

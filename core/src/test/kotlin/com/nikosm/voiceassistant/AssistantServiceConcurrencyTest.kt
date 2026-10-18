@@ -59,6 +59,7 @@ class AssistantServiceConcurrencyTest {
     @After
     fun tearDown() {
         services.forEach { runCatching { it.shutdown() } }
+        drainServiceScopes(services, mainDispatcher.scheduler)
         services.clear()
         stubs.forEach { it.close() }
         stubs.clear()
