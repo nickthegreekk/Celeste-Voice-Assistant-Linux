@@ -7,6 +7,7 @@ package com.nikosm.voiceassistant.ui.theme
 //
 // The file lands in :desktop rather than :core for the same reason (AGENTS.md §2): it is Compose
 // UI, and :core must not depend on Compose. Its three siblings land there too.
+import androidx.compose.foundation.LocalContextMenuRepresentation
 import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.ColorScheme
@@ -122,13 +123,21 @@ fun VoiceAssistantTheme(
             focusColor = colorScheme.primary.copy(alpha = 0.7f)
         )
     }
+    // The text-field context menu (Cut/Copy/Paste/Select all) in the app's own colours and item
+    // style, instead of Compose Desktop's light default. Installed here so every field — the
+    // composer, the editors, Settings — follows the palette, Celeste or GTK.
+    val contextMenuRepresentation = remember { MaterialContextMenuRepresentation() }
 
     MaterialTheme(
         colorScheme = colorScheme,
         typography = Typography.withFontFamily(fontFamily),
         shapes = if (useGtk) GtkShapes else Shapes,
     ) {
-        CompositionLocalProvider(LocalIndication provides indication, content = content)
+        CompositionLocalProvider(
+            LocalIndication provides indication,
+            LocalContextMenuRepresentation provides contextMenuRepresentation,
+            content = content,
+        )
     }
 }
 

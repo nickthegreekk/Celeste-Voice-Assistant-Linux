@@ -2057,6 +2057,14 @@ Both packages were rebuilt at `64a4d3c`: Arch sha256
 `4bb5a62045b9fe9758681a80d1c380a742246a32165b5bf704b7c092f528a4c1` (112,166,697 bytes), Debian
 `celeste-linux_0.1.0_amd64.deb` sha256 `7fccf36941181404dd70570d71142dcf49954e7d6afbe44897c2be8249800497` (100,365,104 bytes).]
 
+[Follow-up, 2026-10-18 — one menu style. The text fields' context menu (Cut/Copy/Paste/Select all) was
+Compose Desktop's light default beside the app's dark message menu. `MaterialContextMenuRepresentation`
+replaces `LocalContextMenuRepresentation` in the theme: a Material surface of `DropdownMenuItem`s at the
+open rect (window coordinates — the anchor contract Compose's own default uses), reading the theme colours,
+so it follows Celeste and GTK alike. Message bubbles keep their no-op override, so a right-click there still
+shows only the actions menu. The popup cannot be inspected by the desktop test runner, so placement and look
+are judged in the live run.]
+
 **Total: 33–50 focused days** (about 4–8 weeks full time, 3–5 months at evenings and weekends).
 A first usable milestone is **M2**: roughly **15–23 days**.
 
