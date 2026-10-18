@@ -2156,8 +2156,10 @@ install leave it disabled, and a new `packaging/debian/celeste-linux.postinst` r
 snippet on upgrade and removes the global enable a previous release created; a per-user
 `systemctl --user enable` is left alone. Verified on the Debian VM (the enable symlink is
 `/etc/systemd/user/default.target.wants/celeste-linux.service`), and the regenerated maintainer script's
-order inspected. Fixed Debian package: sha256
-`3f521ee2662f72a0e996a8b539b50563de42694fe4dbf93964666a9ebe50ee9d` (100,368,380 bytes).]
+order inspected. Both packages were rebuilt at `79eed37` with this and the preceding fixes (cloud context
+budget, launch diagnostics): Arch sha256
+`4097a22bce33ef6c7cfae7bf6c03cd28035d50e7f7c0c03093d7dcd530c722e8` (112,173,332 bytes), Debian
+`celeste-linux_0.1.0_amd64.deb` sha256 `ee87c5c612a31bc97d9dfbde21ca061add0e8cc4b84c9d20607e1c75a0220f46` (100,366,648 bytes).]
 
 **Total: 33–50 focused days** (about 4–8 weeks full time, 3–5 months at evenings and weekends).
 A first usable milestone is **M2**: roughly **15–23 days**.
