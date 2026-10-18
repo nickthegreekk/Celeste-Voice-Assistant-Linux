@@ -1,9 +1,12 @@
 package com.nikosm.voiceassistant.linux
 
+import com.nikosm.voiceassistant.AppLogger
+import com.nikosm.voiceassistant.LogLevel
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import org.junit.Assume
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
@@ -131,6 +134,35 @@ class JsonSettingsStoreTest {
     }
 
     @Test
+    fun `a file that cannot be quarantined is not echoed into the log`() {
+        // The blob holds provider keys and the RAG password. The failure path used to interpolate
+        // the whole file into an ERROR line, which journald keeps — the one place the credentials
+        // must never go. The move is made to fail by taking write permission off the folder; root
+        // ignores that, so the case is skipped when the suite runs as root.
+        Assume.assumeFalse("root can write to a read-only folder", System.getProperty("user.name") == "root")
+        val dir = temp.root.toPath()
+        Files.writeString(storeFile(), """{"rag_password":"hunter2","truncated":""")
+        val original = Files.getPosixFilePermissions(dir)
+        Files.setPosixFilePermissions(dir, PosixFilePermissions.fromString("r-x------"))
+        try {
+            val logger = RecordingLogger()
+            val store = JsonSettingsStore(storeFile(), logger)
+
+            assertEquals(emptySet<String>(), store.allKeys())
+            assertTrue(
+                "the failure to move the file aside is still reported: ${logger.lines}",
+                logger.lines.any { it.contains("could not be moved aside") },
+            )
+            assertFalse(
+                "the settings contents must never reach the log: ${logger.lines}",
+                logger.lines.any { it.contains("hunter2") },
+            )
+        } finally {
+            Files.setPosixFilePermissions(dir, original)
+        }
+    }
+
+    @Test
     fun `an empty file is simply empty settings`() {
         Files.createDirectories(storeFile().parent)
         Files.writeString(storeFile(), "")
@@ -177,6 +209,14 @@ class JsonSettingsStoreTest {
         store.edit().putString("chat_font_size", "not a number").commit()
 
         assertEquals(14f, store.getFloat("chat_font_size", 14f), 0.0f)
+    }
+
+    private class RecordingLogger : AppLogger {
+        val lines = mutableListOf<String>()
+
+        override fun log(level: LogLevel, tag: String, message: String, error: Throwable?) {
+            lines += message
+        }
     }
 
     private companion object {

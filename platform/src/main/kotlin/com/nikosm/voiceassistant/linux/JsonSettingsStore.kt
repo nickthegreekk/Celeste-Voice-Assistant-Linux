@@ -120,7 +120,7 @@ class JsonSettingsStore(
             }
             decoded
         } catch (e: Exception) {
-            quarantine(text, e)
+            quarantine(e)
             mutableMapOf()
         }
     }
@@ -154,8 +154,11 @@ class JsonSettingsStore(
      * The timestamp is in the name so a second failure cannot clobber the first one's evidence —
      * which matters, because the failure this recovers from is precisely the one where somebody
      * will want to see what the file used to say.
+     *
+     * **Its contents are never logged.** The blob holds the provider keys and the RAG password, and
+     * a log line is what journald keeps; the file path and the parse exception are the diagnosis.
      */
-    private fun quarantine(text: String, cause: Exception) {
+    private fun quarantine(cause: Exception) {
         val aside = file.resolveSibling("${file.fileName}.corrupt-${System.currentTimeMillis()}")
         try {
             Files.move(file, aside)
@@ -166,7 +169,11 @@ class JsonSettingsStore(
                 cause,
             )
         } catch (e: IOException) {
-            logger.e(TAG, "settings file would not parse and could not be moved aside ($text says nothing useful)", e)
+            logger.e(
+                TAG,
+                "settings file would not parse and could not be moved aside — it is left in place for inspection",
+                e,
+            )
         }
     }
 
