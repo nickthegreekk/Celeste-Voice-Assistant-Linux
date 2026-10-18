@@ -102,6 +102,26 @@ The `.deb` is built on a Debian machine (or a container) because a jpackage runt
 build host's glibc. The Arch package is built from source on Arch. An AppImage is a possible third
 artefact and is not planned for the first release.
 
+## The window and the background process
+
+`celeste-linux` opens the window. `celeste-linux --headless` runs the same application with no
+window, reachable through its tray icon; the optional systemd **user** unit runs exactly that
+command. Both packages install the unit and deliberately do not enable it.
+
+**They are one instance.** While a headless process holds the session lock, launching the window
+says so on stderr, posts a notification, and exits — two copies would be two microphones. Open the
+window with the unit (or any running instance) stopped:
+
+```sh
+systemctl --user stop celeste-linux.service
+```
+
+**The tray needs the session's display.** A systemd user unit does not inherit `DISPLAY` unless the
+desktop imports the session environment; without it the tray cannot install, so a headless unit can
+end up running with no icon. `journalctl --user -u celeste-linux` says which case it hit. If it is
+the display, keep the unit off and use the window, or have the session run
+`systemctl --user import-environment DISPLAY XAUTHORITY DBUS_SESSION_BUS_ADDRESS`.
+
 ## Where things live
 
 | Path | Contents |

@@ -2134,6 +2134,17 @@ means. The editor's slider labels say "history / cheaper" rather than VRAM for c
 `CloudContextWindowTest` (6). An 8192 chosen before this build, with no flag, is indistinguishable from the
 default and will be lifted; moving it away and back marks it.]
 
+[Follow-up, 2026-10-18 — the headless unit and the window, after a Debian report: the application "is running
+without a window as celeste-linux --headless, no tray icon". The cause is the optional systemd user unit,
+enabled at some point and surviving package upgrades: it runs `--headless` and holds the single-instance
+lock, so a menu launch exits (the stderr refusal is invisible from a `.desktop` entry), and a user unit does
+not inherit the session's `DISPLAY` unless the desktop imports it, so the tray may not install — leaving a
+process with no visible entry point at all. Two diagnostics now make that state legible: a refused launch
+posts a notification naming the unit and how to stop it, and a headless run whose tray fails to install logs
+the consequence at error level (AwtTray already logged the reason). README and the unit's comments state the
+one-instance rule and the display requirement, including `systemctl --user stop celeste-linux.service` and
+`import-environment`. The unit's purpose is unchanged: installed, never enabled by the packages.]
+
 **Total: 33–50 focused days** (about 4–8 weeks full time, 3–5 months at evenings and weekends).
 A first usable milestone is **M2**: roughly **15–23 days**.
 

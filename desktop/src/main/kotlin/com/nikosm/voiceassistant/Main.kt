@@ -65,6 +65,9 @@ import kotlinx.coroutines.launch
  */
 private val gtkPaletteOnce: GtkPalette? by lazy { probeGtkPalette() }
 
+/** "Already running" notice (2026-10-18). Ids 1–3 and 7101 are in use. */
+private const val ALREADY_RUNNING_NOTIFICATION_ID = 4
+
 /**
  * Opens a URL in the desktop's browser (2026-10-18) — the update path's one action.
  *
@@ -132,7 +135,21 @@ fun main(args: Array<String>) {
     // matters. The shutdown hook is what keeps it reachable; the close is tidiness, since the
     // kernel releases the lock at exit regardless.
     val instance = SingleInstance.acquire(appEnv.stateDir, appEnv.logger)
-    if (instance == null) exitProcess(1)
+    if (instance == null) {
+        // 2026-10-18, found on Debian: a headless systemd user unit held the lock, and a launch from
+        // the menu did nothing visible — the refusal above goes to stderr, which a .desktop launch
+        // never shows. Say it where the person who clicked is looking.
+        runCatching {
+            appEnv.notifier.post(
+                ALREADY_RUNNING_NOTIFICATION_ID,
+                "Celeste is already running",
+                "A background instance holds the session. Stop it with " +
+                    "`systemctl --user stop celeste-linux.service` to open the window, " +
+                    "or quit the running instance.",
+            )
+        }
+        exitProcess(1)
+    }
     Runtime.getRuntime().addShutdownHook(Thread({ instance.close() }, "instance-lock-release"))
     // A shutdown hook that never returns used to leave a wedged process with no window, no lock and
     // its service still alive — see ShutdownWatchdog's KDoc for the measured instance. Armed here,
@@ -247,6 +264,17 @@ fun main(args: Array<String>) {
                 combine(service.statusLine, service.handsFreeMode, service.micMuted) { status, _, _ -> status }
                     .collect { tray.setStatus(it) }
             }
+        } else {
+            // AwtTray has said WHY above. The consequence is this branch's job, and it is the
+            // difference between a background assistant and an unreachable process: with no tray
+            // there is no Open, no Settings and no Quit (2026-10-18, Debian: the unit's session
+            // had no display, so the icon never appeared and nothing could reach the process).
+            appEnv.logger.e(
+                "Main",
+                "--headless: the tray could not be installed, so this process has no visible " +
+                    "entry point. Stop it with `systemctl --user stop celeste-linux` (or Ctrl-C) " +
+                    "and start the window instead.",
+            )
         }
         CountDownLatch(1).await()
         return

@@ -28,6 +28,22 @@
 #
 #   ExecStart=/usr/bin/env bash -lc 'cd /path/to/VoiceAssistant-Linux && ./gradlew -q :desktop:run --args="--headless"'
 #
+# ## This unit and the window are one instance
+#
+# The application holds one session lock. While this unit runs, launching `celeste-linux` from the
+# menu cannot open a window — it reports the clash and exits (and, since 2026-10-18, posts a
+# notification). Open the window only with the unit stopped:
+#
+#   systemctl --user stop celeste-linux.service
+#
+# ## The tray needs the session's display
+#
+# A systemd user unit starts outside the desktop's environment unless the session imports it. With
+# no DISPLAY the tray cannot install, so the process would run with no visible entry point; the
+# application logs that case and `journalctl --user -u celeste-linux` names it. Either keep the
+# unit off and use the window, or have the session run
+# `systemctl --user import-environment DISPLAY XAUTHORITY DBUS_SESSION_BUS_ADDRESS`.
+#
 # ## Surviving logout
 #
 # A user unit is stopped when the user's last session ends, unless lingering is enabled for that user.
