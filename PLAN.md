@@ -2168,7 +2168,12 @@ budget, launch diagnostics): Arch sha256
 releases button are live; the update path is that page, still with no automatic check. `README.md` was
 rewritten from the planning-era document into the project page GitHub shows: what the app is and does,
 the backends it talks to, install and build, where data lives, and the licence/provenance. The repository
-is pushed to that URL from this tree.]
+is pushed to that URL from this tree. About shows both addresses in place — the repository URL and the
+releases URL, each clickable — rather than behind a label. The `v0.1.0` release assets are built from
+`a2c71cc`: Arch sha256 `b259bbad610579111a0ae84dfa9646a5ee8f75224caa93a58b9683d518be0d36` (112,170,783
+bytes), Debian `celeste-linux_0.1.0_amd64.deb` sha256
+`216d582506207fea317d6eb6fa588a0fac47f489d1cc39da5f7f25758b142d6a` (100,364,396 bytes), plus the dbgsym
+package. The annotated tag `v0.1.0` points at that build commit.]
 
 **Total: 33–50 focused days** (about 4–8 weeks full time, 3–5 months at evenings and weekends).
 A first usable milestone is **M2**: roughly **15–23 days**.
