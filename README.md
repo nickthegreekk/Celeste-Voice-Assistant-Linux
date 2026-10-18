@@ -108,6 +108,10 @@ artefact and is not planned for the first release.
 window, reachable through its tray icon; the optional systemd **user** unit runs exactly that
 command. Both packages install the unit and deliberately do not enable it.
 
+The unit needs a working systemd user session. A container, a sysvinit install or some VM setups
+have none (`systemctl --user` is not a command there); in that case start `celeste-linux --headless`
+from inside your graphical session if you want the background process, and skip the unit entirely.
+
 **They are one instance.** While a headless process holds the session lock, launching the window
 says so on stderr, posts a notification, and exits — two copies would be two microphones. Open the
 window with the unit (or any running instance) stopped:

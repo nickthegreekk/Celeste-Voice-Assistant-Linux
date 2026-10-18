@@ -2143,7 +2143,12 @@ process with no visible entry point at all. Two diagnostics now make that state 
 posts a notification naming the unit and how to stop it, and a headless run whose tray fails to install logs
 the consequence at error level (AwtTray already logged the reason). README and the unit's comments state the
 one-instance rule and the display requirement, including `systemctl --user stop celeste-linux.service` and
-`import-environment`. The unit's purpose is unchanged: installed, never enabled by the packages.]
+`import-environment`. The unit's purpose is unchanged: installed, never enabled by the packages. A follow-up
+report from Debian showed the other start-up source: that machine has **no working systemd user session**
+(`systemctl --user` is not a command there), so the headless process was a manually started leftover holding
+the lock, not the unit. The refusal notification now names "the running instance" rather than assuming
+systemd, and README and the unit say the unit needs a working user session and that the fallback is starting
+`celeste-linux --headless` from the graphical session.]
 
 **Total: 33–50 focused days** (about 4–8 weeks full time, 3–5 months at evenings and weekends).
 A first usable milestone is **M2**: roughly **15–23 days**.

@@ -143,9 +143,8 @@ fun main(args: Array<String>) {
             appEnv.notifier.post(
                 ALREADY_RUNNING_NOTIFICATION_ID,
                 "Celeste is already running",
-                "A background instance holds the session. Stop it with " +
-                    "`systemctl --user stop celeste-linux.service` to open the window, " +
-                    "or quit the running instance.",
+                "A background instance holds the session. Stop the running instance " +
+                    "(its tray's Quit, or the systemd unit if you enabled one) to open the window.",
             )
         }
         exitProcess(1)

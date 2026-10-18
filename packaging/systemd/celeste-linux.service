@@ -28,6 +28,11 @@
 #
 #   ExecStart=/usr/bin/env bash -lc 'cd /path/to/VoiceAssistant-Linux && ./gradlew -q :desktop:run --args="--headless"'
 #
+# ## It needs a systemd user session
+#
+# A container, a sysvinit install or some VM setups have no `systemctl --user` at all; the unit
+# cannot run there. Start `celeste-linux --headless` from the graphical session instead.
+#
 # ## This unit and the window are one instance
 #
 # The application holds one session lock. While this unit runs, launching `celeste-linux` from the
