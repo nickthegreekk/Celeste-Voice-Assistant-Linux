@@ -21,10 +21,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
 
-// Static fallback schemes — the app's identity colors. They are `internal` rather
-// than private so the instrumented Adaptive Theme tests can assert exact equality
-// (i.e. that the static theme really is what gets used when dynamic is off or the
-// platform cannot provide dynamic color).
+// Static schemes — the app's identity colors. They are `internal` rather than private so the
+// theme tests can assert exact equality (i.e. that the Celeste style really is the palette in use).
 internal val DarkColorScheme = darkColorScheme(
     primary = Purple80,
     secondary = PurpleGrey80,
@@ -46,34 +44,12 @@ internal val LightColorScheme = lightColorScheme(
 )
 
 /**
- * Whether this platform can derive the colour scheme from the user's wallpaper.
+ * Resolves the base [ColorScheme] the Celeste style paints with.
  *
- * **Always `false` here, and that is the whole answer rather than a placeholder.** Upstream this
- * was `sdkInt >= Build.VERSION_CODES.S`: Material You's `dynamicLightColorScheme` /
- * `dynamicDarkColorScheme` take an Android `Context`, reach the wallpaper service through it, and
- * have no counterpart in Compose Multiplatform. No desktop this targets hands an application the
- * user's wallpaper to derive a palette from, so the gate's argument — `Build.VERSION.SDK_INT` — is
- * gone with it.
- *
- * It is kept as a named function rather than deleted, for the reason upstream kept the gate at all
- * after raising minSdk to 31 and making it always true: it is where the Settings > Appearance
- * toggle reads *why* its switch does nothing. PLAN.md D2's measured table records the deletion of
- * the dynamic branches; this is the one line that says what the user sees as a result.
- */
-internal fun isDynamicColorSupported(): Boolean = false
-
-/**
- * Resolves the base [ColorScheme] the app paints with.
- *
- * Upstream had a three-way `when`: the dynamic scheme when the toggle was on and the platform
- * supported it, then static dark, then static light. Only two survive, because the first can
- * never be taken — see [isDynamicColorSupported]. The dynamic branch is deleted rather than left
- * unreachable: a branch that cannot be entered is one that will convince whoever reads this next
- * that dynamic colour is a supported configuration here.
- *
- * Upstream's `dynamicColor` and `sdkInt` parameters went with the branch. [VoiceAssistantTheme]
- * still takes the toggle — every caller passes it — but a parameter that cannot change a result is
- * better absent from the function that has no use for it than present and ignored inside it.
+ * There were once three branches here, upstream: a wallpaper-derived dynamic scheme, then static
+ * dark, then static light. The dynamic branch was already unreachable in this port — no desktop
+ * hands an application the wallpaper — and its Settings switch was removed on 2026-10-18 (the GTK
+ * desktop style is the system-following control now). What is left is exactly what was ever used.
  */
 @Composable
 internal fun baseColorScheme(darkTheme: Boolean): ColorScheme =
@@ -82,20 +58,6 @@ internal fun baseColorScheme(darkTheme: Boolean): ColorScheme =
 @Composable
 fun VoiceAssistantTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
-    // Adaptive Theme: when the Settings toggle is on (and the platform supports it)
-    // the base scheme is derived from the user's wallpaper. Persona accents are NOT
-    // remapped here — callers keep painting `persona.themeColor` directly (mic ring,
-    // badges, HUD starfield/planet), so each persona stays visually distinct on top
-    // of whatever the wallpaper produces.
-    //
-    // **On this platform the toggle has no effect, and this is where that is recorded.**
-    // [isDynamicColorSupported] is false and `baseColorScheme` has no dynamic branch to reach, so
-    // the Settings > Appearance switch flips a stored value and changes nothing on screen. The
-    // parameter stays because every caller passes it, and removing it would put a diff in eleven
-    // call sites to no purpose. M3's settings screen is where the switch should say so in words
-    // rather than silently no-opping — upstream's own comment on the gate asked for exactly that,
-    // for the same reason.
-    dynamicColor: Boolean = false, // Disabled by default to maintain the green/amber vibe
     /**
      * M17: the desktop's own UI font — resolved in `:desktop` through `fc-match` in `:platform`
      * (ProcessBuilder may not appear in `:core`) and passed in here. Null keeps Compose's

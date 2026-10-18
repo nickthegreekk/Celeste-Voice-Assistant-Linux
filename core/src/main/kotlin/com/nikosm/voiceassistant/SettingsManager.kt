@@ -1508,23 +1508,6 @@ class SettingsManager(
         store.edit().putBoolean("celestial_ui", enabled).commit()
     }
 
-    // Adaptive Theme (Material You dynamic color): same precedent as celestial_ui —
-    // a plain boolean in the same store, default OFF so the existing static
-    // green/amber theme is byte-identical until the user opts in. The wallpaper-
-    // derived scheme itself is resolved in VoiceAssistantTheme.baseColorScheme(),
-    // which also handles the API < 31 fallback (see isDynamicColorSupported).
-    //
-    // Not yet ported: the wallpaper-derived scheme has no Linux counterpart. The flag is
-    // carried so a settings blob round-trips through a backup unchanged, and the desktop theme
-    // decides what to do with it in M1's UI work.
-    fun getAdaptiveTheme(): Boolean {
-        return store.getBoolean("adaptive_theme", false)
-    }
-
-    fun saveAdaptiveTheme(enabled: Boolean) {
-        store.edit().putBoolean("adaptive_theme", enabled).commit()
-    }
-
     // The application's own light/dark choice, default ON (2026-10-17). A fresh install opens
     // dark because Compose's `isSystemInDarkTheme()` reports light on Linux — Skiko's system-theme
     // probe returns UNKNOWN for an Xfce session, which the theme maps to light — so "follow the

@@ -32,3 +32,6 @@ packaging/arch/classes/
 # It is never committed. A FABRICATED backup is exactly what the interop fixture needs, with invented
 # values - the difference is the values, not the filename.
 voice_assistant_backup*.json
+
+# Kotlin compiler session directory (appeared with the 2026-10-18 daemon restart)
+.kotlin/

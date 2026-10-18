@@ -81,7 +81,7 @@ four socket fixtures this triage found portable.
 
 | Upstream file | What it tests | Note | Lines |
 |---|---|---|---:|
-| `AdaptiveThemeInstrumentedTest.kt` | Dynamic wallpaper schemes, fallback, persistence | **Ported** as `AdaptiveThemeTest` (4): static schemes, the closed dynamic gate, distinct accents, the service flow. Dynamic-wallpaper cases dropped (no desktop `WallpaperManager`) | 247 |
+| `AdaptiveThemeInstrumentedTest.kt` | Dynamic wallpaper schemes, fallback, persistence | **Removed 2026-10-18** with the Adaptive Theme switch (inert on Linux); its static-scheme and distinct-accent checks survive as `ThemeSchemeTest` (2) | 247 |
 | `FullScreenImageViewerInstrumentedTest.kt` | Image opens full-screen; close/tap dismisses | **Ported in part** as `ChatMessageImageTapTest` (3): both image kinds are clickable nodes. The cross-root dialog half is dropped — the port's viewer is a `DialogWindow`, a separate OS window the runner cannot see into | 133 |
 | `HeaderPersonaTapComposeTest.kt` | Header icon vs. name are separate tap targets | **Ported** as `HeaderPersonaTapComposeTest` (2) | 115 |
 | `ModelPickerComposeTest.kt` | Picker favourites, chips, selection, loading, failure | **Ported** as `ModelPickerComposeTest` (27) | 554 |
@@ -226,7 +226,7 @@ blockers rather than left implied.
 
 Since that table, M7 has landed the desktop Compose runner and its six ports (65 UI tests:
 `ComposeUiSmokeTest`, `SettingsCategoryListComposeTest`, `HeaderPersonaTapComposeTest`,
-`AdaptiveThemeTest`, `ChatMessageImageTapTest`, `ModelPickerComposeTest`,
+`ThemeSchemeTest`, `ChatMessageImageTapTest`, `ModelPickerComposeTest`,
 `ModelsScreenComposeTest`), and the first of the seam rewrites from the triage table: the name
 identity group (`PersonaNameGuardTest`, `PersonaNameUniquenessTest`), room persistence
 (`RoomPersistenceTest`), server identity (`ServerIdentityTest` byte-identical plus

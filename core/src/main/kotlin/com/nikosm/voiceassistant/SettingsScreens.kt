@@ -71,7 +71,6 @@ import androidx.compose.ui.window.DialogWindow
 import androidx.compose.ui.window.rememberDialogState
 import com.nikosm.voiceassistant.ui.theme.DesktopStyle
 import com.nikosm.voiceassistant.ui.theme.VoiceAssistantTheme
-import com.nikosm.voiceassistant.ui.theme.isDynamicColorSupported
 import kotlinx.coroutines.*
 import androidx.compose.foundation.gestures.scrollBy
 
@@ -934,31 +933,6 @@ fun SettingsDialog(
     }
 }
 
-/**
- * Sub-title for the Adaptive Theme (Material You) switch.
- *
- * Split out of the composable and parameterised on [sdkInt] so the older-Android
- * branch is actually executed by a test: when the platform cannot supply dynamic
- * color the switch is disabled *and* says why, rather than silently no-opping.
- * The copy is surfaced verbatim in the UI, so its two branches are asserted by
- * AdaptiveThemeGateTest.
- */
-internal fun adaptiveThemeDescription(): String =
-    // Upstream's two branches named an API level, because the answer depended on one: Material You
-    // arrived in Android 12, so a device below it could not do this and the copy said so. There is
-    // no SDK here to name, and the reason is not the device's age — it is that no desktop hands an
-    // application the wallpaper. The copy says that instead, so the switch explains itself rather
-    // than reading as a version the user could upgrade past.
-    //
-    // Kept as a function with the same name and the same one-string contract, so the call site and
-    // whatever asserts this copy both keep working: what changed is the sentence, not the shape.
-    if (isDynamicColorSupported())
-        "Material You: derive the app's base colors from your wallpaper. " +
-            "Each persona's color stays the accent on top."
-    else
-        "Unavailable: deriving colors from the wallpaper is an Android feature with no desktop " +
-            "equivalent, so the standard theme is used instead."
-
 // DROPPED, NOT DEFERRED — PLAN.md §9's substitution table, and this comment is the record.
 //
 // Upstream's `QuickSettingsTileRow()` drew "Add Celeste to your Quick Settings panel" and a button
@@ -993,13 +967,6 @@ fun GeneralSettings(
     var celestialUi by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) {
         service.celestialUi.collect { celestialUi = it }
-    }
-
-    // Adaptive Theme (Material You) toggle state — same service-flow pattern as
-    // Celestial UI above.
-    var adaptiveTheme by remember { mutableStateOf(false) }
-    LaunchedEffect(Unit) {
-        service.adaptiveTheme.collect { adaptiveTheme = it }
     }
 
     // Dark theme: the application's own choice, default ON (see AssistantService.darkTheme).
@@ -1163,36 +1130,6 @@ Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
             Switch(
                 checked = celestialUi,
                 onCheckedChange = { service.setCelestialUi(it) }
-            )
-        }
-        HorizontalDivider(
-            modifier = Modifier.padding(vertical = 12.dp),
-            color = Color.White.copy(alpha = 0.05f)
-        )
-        // Adaptive Theme (Material You): base scheme derived from the wallpaper.
-        // The persona's own themeColor is deliberately NOT routed through the
-        // scheme — the voice screen/HUD paint `personaColor` directly — so the
-        // per-persona accent stays distinct on top of the dynamic base.
-        val dynamicSupported = isDynamicColorSupported()
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text("Adaptive Theme", style = MaterialTheme.typography.titleMedium)
-                Text(
-                    adaptiveThemeDescription(),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-                )
-            }
-            Switch(
-                checked = adaptiveTheme,
-                onCheckedChange = { service.setAdaptiveTheme(it) },
-                // Disabled (with the reason above) rather than a silent no-op
-                // when the platform can't provide dynamic color.
-                enabled = dynamicSupported
             )
         }
         HorizontalDivider(

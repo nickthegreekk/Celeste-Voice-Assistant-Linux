@@ -2096,6 +2096,17 @@ open, not a poll. Filling `PROJECT_URL` is the only change needed to turn it on.
 grouping; `SettingsAboutSectionTest` now scrolls each About fact into view, because the section is taller
 than the remaining viewport once reached.]
 
+[Follow-up, 2026-10-18 — the Adaptive Theme switch is removed, at the user's request after it was found to
+be inert. Material You derives its scheme from the wallpaper through Android APIs no desktop exposes; this
+port's switch had been disabled-with-a-reason since M7, so it was a dead control over a stored value that
+changed nothing. Deleted with it: the Settings row and `adaptiveThemeDescription()`, the service's
+`adaptiveTheme` flow and setter, `SettingsManager`'s getter/setter, `isDynamicColorSupported()`, and the
+`dynamicColor` parameter of `VoiceAssistantTheme`. `AdaptiveThemeTest` (4) is replaced by `ThemeSchemeTest`
+(2), which keeps the checks that were ever real — the Celeste style resolves to the exact static schemes,
+and the built-in personas keep distinct accents (docs/TEST-MAP.md records the retarget). The GTK desktop
+style is the system-following control. A wallpaper-derived palette remains possible as a future feature
+(read the XFCE wallpaper, extract a seed, generate a Material scheme), but it is a real slice, not this one.]
+
 **Total: 33–50 focused days** (about 4–8 weeks full time, 3–5 months at evenings and weekends).
 A first usable milestone is **M2**: roughly **15–23 days**.
 

@@ -1476,3 +1476,25 @@ AWT's own platform integration (xdg-open/gio on Linux), and adding a fifteenth s
 site would cost more than it buys.
 
 → PLAN.md §10/M17 follow-up; `SettingsScreens.kt`, `AppInfo.kt`, `AboutContent.kt`, `Main.kt`
+
+## 2026-10-18 — The Adaptive Theme switch is removed
+
+The Settings > Appearance toggle was a constant lie: `isDynamicColorSupported()` was false, the switch
+was disabled with an explanation, and the stored `adaptive_theme` flag changed nothing. The user asked
+whether to remove it and whether it could work on Linux; both answers are recorded here.
+
+**It cannot work the way Android's does.** Material You's dynamic scheme is generated from the wallpaper
+through Android's palette/HCT utilities, which no desktop hands an application. It could be approximated
+by reading the XFCE wallpaper via xfconf, extracting a seed colour and generating a Material 3 scheme —
+wallpaper seam, quantizer, tonal-palette generation and tests — and that would compete with the GTK
+desktop style, which follows the colours of the theme the session is actually using. That is a real
+future slice, not a rename of this one.
+
+**Removed rather than left disabled.** A disabled switch is honest about the platform but still dead UI
+over a setting that promises something. Deleted: the row and its description function, the service flow
+and setter, the SettingsManager accessors, the theme gate and the `dynamicColor` parameter (no caller
+passed it). `AdaptiveThemeTest`'s two still-real checks survive as `ThemeSchemeTest`: the Celeste palette
+resolves to the static schemes, and the built-in personas keep distinct accents. The retarget is recorded
+in docs/TEST-MAP.md; the wallpaper-derived cases were already recorded as dropped.
+
+→ PLAN.md §10/M17 follow-up; `SettingsScreens.kt`, `AssistantService.kt`, `SettingsManager.kt`, `Theme.kt`

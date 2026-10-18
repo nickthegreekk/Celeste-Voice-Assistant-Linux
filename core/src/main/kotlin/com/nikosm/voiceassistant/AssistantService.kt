@@ -691,18 +691,6 @@ class AssistantService(
         settingsManager.saveCelestialUi(enabled)
     }
 
-    // Adaptive Theme (Material You): base colors follow the wallpaper, while each
-    // persona's themeColor keeps acting as the accent on top. Same UI-choice pattern
-    // as celestialUi — persisted in SettingsManager, exposed as a StateFlow so the
-    // root theme re-derives the moment the Settings switch flips. Default OFF.
-    val _adaptiveTheme = MutableStateFlow(false)
-    val adaptiveTheme = _adaptiveTheme.asStateFlow()
-
-    fun setAdaptiveTheme(enabled: Boolean) {
-        _adaptiveTheme.value = enabled
-        settingsManager.saveAdaptiveTheme(enabled)
-    }
-
     // The application's light/dark choice. Default ON, so a fresh installation opens dark; the
     // root theme reads this flow, so flipping the Settings switch repaints the whole window at
     // once. It replaces `isSystemInDarkTheme()`, which cannot see a dark desktop here: Compose's
@@ -1471,7 +1459,6 @@ class AssistantService(
         _favoriteModels.value = settingsManager.getFavoriteModels() ?: emptyList()
         _lastPriceSyncTimestamp.value = settingsManager.getLastPriceSyncTimestamp()
         _celestialUi.value = settingsManager.getCelestialUi()
-        _adaptiveTheme.value = settingsManager.getAdaptiveTheme()
         _darkTheme.value = settingsManager.getDarkTheme()
         _desktopStyle.value = settingsManager.getDesktopStyle()
         _notifyRepliesWhenUnfocused.value = settingsManager.getNotifyRepliesWhenUnfocused()
