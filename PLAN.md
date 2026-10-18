@@ -2110,7 +2110,10 @@ changed nothing. Deleted with it: the Settings row and `adaptiveThemeDescription
 (2), which keeps the checks that were ever real — the Celeste style resolves to the exact static schemes,
 and the built-in personas keep distinct accents (docs/TEST-MAP.md records the retarget). The GTK desktop
 style is the system-following control. A wallpaper-derived palette remains possible as a future feature
-(read the XFCE wallpaper, extract a seed, generate a Material scheme), but it is a real slice, not this one.]
+(read the XFCE wallpaper, extract a seed, generate a Material scheme), but it is a real slice, not this one.
+Both packages were rebuilt at `6144080` with this and the two preceding follow-ups: Arch sha256
+`743d664e8c90106481d6220b4d4638fd256b09819e156f20307be00a7cc6486d` (112,168,713 bytes), Debian
+`celeste-linux_0.1.0_amd64.deb` sha256 `ab2b7ba35178ad4a54b77bdd1be8342732c6c7ac4d49b3cbf5adb77ef0eb7f80` (100,363,784 bytes).]
 
 **Total: 33–50 focused days** (about 4–8 weeks full time, 3–5 months at evenings and weekends).
 A first usable milestone is **M2**: roughly **15–23 days**.
