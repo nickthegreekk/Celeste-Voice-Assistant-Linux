@@ -2040,7 +2040,12 @@ installed — bounded at 3 s so a scope that refuses to finish cannot hang the b
 suite runs are green. Nothing in the production close path changed: there Main exists for the process's
 lifetime, and the failure was a teardown ordering bug in the test. The drain became a shared test helper
 (`ServiceScopeDrain`) on 2026-10-18, when the same failure surfaced against `SpontaneousEditorUiTest` with
-`SpontaneousDeliveryTest` as the leaker; that class now drains as well.]
+`SpontaneousDeliveryTest` as the leaker; that class now drains as well. **It still surfaced once more the
+same day**, so the drain is not the whole story: 46 test classes call `resetMain` and only two drain, and
+the next suspect is one of the other 44. Two full suite runs after a Gradle-daemon restart were green —
+one with `kotlinx.coroutines.debug=on`, which would print the leaked coroutine's creation stack if the
+failure reproduces. The debug flag is removed again; the next occurrence should be run with it before the
+suite, not after.]
 
 [Follow-up, 2026-10-18 — a persona is a folder (user's request): `~/.celeste-linux/<persona>/` holds
 `chat.json` and `images/` (attachments, generated images, icon and background artwork), and rooms get
