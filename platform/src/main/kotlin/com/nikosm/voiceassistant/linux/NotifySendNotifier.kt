@@ -104,24 +104,32 @@ data class CommandResult(val exitCode: Int, val stdout: String, val stderr: Stri
     val ok: Boolean get() = exitCode == 0
 }
 
+/** A notification is transitory; a helper that cannot finish in this long is not useful. */
+private const val NOTIFY_TIMEOUT_MS = 5_000L
+
 /**
  * Runs a command and captures its output. `ProcessBuilder` lives in `:platform` and nowhere else
  * (AGENTS.md §4), which is why this free function is here rather than beside its callers.
  *
- * Both streams are drained: a child that fills its stderr pipe while nobody reads it blocks, and
- * `notify-send` on a broken DBus does exactly that.
+ * Both streams are drained concurrently and the whole call is bounded: sequential reads deadlock
+ * on a child that fills stderr before closing stdout, and an unbounded `waitFor` on a broken DBus
+ * would block the spontaneous-delivery path forever. A timeout is reported as a non-zero result
+ * so `post` logs it and continues, which is the same contract a missing `notify-send` has.
  */
 private fun runCommand(command: List<String>): CommandResult {
     return try {
-        val process = ProcessBuilder(command).start()
-        val stdout = process.inputStream.bufferedReader().readText()
-        val stderr = process.errorStream.bufferedReader().readText()
-        CommandResult(process.waitFor(), stdout, stderr)
+        val output = ProcessBuilder(command).start().communicateWithin(NOTIFY_TIMEOUT_MS)
+        CommandResult(
+            exitCode = output.exitCode ?: -1,
+            stdout = String(output.stdout),
+            stderr = if (output.timedOut) {
+                "timed out after ${NOTIFY_TIMEOUT_MS}ms"
+            } else {
+                String(output.stderr)
+            },
+        )
     } catch (e: IOException) {
         CommandResult(exitCode = -1, stdout = "", stderr = e.message ?: "could not start ${command.firstOrNull()}")
-    } catch (e: InterruptedException) {
-        Thread.currentThread().interrupt()
-        CommandResult(exitCode = -1, stdout = "", stderr = "interrupted")
     }
 }
 

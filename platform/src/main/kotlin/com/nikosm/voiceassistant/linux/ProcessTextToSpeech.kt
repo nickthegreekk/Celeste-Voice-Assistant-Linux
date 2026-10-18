@@ -152,21 +152,20 @@ class ProcessTextToSpeech(
             val process = ProcessBuilder(tool.command, *tool.args(text, voice))
                 .redirectErrorStream(false)
                 .start()
-            // stdout is the WAV; stderr is espeak's own diagnostics and is drained on another
-            // thread so a chatty engine cannot fill the pipe and block the child.
-            val stderr = process.errorStream.readBytesAsync()
-            val wav = process.inputStream.use { it.readBytes() }
-            if (!process.waitFor(SYNTH_TIMEOUT_MS, TimeUnit.MILLISECONDS)) {
+            // The deadline covers the read, not just the exit: a wedged engine that never closes
+            // stdout used to block `readBytes()` forever, because `waitFor(timeout)` was only
+            // reached after EOF. communicateWithin drains both pipes beside the wait and kills
+            // the child on expiry.
+            val output = process.communicateWithin(SYNTH_TIMEOUT_MS)
+            if (output.timedOut) {
                 logger.e(TAG, "espeak-ng did not finish within ${SYNTH_TIMEOUT_MS}ms")
-                process.destroyForcibly()
                 return null
             }
-            stderr.join()
-            if (process.exitValue() != 0 || wav.isEmpty()) {
-                logger.e(TAG, "espeak-ng exited ${process.exitValue()} with ${wav.size} bytes")
+            if (output.exitCode != 0 || output.stdout.isEmpty()) {
+                logger.e(TAG, "espeak-ng exited ${output.exitCode} with ${output.stdout.size} bytes")
                 return null
             }
-            parseSpeechWav(wav, logger)
+            parseSpeechWav(output.stdout, logger)
         } catch (e: Exception) {
             logger.e(TAG, "local synthesis failed: ${e.message}")
             null
@@ -284,14 +283,6 @@ class ProcessTextToSpeech(
             thread.start()
         }
     }
-}
-
-/** Drains a stream on its own thread, so a child that writes more than a pipe buffer cannot block. */
-private fun java.io.InputStream.readBytesAsync(): Thread {
-    val thread = Thread({ runCatching { readBytes() } }, "tts-stderr")
-    thread.isDaemon = true
-    thread.start()
-    return thread
 }
 
 private const val WAV_TAG = "ProcessTextToSpeech"
