@@ -447,10 +447,9 @@ fun RoomSettings(
             }
         }
     } else {
-        // M17: the room editor is its own window; Settings stays on the room list.
-        EditorWindow(title = "Edit ${editingRoom.name}", onClose = { editingRoomId = null }) {
-            RoomEditor(room = editingRoom, personas = personas, onClose = { editingRoomId = null }, service = service)
-        }
+        // 2026-10-18, the user's correction to M17's dialog-window pass: the room editor stays
+        // inside the Settings window, replacing the room list in the content area.
+        RoomEditor(room = editingRoom, personas = personas, onClose = { editingRoomId = null }, service = service)
     }
 }
 

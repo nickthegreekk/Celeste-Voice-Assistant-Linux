@@ -1437,3 +1437,19 @@ means. Older backups decode unchanged (the field is defaulted); an older build i
 backup ignores the field and keeps its device-local paths.
 
 → PLAN.md §10/M17 follow-up; README "Where things live"; `ConversationFolders.kt`, `SettingsManager.kt`
+
+## 2026-10-18 — The editors stay in the Settings window
+
+M17's window model made the persona, room and skill editors real `DialogWindow`s on top of the Settings
+window. After using them, the user asked for the persona editor to stay in the Settings window, then the
+same for rooms and skills: opening an editor replaces its list in the Settings content area, as it did
+before that slice. The reversal is theirs, and it is recorded because it contradicts the plan.
+
+What was kept versus dropped: the Settings **window** itself is unaffected (non-modal, its own OS window,
+opened from the menu bar and tray), and the server and image-gen forms remain the `AlertDialog`s they always
+were. `EditorWindow.kt` — the `DialogWindow` wrapper with a scrolling parent — is deleted, because nothing
+uses it any more; `FullScreenImageViewer` still uses `DialogWindow` directly, so that API remains exercised.
+The cost is small and one-directional: restoring dialog editors would mean bringing the file back, not
+unpicking anything else.
+
+→ PLAN.md §10/M17 (window model and progress); `MainActivity.kt`, `RoomScreens.kt`, `SkillScreens.kt`

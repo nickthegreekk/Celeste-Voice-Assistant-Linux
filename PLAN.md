@@ -1891,9 +1891,11 @@ The window model:
   - **Settings, its own window** — opened from the menu bar and the tray, resizable and non-modal: it can sit beside the
     main window, move to another workspace, and close without touching the conversation. Categories left, content
     right; none of the drilled mobile list.
-  - **Editors as dialog windows** — persona, room, skill, server and image-gen editors become real dialog windows with
-    their own title bar and close button (`DialogWindow`, already used by FullScreenImageViewer), modal to the main
-    window where the edit is about a live selection.
+  - **Editors stay in the Settings window** *(corrected 2026-10-18 at the user's request; this bullet
+    originally made the persona, room and skill editors dialog windows, and they were for a day)*. The
+    persona, room and skill editors replace their list inside the Settings content area, as they did before
+    M17's dialog-window slice; the server and image-gen add/edit forms remain the `AlertDialog`s they always
+    were. `EditorWindow` was deleted with the reversal, since nothing used it.
   - **A native menu bar** — File (Quit), Edit, View, Settings (Preferences), Help (About); the tray menu gains Settings.
     The AWT `MenuBar` is the native one and the system look-and-feel is already installed before the first Swing
     component exists (see `Main.kt`), so the bar follows the desktop theme rather than Compose's.
@@ -2072,6 +2074,12 @@ width-capped (112–280 dp) and placed with `rememberPopupPositionProviderAtPosi
 the same helper Compose's own default uses. Both packages were rebuilt at `66b52b4`: Arch sha256
 `d427e2a340e830839d45003f2d6d4f469fa1e8662a77776c0db97def58215e2b` (112,182,180 bytes), Debian
 `celeste-linux_0.1.0_amd64.deb` sha256 `40e5194cf1cffc435e8bb16c577026150c58e968c0f847138b49608d1ff66ab2` (100,371,904 bytes).]
+
+[Follow-up, 2026-10-18 — the editors stay in the Settings window, at the user's request. The persona,
+room and skill editors replace their list in the Settings content area again, as they did before M17's
+dialog-window slice, and `EditorWindow.kt` is deleted because nothing uses it. The window model's bullet is
+corrected above; the server and image-gen forms were always in-window `AlertDialog`s and are unchanged. No
+packages were rebuilt (not asked).]
 
 **Total: 33–50 focused days** (about 4–8 weeks full time, 3–5 months at evenings and weekends).
 A first usable milestone is **M2**: roughly **15–23 days**.

@@ -240,15 +240,14 @@ fun SkillSettings(
             NewSkillRow(accentColor = currentThemeColor, onClick = { createSkill() })
         }
     } else {
-        // M17: the skill editor is its own window; Settings stays on the library list.
-        EditorWindow(title = "Edit ${editingSkill.name}", onClose = { editingSkillId = null }) {
-            SkillEditor(
-                skill = editingSkill,
-                personas = personas,
-                onClose = { editingSkillId = null },
-                service = service
-            )
-        }
+        // 2026-10-18, the user's correction to M17's dialog-window pass: the skill editor stays
+        // inside the Settings window, replacing the library list in the content area.
+        SkillEditor(
+            skill = editingSkill,
+            personas = personas,
+            onClose = { editingSkillId = null },
+            service = service
+        )
     }
 }
 
