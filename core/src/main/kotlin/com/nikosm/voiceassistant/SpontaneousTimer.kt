@@ -34,13 +34,15 @@ internal fun alternateSpontaneousSlot(slot: Int): Int = (slot and 1) xor 1
  * running unless the unit it belongs to keeps it running. The unit is M4's too, and it is what a
  * *login* is missing, not what a delay is.
  *
- * ## The slot scheme is upstream's, and it survives verbatim
+ * ## The slot scheme is upstream's, and it survives in the caller's contract
  *
  * `arm(persona, slot, delay)` replaces whatever chain that persona had. Upstream needed two names
  * per persona because `REPLACE` would otherwise cancel the run doing the re-arming; here the same
- * alternation costs nothing to keep and keeps the *caller's* contract identical — which matters,
- * because the caller is a byte-identical COPY file and the delivery code ports upstream's reasoning
- * line for line. [SpontaneousDelivery.kt] documents what the slot means where it is used.
+ * alternation is carried by the slot the delivery receives and hands back, and the timer separately
+ * remembers which job is *inside* the delivery ([delivering]) so the run's own re-arm cannot cancel
+ * its tail. The caller is a byte-identical COPY file and the delivery code ports upstream's
+ * reasoning line for line, so its contract — "the run arms the other slot" — is kept exactly.
+ * [SpontaneousDelivery.kt] documents what the slot means where it is used.
  *
  * ## Armed means "a run is pending or in flight"
  *
@@ -53,9 +55,20 @@ class SpontaneousTimer(
     private val logger: AppLogger = LogSink.logger,
 ) : InProcessScheduler {
 
-    /** Guards [jobs] and the attached pair: arming arrives from the UI thread, delivery from IO. */
+    /** Guards [jobs], [delivering] and the attached pair: arming arrives from the UI thread, delivery from IO. */
     private val lock = Any()
     private val jobs = mutableMapOf<String, Job>()
+
+    /**
+     * The job currently inside [InProcessScheduler]'s delivery, if any.
+     *
+     * The delivery re-arms the next chain **from inside itself** (`SpontaneousDelivery` ends every
+     * path with `armSpontaneousWork`). Without this map, [arm] would cancel the job doing the
+     * arming — via the `jobs` entry it is about to replace — and any suspension after the re-arm
+     * would then abort the tail of the delivery. [alternateSpontaneousSlot] makes the caller's
+     * intent unambiguous; this map is what makes the timer honour it.
+     */
+    private val delivering = mutableMapOf<String, Job>()
     private var scope: CoroutineScope? = null
     private var deliver: (suspend (String, Int) -> Unit)? = null
 
@@ -78,12 +91,18 @@ class SpontaneousTimer(
         }
         synchronized(lock) {
             // One chain per persona: this *is* upstream's REPLACE, minus the self-cancellation
-            // problem the slot scheme existed to dodge.
-            jobs.remove(personaName)?.cancel()
+            // problem the slot scheme existed to dodge. A call that arrives from inside the
+            // delivery is not a replacement — it is the run arming its successor — so the job
+            // doing the delivering is left alone. Cancelling it here would set its cancellation
+            // flag and make the next suspension in the delivery throw.
+            val previous = jobs[personaName]
+            if (previous != null && previous !== delivering[personaName]) previous.cancel()
             jobs[personaName] = targetScope.launch {
-                delay(delayMillis.coerceAtLeast(0L))
-                logger.d(TAG, "delivering for '$personaName' (slot ${slot and 1})")
+                val self = coroutineContext[Job] ?: return@launch
                 try {
+                    delay(delayMillis.coerceAtLeast(0L))
+                    synchronized(lock) { delivering[personaName] = self }
+                    logger.d(TAG, "delivering for '$personaName' (slot ${slot and 1})")
                     targetDeliver(personaName, slot)
                 } catch (cancelled: kotlinx.coroutines.CancellationException) {
                     // A disarm, or the service going away. Not a failure, and not ours to swallow.
@@ -96,7 +115,12 @@ class SpontaneousTimer(
                         "whatever it armed: ${error.message ?: error::class.simpleName}")
                 } finally {
                     // The run is over, whatever it decided: whoever it armed holds the chain now.
-                    synchronized(lock) { jobs.remove(personaName) }
+                    // The identity checks are what keep a run that armed its successor from
+                    // deleting that successor on the way out.
+                    synchronized(lock) {
+                        if (delivering[personaName] === self) delivering.remove(personaName)
+                        if (jobs[personaName] === self) jobs.remove(personaName)
+                    }
                 }
             }
         }

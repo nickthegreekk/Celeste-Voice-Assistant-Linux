@@ -1,6 +1,7 @@
 package com.nikosm.voiceassistant
 
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
@@ -130,6 +131,77 @@ class SpontaneousTimerTest {
         advanceTimeBy(1_000)
         runCurrent()
         assertEquals("a disarmed chain never speaks", emptyList<Pair<String, Int>>(), delivered)
+    }
+
+    @Test
+    fun `a delivery that re-arms from inside itself leaves the successor tracked`() = runTest {
+        // The normal path: every delivery ends by arming the next chain. A persona-keyed map that
+        // removed its entry in the run's finally used to delete the successor it had just armed,
+        // so `isArmed` lied between deliveries and a settings refresh could start a second chain.
+        lateinit var timer: SpontaneousTimer
+        val delivered = mutableListOf<Pair<String, Int>>()
+        timer = TestScopeTimer(this) { persona, slot ->
+            delivered += persona to slot
+            if (delivered.size == 1) timer.arm(persona, alternateSpontaneousSlot(slot), 1_000)
+        }
+
+        timer.arm("Celeste", 0, 10)
+        advanceTimeBy(11)
+        runCurrent()
+
+        assertEquals(listOf("Celeste" to 0), delivered)
+        assertTrue("the successor armed from inside the delivery is tracked", timer.isArmed("Celeste"))
+
+        advanceTimeBy(1_000)
+        runCurrent()
+        assertEquals(listOf("Celeste" to 0, "Celeste" to 1), delivered)
+        assertFalse("the successor is over, and nothing replaced it", timer.isArmed("Celeste"))
+    }
+
+    @Test
+    fun `disarm after a run re-armed itself cancels the successor`() = runTest {
+        // The user-visible consequence of the old map: a settings reload's disarm removed nothing
+        // after the first delivery, and the persona spoke twice.
+        lateinit var timer: SpontaneousTimer
+        val delivered = mutableListOf<Pair<String, Int>>()
+        timer = TestScopeTimer(this) { persona, slot ->
+            delivered += persona to slot
+            if (delivered.size == 1) timer.arm(persona, alternateSpontaneousSlot(slot), 1_000)
+        }
+
+        timer.arm("Celeste", 0, 10)
+        advanceTimeBy(11)
+        runCurrent()
+
+        timer.disarm("Celeste")
+        assertFalse(timer.isArmed("Celeste"))
+
+        advanceTimeBy(2_000)
+        runCurrent()
+        assertEquals("the cancelled successor never speaks", listOf("Celeste" to 0), delivered)
+    }
+
+    @Test
+    fun `a delivery may suspend after arming its successor`() = runTest {
+        // The fragility the old code hid: `arm` cancelled the job doing the arming, so the next
+        // suspension in the delivery threw. Today the re-arm is the last statement; this test is
+        // what keeps it safe when something is added after it.
+        lateinit var timer: SpontaneousTimer
+        var completed = false
+        timer = TestScopeTimer(this) { persona, slot ->
+            timer.arm(persona, alternateSpontaneousSlot(slot), 1_000)
+            delay(1)
+            completed = true
+        }
+
+        timer.arm("Celeste", 0, 10)
+        advanceTimeBy(11)
+        runCurrent()
+        advanceTimeBy(2)
+        runCurrent()
+
+        assertTrue("a suspension after the re-arm must not see a cancelled job", completed)
+        timer.disarm("Celeste")
     }
 
     @Test
