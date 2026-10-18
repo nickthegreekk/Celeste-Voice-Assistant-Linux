@@ -812,12 +812,22 @@ internal fun AssistantService.sendTextMessageToServer(inputText: String, request
         // launch scope: inside serviceScope.launch, bare `this` binds to the CoroutineScope.
         val sink = turnContext.sinkOrDefault(this@sendTextMessageToServer)
 
+        // 2026-10-18: an attached image becomes the persona's own file before the transcript
+        // records it, so the picture lives beside the chat it belongs to. An image already inside
+        // that folder is reused; anything else is copied in on IO, never moved — the picked file
+        // is the user's.
+        val ownedImagePath = imagePath?.let { raw ->
+            runCatching { Path.of(raw) }.getOrNull()?.let { source ->
+                withContext(Dispatchers.IO) { settingsManager.messageImagePath(source, currentPersona.name) }
+            } ?: raw
+        }
+
         // A9: the display/history user message shows a concise filename list
         sink.append(ChatMessage("user",
             if (attachments.isNotEmpty())
                 "$inputText\n\n(Attached: ${attachments.mapNotNull { it.fileName?.toString() }.joinToString(", ")})"
             else inputText,
-            imagePath = imagePath
+            imagePath = ownedImagePath
         ))
         saveSettings()
 

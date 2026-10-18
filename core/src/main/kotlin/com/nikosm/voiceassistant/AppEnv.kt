@@ -37,25 +37,30 @@ import java.nio.file.Path
  *    layer through `AudioDeviceProbe`, not through here.
  *
  * The two directory pairs are not interchangeable and the port must not treat them as one:
- * [dataDir] holds things that must survive (persona artwork, message images — the phone's
- * `filesDir`), and [cacheDir] holds things that may be evicted (recorded utterances, synthesised
- * WAVs, generated images — the phone's `cacheDir`). Collapsing them would turn a cache clear into
- * data loss.
+ * [dataDir] was the phone's `filesDir` and held persona artwork and message images; since
+ * 2026-10-18 those live in per-persona folders under `homeDir/.celeste-linux` (the user's chosen
+ * shape), and [dataDir] keeps only what a pre-folder installation left there. [cacheDir] holds
+ * things that may be evicted (recorded utterances, synthesised WAVs). Collapsing them would turn a
+ * cache clear into data loss.
  */
 interface AppEnv {
 
     /**
-     * The user's home directory. Nothing writes to it directly; it is here so `:core` can *name* the
-     * paths that are always excluded from filesystem tools — `~/.ssh` above all (PLAN.md §10/M8) —
-     * without resolving `$HOME` for itself (AGENTS.md §4). The rule that `:core` receives every path
-     * from `AppEnv` is worth more than the one field it costs.
+     * The user's home directory. `:core` does not resolve `$HOME` for itself (AGENTS.md §4); it
+     * receives this path and the two things that need it are already named: the filesystem
+     * tools' always-excluded paths (`~/.ssh` above all) and, since 2026-10-18, the per-persona
+     * conversation store at `homeDir/.celeste-linux`, which the user asked for by that name.
      */
     val homeDir: Path
 
     /** Settings, personas, servers, skills, image-generation entries. */
     val configDir: Path
 
-    /** Chat history per persona, room transcripts, persona artwork. Survives; not a cache. */
+    /**
+     * The pre-2026-10-18 artwork directory (`persona_images`). New artwork and message images are
+     * written into the persona's own folder; this remains because an older install's files are
+     * copied from it once, and nothing new is written here.
+     */
     val dataDir: Path
 
     /** Logs, usage counters. */

@@ -1459,6 +1459,14 @@ class AssistantService(
         // a gateway-only/image-generator/translator persona, cannot speak, so it is
         // pruned from the member list on load (the transcript is kept — see loadRooms).
         loadRooms()
+        // 2026-10-18: move any conversations still in the settings blob into the per-persona
+        // folders under ~/.celeste-linux/ (the lazy getters would do this on first read; doing
+        // it here means the settings file stops carrying transcripts even for personas that are
+        // never opened this session). A failed write leaves that entry where it was.
+        settingsManager.migrateConversationsToFolders()
+        // 2026-10-18: and the pictures with them — artwork from the shared artwork directory,
+        // attachments from wherever they were picked, generated images from the cache.
+        settingsManager.migrateImagesToPersonaFolders()
         _totalCost.value = settingsManager.getTotalCost()
         _favoriteModels.value = settingsManager.getFavoriteModels() ?: emptyList()
         _lastPriceSyncTimestamp.value = settingsManager.getLastPriceSyncTimestamp()
@@ -1535,7 +1543,12 @@ class AssistantService(
         // the live name here would file one persona's messages under another's name — e.g. a
         // save from onTaskRemoved/onDestroy that lands mid-swap.
         (messagesOwnerName ?: currentPersonaName)?.let { name ->
-            settingsManager.savePersonaMessages(name, _messages.value)
+            // 2026-10-18: a generated image is born in the cache; adopt it into the persona's
+            // folder before the transcript records it, so the chat's pictures live beside the
+            // chat. Only the newest few messages are checked, and only cache paths are moved.
+            val adopted = settingsManager.adoptRecentMessageImages(name, _messages.value)
+            if (adopted !== _messages.value) _messages.value = adopted
+            settingsManager.savePersonaMessages(name, adopted)
         }
         settingsManager.saveImageGenBases(_imageGenBases.value)
         settingsManager.saveActiveImageGenBackend(_activeImageGenBackend.value)
@@ -1954,11 +1967,14 @@ class AssistantService(
         // with SettingsManager.savePersonas (which persistSettings reaches below) this
         // means an ineligible persona can be neither observed nor stored as enabled.
         val guarded = SpontaneousPolicy.sanitize(persona, ollamaServerNames(), cloudProviderNames())
-        _personas.value = _personas.value + guarded
+        // 2026-10-18: artwork adopted while the editor still called the draft "New Persona"
+        // belongs in the folder of the name it is actually being saved under.
+        val stored = settingsManager.adoptPersonaArtwork(guarded)
+        _personas.value = _personas.value + stored
         saveSettings()
         // A new persona may already be enabled (added by a restore, or created from a
         // template), and there is certainly no chain for it yet, so arm it outright.
-        refreshSpontaneousSchedule(guarded.name, force = true)
+        refreshSpontaneousSchedule(stored.name, force = true)
     }
 
     fun updatePersona(index: Int, persona: Persona) {
@@ -2034,6 +2050,18 @@ class AssistantService(
                         }
                     }
                 }
+                // 2026-10-18: the rename moved the persona's folder, and the in-memory
+                // conversation's image paths point inside it just like the disk transcript does.
+                // Re-point them now, or the next save would write the old paths back into the new
+                // folder. Only the conversation OWNED by the renamed persona is touched.
+                if (messagesOwnerName == oldName) {
+                    _messages.value = _messages.value.map { message ->
+                        message.copy(
+                            imagePath = settingsManager.rewrittenMediaPath(message.imagePath, oldName, persona.name),
+                            generatedImagePath = settingsManager.rewrittenMediaPath(message.generatedImagePath, oldName, persona.name),
+                        )
+                    }
+                }
                 if (currentPersonaName == oldName) {
                     currentPersonaName = persona.name
                 }
@@ -2060,7 +2088,14 @@ class AssistantService(
             // preflight) sees a persona that could actually send. Sanitizing only flips
             // spontaneousEnabled, so the rename/artwork handling above and below is
             // unaffected — those compare name and image paths, never this flag.
-            current[index] = SpontaneousPolicy.sanitize(persona, ollamaServerNames(), cloudProviderNames())
+            // The persona's own artwork lived in the folder the rename just moved; the paths in
+            // the editor's copy still name the old location. Re-point them before storing, so the
+            // next launch finds the pictures (2026-10-18).
+            val storedPersona = if (persona.name != oldName) persona.copy(
+                iconImageUri = settingsManager.rewrittenMediaPath(persona.iconImageUri, oldName, persona.name),
+                backgroundImageUri = settingsManager.rewrittenMediaPath(persona.backgroundImageUri, oldName, persona.name),
+            ) else persona
+            current[index] = SpontaneousPolicy.sanitize(storedPersona, ollamaServerNames(), cloudProviderNames())
             _personas.value = current
             // Spontaneous scheduling (step 5): touching WorkManager is not free — REPLACE
             // restarts the countdown AND cancels any run currently in flight — so it happens
@@ -2460,29 +2495,29 @@ class AssistantService(
     // and what is left is the copy: `SettingsManager` still writes its own re-encoded copy into
     // `dataDir`, because a persona's artwork has to survive the original being moved or deleted.
     // Seam 13 (`FileDialogs`) is where the picker returns such a path.
-    suspend fun savePersonaImage(source: Path, slot: String): String? =
-        withContext(Dispatchers.IO) { settingsManager.savePersonaImage(source, slot) }
+    suspend fun savePersonaImage(source: Path, slot: String, personaName: String): String? =
+        withContext(Dispatchers.IO) { settingsManager.savePersonaImage(source, slot, personaName) }
 
     // Materializes [source] into a NEW app-owned message image — the "keep a copy before the
     // original moves" step, which is the part of the share-target path that survives. (The share
     // target itself does not: PLAN.md §2 leaves desktop drag-and-drop and share integration out of
     // v1, so the arrival path here is a file dialog or an already-owned path.)
-    suspend fun saveMessageImage(source: Path): String? =
-        withContext(Dispatchers.IO) { settingsManager.saveMessageImage(source) }
+    suspend fun saveMessageImage(source: Path, personaName: String): String? =
+        withContext(Dispatchers.IO) { settingsManager.saveMessageImage(source, personaName) }
 
     // What a pending composer attachment is SENT as. An image that is already app-owned is reused
     // rather than re-encoded, so one attachment costs exactly one file for its whole life;
     // anything else is copied in first.
-    suspend fun messageImagePath(source: Path): String? =
-        withContext(Dispatchers.IO) { settingsManager.messageImagePath(source) }
+    suspend fun messageImagePath(source: Path, personaName: String): String? =
+        withContext(Dispatchers.IO) { settingsManager.messageImagePath(source, personaName) }
 
     // The composer's remove button. Fire-and-forget on the service scope: the UI must not
     // wait on IO to drop an attachment, the deletion is idempotent, and this is the one
     // deletion that has to survive the composer going away (it is not the composer's file).
-    fun discardMessageImage(source: Path?) {
+    fun discardMessageImage(source: Path?, personaName: String) {
         val target = source ?: return
         serviceScope.launch {
-            withContext(Dispatchers.IO) { settingsManager.discardMessageImage(target) }
+            withContext(Dispatchers.IO) { settingsManager.discardMessageImage(target, personaName) }
         }
     }
     fun importBackup(json: String): Boolean {

@@ -461,7 +461,7 @@ fun PersonaEditor(
     fun adoptPickedImage(path: Path?, slot: String, onAdopted: (String) -> Unit) {
         if (path == null) return // picker dismissed — keep whatever artwork exists
         scope.launch {
-            val saved = service.savePersonaImage(path, slot)
+            val saved = service.savePersonaImage(path, slot, persona.name)
             if (saved != null) {
                 onAdopted(saved)
             } else {

@@ -42,7 +42,8 @@ internal val SettingsJson = Json {
  * migrations from pre-`_v2` key names, the rename and orphan bookkeeping, and the backup format.
  * What changed is *where* it is stored and with what:
  *
- *  - `Context` becomes [AppEnv]; `filesDir` for artwork becomes `dataDir`.
+ *  - `Context` becomes [AppEnv]; the phone's `filesDir` for artwork becomes, since 2026-10-18, a
+ *    per-persona folder under `homeDir/.celeste-linux` (the user's chosen shape).
  *  - `SharedPreferences` becomes the [SettingsStore] seam (PLAN.md §5, seam 7), so the key-value
  *    shape and every accessor site port mechanically — which is the whole reason that seam is
  *    key-value rather than a schema.
@@ -80,6 +81,13 @@ class SettingsManager(
 
     private val logger = appEnv.logger
 
+    /**
+     * The per-persona folder tree under `~/.celeste-linux/` (2026-10-18, at the user's request).
+     * Conversations and their images live here; the settings blob keeps settings, personas and
+     * the server lists. All file I/O goes through this one object, so the layout is stated once.
+     */
+    private val conversations = ConversationFolders(appEnv.homeDir)
+
     private companion object {
         const val TAG = "SettingsManager"
 
@@ -93,13 +101,14 @@ class SettingsManager(
         // round can emit several messages per turn, so its cap is a little higher.
         const val MAX_ROOM_MESSAGES = 400
 
+        /** How many of the newest messages are checked for out-of-folder images on each save. */
+        const val IMAGE_ADOPTION_TAIL = 4
+
         // Persona artwork is COPIED into app-owned storage rather than persisted as
         // the raw photo-picker URI. A picked content:// URI is only readable while its
         // grant lasts, and that grant dies with the process; the user moving or
         // deleting the original photo would break it too. An app-owned copy survives
         // both, and needs no persistent URI-permission request at pick time.
-        const val PERSONA_IMAGE_DIR = "persona_images"
-
         // Longest edge, in px, each slot is downsampled to before being written.
         // An icon is only ever drawn at <=40dp (ProviderLogo), so 512px stays crisp
         // on any density; a backdrop is drawn at screen size, so 1080px covers
@@ -518,23 +527,50 @@ class SettingsManager(
             }
             messages.subList(messages.size - MAX_PERSONA_MESSAGES, messages.size)
         } else messages
-        store.edit().putString("persona_messages_$personaName", json.encodeToString(capped)).commit()
+
+        val encoded = json.encodeToString(capped)
+        // 2026-10-18: the transcript is a file in the persona's folder, not a key in the settings
+        // blob. A write failure falls back to the key rather than losing the conversation — the
+        // read path prefers the file, so the fallback is visible and recoverable, not silent.
+        if (conversations.writeText(conversations.personaChatFile(personaName), encoded)) {
+            if (store.getString(personaMessagesKey(personaName)) != null) {
+                store.edit().remove(personaMessagesKey(personaName)).commit()
+            }
+        } else {
+            logger.e(TAG, "could not write $personaName's chat file; keeping it in the settings store")
+            store.edit().putString(personaMessagesKey(personaName), encoded).commit()
+        }
     }
 
     fun getPersonaMessages(personaName: String): List<ChatMessage>? {
-        val data = store.getString("persona_messages_$personaName")
-        return if (data != null) {
-            runCatching { json.decodeFromString<List<ChatMessage>>(data) }
+        val file = conversations.personaChatFile(personaName)
+        val fromFile = conversations.readText(file)
+        if (fromFile != null) {
+            return runCatching { json.decodeFromString<List<ChatMessage>>(fromFile) }
                 .onFailure { e ->
-                    logger.w(
-                        TAG,
-                        "Corrupted/unreadable JSON in persona history for '$personaName' — "
-                            + "ignoring entry, returning null",
-                        e
-                    )
+                    logger.w(TAG, "Corrupted/unreadable JSON in $file — ignoring entry, returning null", e)
                 }
                 .getOrNull()
-        } else null
+        }
+
+        // A pre-2026-10-18 installation: the conversation is still the settings key. Move it into
+        // the folder on first read, so the settings blob stops carrying conversations even for a
+        // persona that is only opened once. A failed write leaves the key where it was.
+        val data = store.getString(personaMessagesKey(personaName)) ?: return null
+        val decoded = runCatching { json.decodeFromString<List<ChatMessage>>(data) }
+            .onFailure { e ->
+                logger.w(
+                    TAG,
+                    "Corrupted/unreadable JSON in persona history for '$personaName' — "
+                        + "ignoring entry, returning null",
+                    e
+                )
+            }
+            .getOrNull() ?: return null
+        if (conversations.writeText(file, json.encodeToString(decoded))) {
+            store.edit().remove(personaMessagesKey(personaName)).commit()
+        }
+        return decoded
     }
 
     // ---------------------------------------------------------------- Rooms
@@ -616,35 +652,62 @@ class SettingsManager(
         val capped = if (messages.size > MAX_ROOM_MESSAGES) {
             messages.subList(messages.size - MAX_ROOM_MESSAGES, messages.size)
         } else messages
-        store.edit().putString(roomMessagesKey(roomId), json.encodeToString(capped)).commit()
+        val roomName = getRooms()?.firstOrNull { it.id == roomId }?.name
+        val dir = conversations.ensureRoomDir(roomId, roomName)
+        val encoded = json.encodeToString(capped)
+        if (conversations.writeText(dir.resolve(ConversationFolders.CHAT_FILE), encoded)) {
+            if (store.getString(roomMessagesKey(roomId)) != null) {
+                store.edit().remove(roomMessagesKey(roomId)).commit()
+            }
+        } else {
+            logger.e(TAG, "could not write room $roomId's chat file; keeping it in the settings store")
+            store.edit().putString(roomMessagesKey(roomId), encoded).commit()
+        }
     }
 
     fun getRoomMessages(roomId: String): List<RoomMessage>? {
-        val data = store.getString(roomMessagesKey(roomId))
-        return if (data != null) {
-            runCatching { json.decodeFromString<List<RoomMessage>>(data) }
+        val roomName = getRooms()?.firstOrNull { it.id == roomId }?.name
+        val file = conversations.findRoomDir(roomId)?.resolve(ConversationFolders.CHAT_FILE)
+            ?: conversations.roomChatFile(roomId, roomName)
+        val fromFile = conversations.readText(file)
+        if (fromFile != null) {
+            return runCatching { json.decodeFromString<List<RoomMessage>>(fromFile) }
                 .onFailure { e ->
-                    logger.w(
-                        TAG,
-                        "Corrupted/unreadable JSON in room history for '$roomId' — ignoring entry, returning null",
-                        e
-                    )
+                    logger.w(TAG, "Corrupted/unreadable JSON in $file — ignoring entry, returning null", e)
                 }
                 .getOrNull()
-        } else null
+        }
+
+        // Same one-time move as the persona history: a pre-folder room transcript is read once
+        // from its settings key and becomes the room's chat file.
+        val data = store.getString(roomMessagesKey(roomId)) ?: return null
+        val decoded = runCatching { json.decodeFromString<List<RoomMessage>>(data) }
+            .onFailure { e ->
+                logger.w(
+                    TAG,
+                    "Corrupted/unreadable JSON in room history for '$roomId' — ignoring entry, returning null",
+                    e
+                )
+            }
+            .getOrNull() ?: return null
+        if (conversations.writeText(file, json.encodeToString(decoded))) {
+            store.edit().remove(roomMessagesKey(roomId)).commit()
+        }
+        return decoded
     }
 
     /**
-     * Room deletion support: drop the room's transcript entry so it cannot sit on disk
-     * orphaned. Unlike persona history there are no cached audio/image files to reclaim
-     * (rooms are text-only in v1, and [RoomMessage] carries no file paths), so this is
-     * just the key removal.
+     * Room deletion support: the transcript folder and any legacy settings entry go together, so
+     * a deleted room cannot leave either behind.
      */
     fun deleteRoomHistory(roomId: String) {
+        val roomName = getRooms()?.firstOrNull { it.id == roomId }?.name
+        conversations.deleteRoom(roomId, roomName)
         store.edit().remove(roomMessagesKey(roomId)).commit()
     }
 
     private fun roomMessagesKey(roomId: String) = "room_messages_$roomId"
+    private fun personaMessagesKey(personaName: String) = "persona_messages_$personaName"
 
 
     // Rename support: history is persisted keyed by persona NAME, so a rename must
@@ -662,6 +725,10 @@ class SettingsManager(
     // and a freshly renamed persona could immediately re-message after its rename.
     fun migratePersonaHistory(oldName: String, newName: String) {
         if (oldName == newName) return
+        // 2026-10-18: the conversation lives in the persona's folder, so the rename moves the
+        // folder — chat, images and all — before the name-keyed side state below.
+        conversations.movePersona(oldName, newName)
+        rewritePersonaChatMediaPaths(oldName, newName)
         // State first and independently of the history move below: a persona can carry
         // delivery state with no saved history entry at all, and the history read's
         // early-return must not strand the state under the old key.
@@ -671,11 +738,142 @@ class SettingsManager(
         migratePersonaCommandMode(oldName, newName)
         migratePersonaMcp(oldName, newName)
         migratePersonaMemory(oldName, newName)
-        val data = store.getString("persona_messages_$oldName") ?: return
+        val data = store.getString(personaMessagesKey(oldName)) ?: return
         store.edit()
-            .putString("persona_messages_$newName", data)
-            .remove("persona_messages_$oldName")
+            .putString(personaMessagesKey(newName), data)
+            .remove(personaMessagesKey(oldName))
             .commit()
+    }
+
+    /**
+     * One-time move of every pre-2026-10-18 conversation out of the settings blob (see
+     * [ConversationFolders]). Each getter migrates its own entry on first read; doing the whole
+     * list at start-up means the settings file stops carrying conversations even for personas
+     * that are never opened this session. A failed file write leaves that entry where it was.
+     */
+    fun migrateConversationsToFolders() {
+        getPersonas()?.forEach { getPersonaMessages(it.name) }
+        getRooms()?.forEach { getRoomMessages(it.id) }
+    }
+
+    /**
+     * One-time move of every image the app already owns into its persona's folder (2026-10-18):
+     * persona artwork from the shared `persona_images` directory, message attachments wherever the
+     * user picked them, generated images from the cache. Sources are COPIED, never moved from
+     * outside the app's own storage — a picked photo stays where the user put it — and the old
+     * `persona_images` directory is left behind rather than risk deleting a file two records
+     * happen to share. Run after [migrateConversationsToFolders], because it rewrites the chats.
+     */
+    fun migrateImagesToPersonaFolders() {
+        val personas = getPersonas() ?: return
+        var personaListChanged = false
+        val updatedPersonas = personas.map { persona ->
+            val icon = adoptImage(persona.name, persona.iconImageUri, "icon")
+            val background = adoptImage(persona.name, persona.backgroundImageUri, "background")
+            if (icon != persona.iconImageUri || background != persona.backgroundImageUri) {
+                personaListChanged = true
+                persona.copy(iconImageUri = icon, backgroundImageUri = background)
+            } else persona
+        }
+        if (personaListChanged) savePersonas(updatedPersonas)
+
+        updatedPersonas.forEach { persona ->
+            val messages = getPersonaMessages(persona.name) ?: return@forEach
+            val updated = messages.map { message ->
+                message.copy(
+                    imagePath = adoptImage(persona.name, message.imagePath, MESSAGE_IMAGE_SLOT),
+                    generatedImagePath = adoptImage(persona.name, message.generatedImagePath, "gen"),
+                )
+            }
+            if (updated != messages) savePersonaMessages(persona.name, updated)
+        }
+    }
+
+    /**
+     * Adopts any out-of-folder image on the most recent messages, for the paths that appear while
+     * the application is running — a generated image still in the cache, or an attachment the
+     * moment it is sent. Only the tail is checked so the per-save cost stays at a few stats; the
+     * one-time [migrateImagesToPersonaFolders] covers everything older.
+     *
+     * Returns the list unchanged when there is nothing to do, so the caller can avoid a save.
+     */
+    fun adoptRecentMessageImages(personaName: String, messages: List<ChatMessage>): List<ChatMessage> {
+        if (messages.isEmpty()) return messages
+        val first = (messages.size - IMAGE_ADOPTION_TAIL).coerceAtLeast(0)
+        val cache = appEnv.cacheDir.toAbsolutePath().normalize()
+        var changed = false
+        val result = messages.toMutableList()
+        for (index in first until messages.size) {
+            val message = result[index]
+            val generated = message.generatedImagePath ?: continue
+            val source = runCatching { Path.of(generated).toAbsolutePath().normalize() }.getOrNull() ?: continue
+            if (!source.startsWith(cache)) continue
+            val adopted = saveGeneratedImage(personaName, source) ?: continue
+            if (adopted != message.generatedImagePath) {
+                changed = true
+                result[index] = message.copy(generatedImagePath = adopted)
+            }
+        }
+        return if (changed) result else messages
+    }
+
+    /**
+     * A new persona's artwork, moved into its own folder (2026-10-18). A draft saved under a
+     * different name has its pictures in the draft's folder; adoption copies them into the final
+     * one so the new folder is complete. Already-correct paths are returned untouched.
+     */
+    fun adoptPersonaArtwork(persona: Persona): Persona {
+        val icon = adoptImage(persona.name, persona.iconImageUri, "icon")
+        val background = adoptImage(persona.name, persona.backgroundImageUri, "background")
+        // Same instance when nothing moved: persona identity is compared with `assertSame` in
+        // the translator tests, and an unconditional `copy` would make "unchanged" observable.
+        return if (icon == persona.iconImageUri && background == persona.backgroundImageUri) persona
+        else persona.copy(iconImageUri = icon, backgroundImageUri = background)
+    }
+
+    /**
+     * The same path with the persona's media directory renamed, used when a persona is renamed and
+     * its folder moves. Null stays null; a path outside the old folder is untouched.
+     */
+    fun rewrittenMediaPath(path: String?, oldName: String, newName: String): String? {
+        if (path == null || oldName == newName) return path
+        val oldDir = conversations.personaImagesDir(oldName).toAbsolutePath().toString()
+        if (!path.startsWith(oldDir)) return path
+        val newDir = conversations.personaImagesDir(newName).toAbsolutePath().toString()
+        return newDir + path.removePrefix(oldDir)
+    }
+
+    private fun adoptImage(personaName: String, path: String?, slot: String): String? {
+        if (path.isNullOrBlank()) return path
+        val source = runCatching { Path.of(path) }.getOrNull() ?: return path
+        val targetDir = conversations.personaImagesDir(personaName).toAbsolutePath().normalize()
+        val normalized = source.toAbsolutePath().normalize()
+        if (normalized.startsWith(targetDir) || !Files.isRegularFile(source)) return path
+        // Generated images are transient cache; adopting one MOVES it. Any other source is the
+        // user's own file or an old app copy, and is only ever copied.
+        val underCache = normalized.startsWith(appEnv.cacheDir.toAbsolutePath().normalize())
+        val adopted = if (underCache) {
+            saveGeneratedImage(personaName, source)
+        } else {
+            saveMessageImage(source, personaName)
+        }
+        return adopted ?: path
+    }
+
+    /**
+     * A rename moved the persona's media folder; every absolute image path inside the persisted
+     * chat must move with it, or the transcript points at files that no longer exist. The
+     * in-memory conversation (when it is this persona's) is re-pointed by the service in the same
+     * rename; this is the on-disk half, and it is idempotent because a second run finds no old
+     * prefix.
+     */
+    private fun rewritePersonaChatMediaPaths(oldName: String, newName: String) {
+        val file = conversations.personaChatFile(newName)
+        val text = conversations.readText(file) ?: return
+        val oldPrefix = conversations.personaImagesDir(oldName).toAbsolutePath().toString()
+        if (!text.contains(oldPrefix)) return
+        val newPrefix = conversations.personaImagesDir(newName).toAbsolutePath().toString()
+        conversations.writeText(file, text.replace(oldPrefix, newPrefix))
     }
 
     /**
@@ -711,7 +909,7 @@ class SettingsManager(
     // ---------------------------------------------------------------------------
     // Persona artwork (custom icon + background image)
     //
-    // Stored as app-owned JPEG copies under dataDir/persona_images and referenced
+    // Stored as app-owned JPEG copies in the persona's own `images/` folder and referenced
     // from Persona.iconImageUri / Persona.backgroundImageUri by absolute internal
     // path. See Models.kt for why the raw picker URI is never persisted.
     //
@@ -720,65 +918,80 @@ class SettingsManager(
     // thing this port must not do.
     // ---------------------------------------------------------------------------
 
-    private fun artworkDir(): Path = appEnv.dataDir.resolve(PERSONA_IMAGE_DIR)
+    private fun personaImagesDir(personaName: String): Path =
+        conversations.personaImagesDir(personaName).also { Files.createDirectories(it) }
 
     // Timestamp + random suffix so two picks in the same millisecond (and any file
     // left over from a previous install) can never collide.
-    private fun newArtworkFile(slot: String): Path {
-        val dir = artworkDir().also { Files.createDirectories(it) }
+    private fun newPersonaImageFile(personaName: String, slot: String, extension: String = "jpg"): Path {
+        val dir = personaImagesDir(personaName)
         val unique = UUID.randomUUID().toString().take(8)
-        return dir.resolve(artworkFileName(slot, System.currentTimeMillis(), unique))
+        return dir.resolve("${artworkFileName(slot, System.currentTimeMillis(), unique).substringBeforeLast('.')}.$extension")
     }
 
-    // Copies a user-picked image into app-owned storage, downsampled per slot.
-    // Returns the internal path to persist on the Persona, or null when the pick
-    // could not be read/decoded — the caller keeps the previous artwork then.
+    // Copies a user-picked image into the persona's own folder, downsampled per slot
+    // (2026-10-18: it lives beside the chat it belongs to, not in a shared artwork directory).
+    // Returns the path to persist on the Persona, or null when the pick could not be
+    // read/decoded — the caller keeps the previous artwork then.
     //
     // The two-pass decode, the power-of-two subsample and the exact rescale all moved to the
     // ImageCodec seam when this was ported (PLAN.md §5b); the rule they encode is documented
     // there and pinned by ImageIoCodecTest, including the case that is invisible in the output —
     // that a panorama must not be subsampled on its long edge alone.
-    fun savePersonaImage(source: Path, slot: String): String? {
+    fun savePersonaImage(source: Path, slot: String, personaName: String): String? {
         val maxDim = if (slot == "icon") ICON_MAX_DIM else BACKGROUND_MAX_DIM
-        val target = newArtworkFile(slot)
+        val target = newPersonaImageFile(personaName, slot)
         return if (imageCodec.downscaleToJpeg(source, target, maxDim, ARTWORK_JPEG_QUALITY)) {
             target.toAbsolutePath().toString()
         } else null
     }
 
-    fun saveMessageImage(source: Path): String? {
-        val target = newArtworkFile(MESSAGE_IMAGE_SLOT)
+    fun saveMessageImage(source: Path, personaName: String): String? {
+        val target = newPersonaImageFile(personaName, MESSAGE_IMAGE_SLOT)
         return if (imageCodec.downscaleToJpeg(source, target, MESSAGE_IMAGE_MAX_DIM, MESSAGE_IMAGE_JPEG_QUALITY)) {
             target.toAbsolutePath().toString()
         } else null
     }
 
+    /**
+     * A generated image, moved out of the cache into the persona's folder (2026-10-18). The
+     * cache is documented as "safe to lose"; a picture the transcript points at is not, and
+     * this is where it stops being one. A move that cannot cross a filesystem falls back to a
+     * copy. Null means the file could not be adopted; the caller keeps the cache path.
+     */
+    fun saveGeneratedImage(personaName: String, source: Path): String? = runCatching {
+        val target = newPersonaImageFile(personaName, "gen", "png")
+        try {
+            Files.move(source, target, java.nio.file.StandardCopyOption.REPLACE_EXISTING)
+        } catch (_: Exception) {
+            Files.copy(source, target, java.nio.file.StandardCopyOption.REPLACE_EXISTING)
+        }
+        target.toAbsolutePath().toString()
+    }.getOrNull()
+
     // The path a pending composer attachment is SENT as.
     //
-    // The share target materializes an incoming file when it arrives, so the composer's
-    // attachment already points at one of our own msg_*.jpg files. Re-encoding that here
-    // would write a SECOND file and strand the first on every shared-image send, so an
-    // attachment that is already ours is reused untouched: it is downsampled to
-    // MESSAGE_IMAGE_MAX_DIM already, which is exactly what saveMessageImage would have
-    // produced. Anything else (the file picker's own path) is copied in as before,
-    // so the transcript still owns a file that survives the picker's grant.
-    fun messageImagePath(source: Path): String? = ownedMessageImagePath(source) ?: saveMessageImage(source)
+    // An attachment that is already an image of this persona is reused untouched; anything else
+    // is copied in, so the transcript owns a file that survives the picker's file being moved
+    // (2026-10-18: the copy lands in the persona's own folder rather than a shared one).
+    fun messageImagePath(source: Path, personaName: String): String? =
+        ownedMessageImagePath(source, personaName) ?: saveMessageImage(source, personaName)
 
     // Deletes the file behind a pending attachment when it is ours — the composer's remove
     // button. A picked file is not ours, so removing one is a no-op by design: the
     // user's own photo is never touched. Goes through deleteArtworkFile, the single
     // deletion choke point.
-    fun discardMessageImage(source: Path) {
-        deleteArtworkFile(ownedMessageImagePath(source))
+    fun discardMessageImage(source: Path, personaName: String) {
+        deleteArtworkFile(ownedMessageImagePath(source, personaName))
     }
 
     // source's path when it names an EXISTING message image of ours, else null. Existence is
     // what separates "reuse/delete this file" from "copy it in": a path of ours that is
     // already gone (deleted between the share and the send) must be re-materialized rather
     // than handed on as a dangling imagePath.
-    private fun ownedMessageImagePath(source: Path): String? {
+    private fun ownedMessageImagePath(source: Path, personaName: String): String? {
         val path = source.toAbsolutePath().toString()
-        if (!isMaterializedMessageImagePath(path, artworkDir().toAbsolutePath().toString())) return null
+        if (!isMaterializedMessageImagePath(path, personaImagesDir(personaName).toAbsolutePath().toString())) return null
         return path.takeIf { Files.isRegularFile(Path.of(it)) }
     }
 
@@ -825,10 +1038,10 @@ class SettingsManager(
     // Decoded with the MIME decoder rather than the basic one: Android's `Base64.DEFAULT`
     // tolerates and emits line breaks, so a backup exported by the phone may carry them, and the
     // MIME decoder ignores whitespace where the basic one would reject it.
-    private fun writeArtworkFromBase64(data: String, slot: String): String? {
+    private fun writeArtworkFromBase64(data: String, slot: String, personaName: String): String? {
         return try {
             val bytes = Base64.getMimeDecoder().decode(data)
-            val file = newArtworkFile(slot)
+            val file = newPersonaImageFile(personaName, slot, if (slot == "gen") "png" else "jpg")
             Files.write(file, bytes)
             file.toAbsolutePath().toString()
         } catch (e: Exception) {
@@ -864,7 +1077,9 @@ class SettingsManager(
             msg.imagePath?.let { deleteQuietly(it) }
             msg.generatedImagePath?.let { deleteQuietly(it) }
         }
-        store.edit().remove("persona_messages_$personaName").commit()
+        // The folder goes with the conversation: chat.json and every image the persona owned.
+        conversations.deletePersona(personaName)
+        store.edit().remove(personaMessagesKey(personaName)).commit()
         deleteSpontaneousState(personaName)
         // The sink follows the same rule as the delivery state: it is name-keyed state about a
         // persona, so it dies with the persona rather than orphaning under a name nothing can
@@ -906,6 +1121,20 @@ class SettingsManager(
             else persona.name to PersonaArtwork(icon = icon, background = background)
         }.toMap()
 
+        // 2026-10-18: message images travel as base64 too, so a backup really is everything the
+        // transcript shows. Keyed by persona name and the message's POSITION in that transcript —
+        // ChatMessage has no id — which is stable for the list the backup carries. Empty entries
+        // are omitted, so an install with no images pays only an empty object.
+        val messageImages = personaMessages.mapNotNull { (name, msgs) ->
+            val entries = msgs.mapIndexedNotNull { index, message ->
+                val image = readArtworkAsBase64(message.imagePath)
+                val generated = readArtworkAsBase64(message.generatedImagePath)
+                if (image == null && generated == null) null
+                else index.toString() to MessageImagePayload(image = image, generated = generated)
+            }.toMap()
+            if (entries.isEmpty()) null else name to entries
+        }.toMap()
+
         val backup = BackupData(
             serverBases = getServerBases() ?: emptyList(),
             ollamaBases = getOllamaBases() ?: emptyList(),
@@ -914,6 +1143,7 @@ class SettingsManager(
             customCloudApis = getCustomCloudApis() ?: emptyList(),
             personas = personas,
             personaImages = personaImages,
+            messageImages = messageImages,
             messages = getMessages() ?: emptyList(),
             personaMessages = personaMessages,
             totalCost = getTotalCost(),
@@ -958,7 +1188,7 @@ class SettingsManager(
             // files are what the post-restore sweep has to reconcile against, and once
             // savePersonas replaces the list those objects are unreachable.
             val previousPersonas = getPersonas() ?: emptyList()
-            // Artwork restore: decode each base64 payload back into dataDir and rewrite
+            // Artwork restore: decode each base64 payload back into the persona's images folder and rewrite
             // the persona's stored path to the freshly written file. A persona absent
             // from the map is left exactly as the backup serialized it — that covers
             // legacy backups (no artwork field at all), whose paths are device-local
@@ -967,8 +1197,8 @@ class SettingsManager(
             val restoredPersonas = backup.personas.map { persona ->
                 val artwork = backup.personaImages[persona.name] ?: return@map persona
                 persona.copy(
-                    iconImageUri = artwork.icon?.let { writeArtworkFromBase64(it, "icon") },
-                    backgroundImageUri = artwork.background?.let { writeArtworkFromBase64(it, "background") }
+                    iconImageUri = artwork.icon?.let { writeArtworkFromBase64(it, "icon", persona.name) },
+                    backgroundImageUri = artwork.background?.let { writeArtworkFromBase64(it, "background", persona.name) }
                 )
             }
             saveServerBases(backup.serverBases)
@@ -1020,7 +1250,18 @@ class SettingsManager(
             )
             saveMessages(backup.messages)
             backup.personaMessages.forEach { (name, msgs) ->
-                savePersonaMessages(name, msgs)
+                // Restore the pictures the transcript points at, into this persona's own folder,
+                // and re-point the messages at the freshly written files. A backup from before
+                // message images travelled has no entry here and restores exactly as it did.
+                val images = backup.messageImages[name].orEmpty()
+                val restored = msgs.mapIndexed { index, message ->
+                    val payload = images[index.toString()] ?: return@mapIndexed message
+                    message.copy(
+                        imagePath = payload.image?.let { writeArtworkFromBase64(it, MESSAGE_IMAGE_SLOT, name) },
+                        generatedImagePath = payload.generated?.let { writeArtworkFromBase64(it, "gen", name) },
+                    )
+                }
+                savePersonaMessages(name, restored)
             }
             saveTotalCost(backup.totalCost)
             saveFavoriteModels(backup.favoriteModels)
@@ -1129,6 +1370,11 @@ class SettingsManager(
                 .map { it.removePrefix("room_messages_") }
                 .filter { it !in restoredRoomIds }
                 .forEach { deleteRoomHistory(it) }
+            // 2026-10-18: the folder twin of both sweeps above. A restore replaces the persona
+            // and room lists, so a folder left behind by a dropped persona or room is just as
+            // unreachable as the keys were — and it now holds the conversation and its images,
+            // not a pointer to them.
+            conversations.sweepOrphans(restoredNames, restoredRooms)
             // F1: spontaneous delivery state is keyed by persona name too. The history
             // sweep above already drops the state of every orphan that HAD a history
             // entry (deletePersonaHistory carries it); this second pass catches the
@@ -1860,6 +2106,11 @@ data class BackupData(
     // instance sets ignoreUnknownKeys/coerceInputValues, so an absent key (or a null
     // slot inside an entry) falls back to empty rather than failing the import.
     val personaImages: Map<String, PersonaArtwork> = emptyMap(),
+    /**
+     * Message pictures, keyed by persona name then message id. Defaulted, so a backup written
+     * before images travelled still decodes.
+     */
+    val messageImages: Map<String, Map<String, MessageImagePayload>> = emptyMap(),
     // Rooms travel with the backup, like personas do. Both fields are defaulted, so a
     // backup written before Rooms existed still decodes (and, thanks to
     // ignoreUnknownKeys, a NEW backup still imports into an older build).
@@ -1905,6 +2156,18 @@ data class PersonaArtwork(
     val background: String? = null   // base64 JPEG, written to a "background" file
 )
 
+/**
+ * One message's embedded pictures (2026-10-18). Base64 rather than paths, for the same reason
+ * [PersonaArtwork] is: a path is about the exporting device. Both slots are optional — a message
+ * can have an attachment, a generated image, or (usually) neither, and is absent from the map in
+ * that last case.
+ */
+@kotlinx.serialization.Serializable
+data class MessageImagePayload(
+    val image: String? = null,
+    val generated: String? = null,
+)
+
 // ---------------------------------------------------------------------------
 // Message images: the naming and ownership rules shared by the materializer
 // above and the send/remove paths that consume its output.
@@ -1917,7 +2180,7 @@ data class PersonaArtwork(
 // is pinned by a JVM test instead of only ever being exercised on a device.
 // ---------------------------------------------------------------------------
 
-/** Slot [SettingsManager.newArtworkFile] files materialized message images under. */
+/** Slot [SettingsManager.newPersonaImageFile] files materialized message images under. */
 internal const val MESSAGE_IMAGE_SLOT = "msg"
 
 /**

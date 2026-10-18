@@ -102,19 +102,28 @@ The `.deb` is built on a Debian machine (or a container) because a jpackage runt
 build host's glibc. The Arch package is built from source on Arch. An AppImage is a possible third
 artefact and is not planned for the first release.
 
-## Where things live (XDG)
+## Where things live
 
 | Path | Contents |
 |---|---|
 | `~/.config/celeste-linux/settings.json` | All settings, personas, servers, skills — the ported settings blob |
-| `~/.local/share/celeste-linux/` | Chat history per persona, room transcripts, persona artwork |
+| `~/.celeste-linux/<persona>/` | That persona's `chat.json` and `images/` (attachments, generated images, icon and background artwork) |
+| `~/.celeste-linux/rooms/<room>-<id>/` | That room's `chat.json`; the id suffix is the room's identity, so a rename moves nothing |
+| `~/.local/share/celeste-linux/` | Legacy `persona_images/` from installs before the per-persona folders; copied on first launch and safe to delete afterwards |
 | `~/.local/state/celeste-linux/` | Logs (also sent to journald), usage-tracking counters |
 | `~/.cache/celeste-linux/` | Utterance WAVs, downloaded images, model downloads |
 | (no keyring daemon) | Credentials live in the settings file above, mode 0600. libsecret is not used in v1 — see PLAN.md §5a. |
 
+Conversations moved out of the settings blob on 2026-10-18, at the user's request: a persona is a
+folder, and its chat and pictures sit in it. Room transcripts are not included in v1's per-room
+images (rooms are text-only), but they follow the same folder shape.
+
 The Android app's own export/import backup file can be imported, because the backup reader is pure
-Kotlin and comes across with the rest. Persona artwork paths are rewritten into the Linux data
-directory on import, exactly as the Android restore path already does for a different device.
+Kotlin and comes across with the rest. Persona artwork and message images are embedded in the
+backup as base64 and rewritten into the persona's folder on import, exactly as the Android restore
+path already does for a different device. An exported backup carries everything — conversations,
+settings, artwork, attachments and generated images — and the export dialog's password encrypts
+the whole file with AES-256-GCM. Cached TTS audio is not included; it is regenerable.
 
 ## Licence and provenance
 

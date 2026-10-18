@@ -96,17 +96,19 @@ class SettingsManagerCorruptionTest {
         override fun downscaleToJpeg(source: Path, target: Path, maxDim: Int, quality: Int): Boolean = false
     }
 
-    private var deviceCount = 0
-
     /**
      * A manager on its own store, i.e. its own "device" — the port of upstream's
      * `newManagerWithPlainPrefs`, which built a fresh `FakeAppContext` per call for exactly that
      * reason. Several tests below restore a backup onto a second manager and assert on what came
      * out, which only means anything if the second manager has never seen the data.
+     *
+     * The root comes from [TempRoots], not a fixed name in `/tmp`: since conversations are files
+     * under `homeDir` (2026-10-18), a fixed path made one RUN leave a room transcript behind that
+     * the NEXT run's corruption test then read — a cross-run leak no test could see while the
+     * store was in memory.
      */
     private fun newManager(): Pair<SettingsManager, SettingsStore> {
-        val root = Path.of(System.getProperty("java.io.tmpdir"), "settings-corruption-${deviceCount++}")
-        val env = FakeAppEnv(root)
+        val env = FakeAppEnv(TempRoots.newRoot("settings-corruption"))
         val store = FakeSettingsStore()
         return SettingsManager(env, store, NoImageCodec()) to store
     }

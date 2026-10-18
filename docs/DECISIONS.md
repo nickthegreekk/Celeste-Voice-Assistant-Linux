@@ -1398,3 +1398,42 @@ shapes; restyling them is a widget pass, not a palette pass, and can follow if t
 screen is otherwise untouched, which is what makes the change reviewable.
 
 → PLAN.md §10/M17 follow-up; `GtkTheme.kt`, `GtkThemeProbe.kt`, `Theme.kt`, `SettingsScreens.kt`
+
+## 2026-10-18 — A persona is a folder, and the backup carries the pictures
+
+The user asked for two things after using the app: each persona's chat and images in one folder
+(`~/.celeste-linux/<persona>/…` was their example), and a backup that includes everything, with
+optional password encryption.
+
+**The folder shape, at their explicit path.** `~/.celeste-linux/<persona>/chat.json` plus
+`images/`; rooms under `rooms/<room>-<id>/`. This leaves the XDG layout the README documented —
+their choice, made after being offered the XDG alternative — so the README now says where things
+actually live and why. The store keeps settings, personas and server lists; conversations left it.
+Folder names are derived from persona names with a reversible-safe rule (unsafe characters become
+`_` and a short hash keeps names one-to-one; `rooms` is reserved); a room folder carries its full
+id, which is what makes rename a label change rather than a move.
+
+**The migration is one-way and conservative.** Pre-folder `persona_messages_*` / `room_messages_*`
+keys are read once and written to the folder, then removed; a failed file write keeps the key and
+falls back to it on the next read. Images are COPIED into the persona folder, never moved from
+user-owned storage, and the old shared artwork directory is left for the user to delete rather than
+risk deleting a file two records share. A start-up pass migrates every known persona and room, so
+the settings file stops carrying conversations even for a persona that is never opened. Chat writes
+are atomic (`chat.json.tmp` + move), like the settings blob's.
+
+**The in-flight image paths.** A generated image is born in the cache; the save that records it in
+the transcript adopts it into the persona folder first, and there is one adoption point
+(`persistSettings`) rather than hooks in the two COPY image-generation files — which may not be
+edited. Attachments are copied in at send. A rename moves the folder and re-points the paths in the
+persisted chat and in the in-memory conversation and persona artwork; without that, the next save
+would write the old paths back.
+
+**The backup reuses its envelope.** Message images travel as base64 inside the existing
+`celeste-backup.json` (`messageImages`, keyed by persona and transcript position — ChatMessage has
+no id), so the existing AES-256-GCM + PBKDF2 password encryption covers them with no second format
+and no second import path. Persona artwork already travelled this way. Cached TTS audio does not
+travel: it is regenerable, and 45 MB of WAVs on the development machine is not what "everything"
+means. Older backups decode unchanged (the field is defaulted); an older build importing a newer
+backup ignores the field and keeps its device-local paths.
+
+→ PLAN.md §10/M17 follow-up; README "Where things live"; `ConversationFolders.kt`, `SettingsManager.kt`

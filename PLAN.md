@@ -2038,6 +2038,23 @@ installed — bounded at 3 s so a scope that refuses to finish cannot hang the b
 suite runs are green. Nothing in the production close path changed: there Main exists for the process's
 lifetime, and the failure was a teardown ordering bug in the test.]
 
+[Follow-up, 2026-10-18 — a persona is a folder (user's request): `~/.celeste-linux/<persona>/` holds
+`chat.json` and `images/` (attachments, generated images, icon and background artwork), and rooms get
+`~/.celeste-linux/rooms/<room>-<id>/chat.json` — the id suffix is the room's identity, so a rename moves
+nothing. This deliberately leaves the XDG layout the README used to document, by the user's explicit choice;
+the settings blob keeps settings, personas and server lists, not conversations. `ConversationFolders` owns
+the layout and atomic writes; `SettingsManager`'s API is unchanged, so no caller moved. Pre-folder
+`persona_messages_*` / `room_messages_*` settings keys migrate on first read (a start-up pass does all of
+them), and old artwork, attachments and generated images are copied into the folders with the chat's paths
+rewritten; sources outside the app's own storage are never moved. Generated images leave the cache on the
+save that records them, and attachments are copied in at send. A rename moves the folder and re-points paths
+on disk and in memory; a deletion removes the folder; a restore sweeps folders whose persona or room the
+backup dropped. The backup now embeds every message image as base64 (keyed by persona and transcript
+position) in the same `celeste-backup.json`, so the existing password encryption covers everything; cached
+TTS audio is excluded as regenerable. Tests: `ConversationFoldersTest` (9) and `PersonaImagesFolderTest`
+(4). The user's real data migrates on the first launch of this build — export a backup before installing it.
+No packages were built for this change (not asked).]
+
 **Total: 33–50 focused days** (about 4–8 weeks full time, 3–5 months at evenings and weekends).
 A first usable milestone is **M2**: roughly **15–23 days**.
 

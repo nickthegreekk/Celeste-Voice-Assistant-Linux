@@ -1183,7 +1183,7 @@ fun MainScreen(
                             // nothing else references it (a SENT message is handed the same file
                             // rather than a duplicate), so dropping the state alone would leak one
                             // msg_*.jpg per attachment the user thought better of.
-                            service?.discardMessageImage(attachedImage)
+                            service?.discardMessageImage(attachedImage, currentPersona.name)
                             attachedImage = null
                         },
                         onSendClick = {
