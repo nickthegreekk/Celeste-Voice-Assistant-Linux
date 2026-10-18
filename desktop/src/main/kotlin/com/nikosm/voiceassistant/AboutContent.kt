@@ -24,10 +24,11 @@ import androidx.compose.ui.unit.dp
  * commit the ported files were copied from, and the licence. The pin is the same resource
  * `--selftest` prints, so the window and the smoke test can never disagree about it.
  *
- * 2026-10-18: a GitHub row and the update path. [PROJECT_URL] is blank until the project is
- * published, so the row says so and the releases link is disabled rather than pretending. When
- * it is filled, both open in the desktop's browser through [onOpenUrl]; the application itself
- * still never checks for updates or fetches anything (PLAN.md §8 and §5).
+ * 2026-10-18: the GitHub repository and releases URLs are shown in place and open in the desktop
+ * browser through [onOpenUrl]. [PROJECT_URL] is set since the project was published; were it ever
+ * blank again, the row would say "Not published yet" and the releases line would say so too, rather
+ * than pretending. The application itself never checks for updates or fetches anything on its own
+ * (PLAN.md §8 and §5) — opening the releases page is a user action.
  */
 @Composable
 fun AboutContent(
