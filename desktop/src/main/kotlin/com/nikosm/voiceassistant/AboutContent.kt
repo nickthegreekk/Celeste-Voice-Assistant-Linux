@@ -13,7 +13,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -59,34 +58,29 @@ fun AboutContent(
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             } else {
-                Text(
-                    projectUrl,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.clickable { onOpenUrl(projectUrl) }
-                )
+                LinkText(projectUrl, onOpenUrl)
             }
         }
         Spacer(Modifier.height(6.dp))
         Text("Updates", style = MaterialTheme.typography.labelLarge)
-        // The update path, in its whole: the user opens the releases page and installs the new
-        // version with the package manager. Nothing is polled, nothing is downloaded here.
-        TextButton(
-            onClick = { releasesUrl?.let(onOpenUrl) },
-            enabled = releasesUrl != null,
-        ) {
-            Text("Open the releases page")
-        }
-        Text(
-            if (releasesUrl != null) {
+        // The update path, in full view: the link itself is shown and clickable, and the new
+        // version is installed with the package manager. Nothing is polled, nothing downloaded
+        // here. Both this link and the GitHub row carry the real URL (2026-10-18).
+        if (releasesUrl != null) {
+            LinkText(releasesUrl, onOpenUrl)
+            Text(
                 "Opens the releases page in your browser. Install the new version with the " +
-                    "package manager you used for this one."
-            } else {
-                "Available once the project has a public page."
-            },
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
+                    "package manager you used for this one.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        } else {
+            Text(
+                "Available once the project has a public page.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
         Spacer(Modifier.height(6.dp))
         Text(
             "A Linux desktop application built with Compose Multiplatform. One process, your " +
@@ -99,6 +93,17 @@ fun AboutContent(
 @Composable
 private fun AboutRow(label: String, value: String) {
     AboutRow(label) { Text(value, style = MaterialTheme.typography.bodyMedium) }
+}
+
+/** A URL the user can click: the address is the control, not hidden behind a label. */
+@Composable
+private fun LinkText(url: String, onOpenUrl: (String) -> Unit) {
+    Text(
+        url,
+        style = MaterialTheme.typography.bodyMedium,
+        color = MaterialTheme.colorScheme.primary,
+        modifier = Modifier.clickable { onOpenUrl(url) }
+    )
 }
 
 @Composable
