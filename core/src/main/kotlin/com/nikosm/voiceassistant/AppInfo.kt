@@ -16,12 +16,12 @@ const val APP_VERSION = "0.1.0"
 /**
  * The project's public page (2026-10-18).
  *
- * **Empty until the project is published, deliberately.** The About window then says "not
- * published yet" and the updates link is disabled, rather than showing a dead address or guessing
- * one. When set it is the repository root (`https://github.com/owner/repo`); the releases page is
- * derived from it by [projectReleasesUrl].
+ * Set since the project was published; the About window links to it, and [projectReleasesUrl]
+ * derives the page updates are obtained from. Keeping it a single constant means the application
+ * never invents an address: an empty value would make About say "Not published yet" and disable
+ * the updates button.
  */
-const val PROJECT_URL = ""
+const val PROJECT_URL = "https://github.com/nickthegreekk/Celeste-Voice-Assistant-Linux"
 
 /**
  * Where updates are obtained: the project's releases page, or null while [PROJECT_URL] is blank.

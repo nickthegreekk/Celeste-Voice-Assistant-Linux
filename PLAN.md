@@ -2163,6 +2163,13 @@ budget, launch diagnostics): Arch sha256
 `4097a22bce33ef6c7cfae7bf6c03cd28035d50e7f7c0c03093d7dcd530c722e8` (112,173,332 bytes), Debian
 `celeste-linux_0.1.0_amd64.deb` sha256 `ee87c5c612a31bc97d9dfbde21ca061add0e8cc4b84c9d20607e1c75a0220f46` (100,366,648 bytes).]
 
+[Publication, 2026-10-18 — the project has a public home. `PROJECT_URL` in `AppInfo.kt` is
+`https://github.com/nickthegreekk/Celeste-Voice-Assistant-Linux`, so the About window's GitHub row and
+releases button are live; the update path is that page, still with no automatic check. `README.md` was
+rewritten from the planning-era document into the project page GitHub shows: what the app is and does,
+the backends it talks to, install and build, where data lives, and the licence/provenance. The repository
+is pushed to that URL from this tree.]
+
 **Total: 33–50 focused days** (about 4–8 weeks full time, 3–5 months at evenings and weekends).
 A first usable milestone is **M2**: roughly **15–23 days**.
 
