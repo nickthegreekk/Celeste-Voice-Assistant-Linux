@@ -86,7 +86,7 @@ four socket fixtures this triage found portable.
 | `HeaderPersonaTapComposeTest.kt` | Header icon vs. name are separate tap targets | **Ported** as `HeaderPersonaTapComposeTest` (2) | 115 |
 | `ModelPickerComposeTest.kt` | Picker favourites, chips, selection, loading, failure | **Ported** as `ModelPickerComposeTest` (27) | 554 |
 | `ModelsScreenComposeTest.kt` | Model rows, filters, favourites, empty/error, back | **Ported** as `ModelsScreenComposeTest` (23) | 405 |
-| `SettingsCategoryListComposeTest.kt` | Every category title/summary, accessible tap | **Ported** as `SettingsCategoryListComposeTest` (6) | 177 |
+| `SettingsCategoryListComposeTest.kt` | Every category title/summary, accessible tap | **Ported** as `SettingsCategoryListComposeTest` (6; 7 after the 2026-10-18 retarget for the System section and MCP move) | 177 |
 
 ### Rewrite against the seams (39 tests)
 

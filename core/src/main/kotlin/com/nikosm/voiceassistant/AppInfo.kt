@@ -13,6 +13,30 @@ package com.nikosm.voiceassistant
  */
 const val APP_VERSION = "0.1.0"
 
+/**
+ * The project's public page (2026-10-18).
+ *
+ * **Empty until the project is published, deliberately.** The About window then says "not
+ * published yet" and the updates link is disabled, rather than showing a dead address or guessing
+ * one. When set it is the repository root (`https://github.com/owner/repo`); the releases page is
+ * derived from it by [projectReleasesUrl].
+ */
+const val PROJECT_URL = ""
+
+/**
+ * Where updates are obtained: the project's releases page, or null while [PROJECT_URL] is blank.
+ *
+ * The application does not check for updates itself — PLAN.md §8 drops the automatic update
+ * check, and §5 forbids network calls the user did not set up. "The update path" is this page:
+ * the user opens it from About, sees the latest release, and installs it with the package
+ * manager the application was installed with. There is nothing to poll and nothing to trust
+ * beyond the page they chose to open.
+ */
+fun projectReleasesUrl(): String? {
+    val root = PROJECT_URL.trim().trimEnd('/')
+    return if (root.isEmpty()) null else "$root/releases"
+}
+
 private const val PIN_RESOURCE = "upstream-commit.txt"
 
 /**

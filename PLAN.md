@@ -2081,6 +2081,21 @@ dialog-window slice, and `EditorWindow.kt` is deleted because nothing uses it. T
 corrected above; the server and image-gen forms were always in-window `AlertDialog`s and are unchanged. No
 packages were rebuilt (not asked).]
 
+[Follow-up, 2026-10-18 — Settings organisation and the update path, at the user's request. The registry now
+has four sections: **App** (General), **Connections** (Servers, Cloud, MCP), **Assistants** (Personas,
+Rooms, Skills) and **System** (Audio, Health, Filesystem, Terminal) — MCP moved to Connections and
+Audio/Health joined Filesystem/Terminal in the new System section. The About window gains a GitHub row and
+an updates row; `PROJECT_URL` in `AppInfo.kt` is a single blank constant until the project is published, so
+the row reads "Not published yet" and the releases button is disabled rather than showing a dead link or
+inventing an address. The update path is the releases page: pressing the button opens
+`<project>/releases` in the desktop browser through AWT `Desktop.browse` (in `:desktop`, since only About
+needs it). The application still never checks for updates or makes a network call on its own — PLAN §8's
+dropped check and §5's "no call the user did not configure" both stand, and this is a user-initiated page
+open, not a poll. Filling `PROJECT_URL` is the only change needed to turn it on.
+`SettingsCategoryListComposeTest` was retargeted (7 tests, recorded in docs/TEST-MAP.md) to assert the new
+grouping; `SettingsAboutSectionTest` now scrolls each About fact into view, because the section is taller
+than the remaining viewport once reached.]
+
 **Total: 33–50 focused days** (about 4–8 weeks full time, 3–5 months at evenings and weekends).
 A first usable milestone is **M2**: roughly **15–23 days**.
 

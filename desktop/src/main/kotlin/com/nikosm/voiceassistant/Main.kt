@@ -36,10 +36,12 @@ import com.nikosm.voiceassistant.linux.systemUiFontPath
 import com.nikosm.voiceassistant.ui.theme.DesktopStyle
 import com.nikosm.voiceassistant.ui.theme.GtkPalette
 import com.nikosm.voiceassistant.ui.theme.VoiceAssistantTheme
+import java.awt.Desktop
 import java.awt.Toolkit
 import java.awt.event.InputEvent
 import java.awt.event.KeyEvent
 import java.io.IOException
+import java.net.URI
 import java.nio.file.Files
 import java.nio.file.Path
 import java.util.concurrent.CountDownLatch
@@ -62,6 +64,22 @@ import kotlinx.coroutines.launch
  * process launch, and doing it per frame or per window would cost more than it buys.
  */
 private val gtkPaletteOnce: GtkPalette? by lazy { probeGtkPalette() }
+
+/**
+ * Opens a URL in the desktop's browser (2026-10-18) — the update path's one action.
+ *
+ * AWT's `Desktop.browse` is the platform call here (it goes through xdg-open/gio on Linux), and
+ * it lives in `:desktop` rather than `:platform` because only the About window needs it. A blank
+ * URL is a no-op; a failure is logged and otherwise ignored — an About window must not throw
+ * because a session has no browser.
+ */
+private fun openInBrowser(url: String, logger: AppLogger) {
+    if (url.isBlank()) return
+    runCatching {
+        check(Desktop.isDesktopSupported()) { "no desktop integration" }
+        Desktop.getDesktop().browse(URI(url))
+    }.onFailure { logger.w("Main", "could not open $url: ${it.message}") }
+}
 
 /**
  * The one entry point. `--headless` is a flag on this program, not a second program — the service
@@ -471,7 +489,11 @@ fun main(args: Array<String>) {
                     desktopStyle = desktopStyle,
                     gtkPalette = if (desktopStyle == DesktopStyle.GTK) gtkPaletteOnce else null,
                 ) {
-                    AboutContent(version = APP_VERSION, upstreamCommit = upstreamPin())
+                    AboutContent(
+                        version = APP_VERSION,
+                        upstreamCommit = upstreamPin(),
+                        onOpenUrl = { url -> openInBrowser(url, appEnv.logger) },
+                    )
                 }
             }
         }

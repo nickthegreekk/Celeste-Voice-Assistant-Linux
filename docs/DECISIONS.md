@@ -1453,3 +1453,26 @@ The cost is small and one-directional: restoring dialog editors would mean bring
 unpicking anything else.
 
 → PLAN.md §10/M17 (window model and progress); `MainActivity.kt`, `RoomScreens.kt`, `SkillScreens.kt`
+
+## 2026-10-18 — A System section, and an update path that is a page, not a poll
+
+The user reorganised Settings and asked for a GitHub link in About plus "an update path through that
+link". Categories are now App / Connections (Servers, Cloud, MCP) / Assistants (Personas, Rooms,
+Skills) / System (Audio, Health, Filesystem, Terminal). The registry is still the single source of
+the screen's order, so this is data plus comments, not layout code; `SettingsCategoryListComposeTest`
+asserts the grouping directly.
+
+**The update path deliberately has no update check.** PLAN §8 drops the automatic check, and §5
+forbids network calls the user did not configure; a background version poll would break the second
+rule whatever the first says. What was built is the page: About names the project's GitHub page and
+offers the releases page, both opened in the browser by the user's press. `PROJECT_URL` is blank
+until the project is published — the window says so and disables the button rather than showing a
+dead link or guessing a repository name. Filling that one constant is the entire switch-on step,
+and the releases page is where an update is obtained and installed with the package manager, which
+is the honest upgrade path for a jpackage application.
+
+`Desktop.browse` lives in `:desktop` rather than `:platform`: only the About window needs it, it is
+AWT's own platform integration (xdg-open/gio on Linux), and adding a fifteenth seam for one call
+site would cost more than it buys.
+
+→ PLAN.md §10/M17 follow-up; `SettingsScreens.kt`, `AppInfo.kt`, `AboutContent.kt`, `Main.kt`

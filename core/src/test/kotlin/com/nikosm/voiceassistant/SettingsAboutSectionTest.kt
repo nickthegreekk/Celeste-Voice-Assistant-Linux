@@ -50,11 +50,15 @@ class SettingsAboutSectionTest {
             // well before the last category, so the section has not been composed at all yet.
             onNodeWithText("About").assertDoesNotExist()
 
-            onNode(hasScrollAction()).performScrollToNode(hasText("About"))
-
-            onNodeWithText("About").assertIsDisplayed()
-            onNodeWithText("Version $APP_VERSION").assertIsDisplayed()
-            onNodeWithText("Upstream commit ${upstreamPin()}").assertIsDisplayed()
-            onNodeWithText("GPL-3.0-only · no telemetry, no update check").assertIsDisplayed()
+            // Scroll each fact into view in turn: the section is taller than what remains of the
+            // viewport once it is reached (more so since System added categories on 2026-10-18).
+            fun assertInList(text: String) {
+                onNode(hasScrollAction()).performScrollToNode(hasText(text))
+                onNodeWithText(text).assertIsDisplayed()
+            }
+            assertInList("About")
+            assertInList("Version $APP_VERSION")
+            assertInList("Upstream commit ${upstreamPin()}")
+            assertInList("GPL-3.0-only · no telemetry, no update check")
         }
 }

@@ -152,37 +152,37 @@ internal val SETTINGS_CATEGORIES = listOf(
     SettingsCategory("General", Icons.Default.Settings, SettingsGroup.APP),
     SettingsCategory("Servers", Icons.Default.Dns, SettingsGroup.CONNECTIONS),
     SettingsCategory("Cloud", Icons.Default.Cloud, SettingsGroup.CONNECTIONS),
-    // The machine's audio devices, not the personas' — M2's source picker (PLAN.md §9). Placed
-    // before Personas because the persona editor's output picker lists the same devices, and a
-    // user who has not chosen a microphone here meets that list with no idea what is in it.
-    SettingsCategory("Audio", Icons.Default.Mic, SettingsGroup.CONNECTIONS),
-    // M12. In Connections, after the services it is about: this page's rows are exactly those
-    // entries, so it belongs beside them rather than in App.
-    SettingsCategory("Health", Icons.Default.MonitorHeart, SettingsGroup.CONNECTIONS),
+    // M9. In Connections since 2026-10-18 at the user's request: an MCP server is a connection
+    // to something external, like the servers and providers above it, not a persona permission.
+    SettingsCategory("MCP", Icons.Default.Extension, SettingsGroup.CONNECTIONS),
     SettingsCategory("Personas", Icons.Default.Person, SettingsGroup.ASSISTANTS),
     SettingsCategory("Rooms", Icons.Default.Forum, SettingsGroup.ASSISTANTS),
     // After Personas, not beside them: a skill only means something once the persona that
     // can enable it exists, so the order follows "what to configure" rather than the alphabet.
     SettingsCategory("Skills", Icons.Default.AutoAwesome, SettingsGroup.ASSISTANTS),
-    // M8. After Skills, in the same section: both answer "what may this persona do", and a user who
-    // has just given a persona instructions is the one thinking about what else it may touch.
-    SettingsCategory("Filesystem", Icons.Default.Folder, SettingsGroup.ASSISTANTS),
-    // M16. After Filesystem because its working directory is that workspace folder, but a separate
-    // page because it is a different grant: files are contained by a path, a shell is not.
-    SettingsCategory("Terminal", Icons.Default.Terminal, SettingsGroup.ASSISTANTS),
-    // M9. Beside Filesystem: both answer "what may this persona reach", and a user configuring
-    // one is the user thinking about the other.
-    SettingsCategory("MCP", Icons.Default.Extension, SettingsGroup.ASSISTANTS)
+    // Machine-level pages, filed together under System on 2026-10-18 at the user's request.
+    // Audio and Health describe this machine; Filesystem and Terminal are grants to it. M2's
+    // audio page still comes first because the persona editor's output picker lists the same
+    // devices, and a user who has not chosen a microphone here meets that list cold.
+    SettingsCategory("Audio", Icons.Default.Mic, SettingsGroup.SYSTEM),
+    // M12: on-demand checks of the configured servers, so it sits beside the machine pages
+    // rather than the connection definitions it tests.
+    SettingsCategory("Health", Icons.Default.MonitorHeart, SettingsGroup.SYSTEM),
+    // M8/M16. Filesystem first because Terminal's working directory is that folder, and the
+    // two are different grants: files are contained by a path, a shell is not.
+    SettingsCategory("Filesystem", Icons.Default.Folder, SettingsGroup.SYSTEM),
+    SettingsCategory("Terminal", Icons.Default.Terminal, SettingsGroup.SYSTEM)
 )
 
 /**
- * The three section captions. Held here rather than inline in the composable so the registry
+ * The section captions. Held here rather than inline in the composable so the registry
  * stays the single place a category (or a whole section) is declared.
  */
 internal enum class SettingsGroup(val caption: String) {
     APP("App"),
     CONNECTIONS("Connections"),
-    ASSISTANTS("Assistants")
+    ASSISTANTS("Assistants"),
+    SYSTEM("System")
 }
 
 /** One entry of the flat top-level Settings list. */
