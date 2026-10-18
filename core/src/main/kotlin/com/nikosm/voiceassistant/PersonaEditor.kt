@@ -1442,8 +1442,18 @@ fun PersonaEditor(
                 ParameterSlider(label = "Top K", value = topK.toFloat(), range = 1f..100f, onValueChange = { topK = it.toInt() }, format = { it.toInt().toString() }, lowLabel = "Fewer word options", highLabel = "More word options")
                 ParameterSlider(label = "Max Response Length", value = maxTokens.toFloat(), range = 100f..8192f, onValueChange = { maxTokens = it.toInt() }, format = { it.toInt().toString() }, lowLabel = "Fast (slow CPU / low RAM)", highLabel = "Long (needs fast hardware)")
                 // Continuous track, but state snaps to power-of-two detents so num_ctx
-                // always lands on values Ollama operators expect (2k → 32k).
-                ParameterSlider(label = "Context Window Size", value = numCtx.toFloat(), range = 2048f..131072f, onValueChange = { v -> numCtx = CTX_WINDOW_DETENTS.minByOrNull { kotlin.math.abs(it - v) } ?: v.toInt() }, format = { it.toInt().toString() }, lowLabel = "Smaller (less VRAM / faster)", highLabel = "Larger (more VRAM / memory-heavy)")
+                // always lands on values Ollama operators expect (2k → 32k). On a cloud
+                // persona it is not num_ctx at all: it is the history budget, and the labels
+                // say so rather than talking about VRAM for a provider's window (2026-10-18).
+                ParameterSlider(
+                    label = "Context Window Size",
+                    value = numCtx.toFloat(),
+                    range = 2048f..131072f,
+                    onValueChange = { v -> numCtx = CTX_WINDOW_DETENTS.minByOrNull { kotlin.math.abs(it - v) } ?: v.toInt() },
+                    format = { it.toInt().toString() },
+                    lowLabel = if (editorIsCloudModel) "Shorter history / cheaper" else "Smaller (less VRAM / faster)",
+                    highLabel = if (editorIsCloudModel) "Longer history / costs more" else "Larger (more VRAM / memory-heavy)"
+                )
 
                 Spacer(Modifier.height(8.dp))
                 Column {

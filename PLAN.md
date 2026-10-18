@@ -2123,7 +2123,16 @@ attachment trips the same refusal while the provider would accept the request. I
 Settings → Personas → Context Window Size → 65536 (or 32768). A port-side fix was proposed and **not
 implemented**: when a persona routes to a cloud provider and still sits on the seeded 8192, treat the
 budget as a provider-sized floor rather than the Ollama default; a deliberately-chosen value stays
-honoured. It needs its own decision record because it changes what the setting means for cloud personas.]
+honoured. It needs its own decision record because it changes what the setting means for cloud personas.
+
+**Fixed the same day.** `cloudContextWindow` now decides the cloud trim budget: any configured value other
+than the seeded 8192 is its own evidence of a choice and is honoured; an explicit 8192 is honoured too,
+recorded per persona (`persona_ctx_explicit_<name>`, set when a persona's window changes in the editor,
+moved on rename, cleared on delete and by the restore sweep); only the untouched default is lifted to a
+conservative 32k floor. The direct-Ollama path is unchanged — there `num_ctx` is exactly what the setting
+means. The editor's slider labels say "history / cheaper" rather than VRAM for cloud personas. Tests:
+`CloudContextWindowTest` (6). An 8192 chosen before this build, with no flag, is indistinguishable from the
+default and will be lifted; moving it away and back marks it.]
 
 **Total: 33–50 focused days** (about 4–8 weeks full time, 3–5 months at evenings and weekends).
 A first usable milestone is **M2**: roughly **15–23 days**.

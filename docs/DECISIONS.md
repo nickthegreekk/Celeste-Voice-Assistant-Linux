@@ -1498,3 +1498,33 @@ resolves to the static schemes, and the built-in personas keep distinct accents.
 in docs/TEST-MAP.md; the wallpaper-derived cases were already recorded as dropped.
 
 → PLAN.md §10/M17 follow-up; `SettingsScreens.kt`, `AssistantService.kt`, `SettingsManager.kt`, `Theme.kt`
+
+## 2026-10-18 — The cloud trim budget stops inheriting Ollama's 8192
+
+A live DeepSeek turn of ~9,787 fixed tokens was refused by the client-side budget at the persona's
+seeded `numCtx = 8192`, while DeepSeek's API takes 64k+. The setting's name is shared, but its meaning is
+not: on a direct Ollama route it *is* `num_ctx` (a VRAM decision, and the trim budget must match the server),
+and on a cloud route the window belongs to the provider. Every seeded cloud persona inherited the Ollama
+default.
+
+**What the budget uses now.** `cloudContextWindow(configured, explicitlySet)`: any value other than 8192 is
+its own evidence that the user chose it and is returned unchanged; an explicit 8192 is honoured too, via a
+per-persona flag; only the untouched 8192 is lifted to `CLOUD_CONTEXT_WINDOW_FLOOR` (32,768). The direct
+Ollama path is untouched.
+
+**Why 32k and not the provider's real window.** The application has no per-model window metadata — model
+lists carry IDs, not context sizes — so a provider-sized number would be a guess. 32k sits above ordinary
+turns and below all the seeded providers (DeepSeek 64k, GPT-4o 128k, Gemini larger); a custom provider with
+a smaller window can still have its own choice honoured by setting the value. The floor prevents false
+refusals, which were the reported defect; it cannot make server-side truncation impossible forever.
+
+**How "the user chose 8192" is known.** `updatePersona` marks `persona_ctx_explicit_<name>` whenever
+`numCtx` changes; `addPersona` marks a non-default value. The flag is name-keyed like the rest of the
+per-persona state: it follows a rename, dies with a deletion, and the restore sweep drops it for personas a
+backup did not bring back. An 8192 chosen before this build carries no flag and is indistinguishable from
+the default, so it is lifted until changed; that limitation is recorded rather than hidden. The editor's
+slider labels switch to "history / cheaper" and "longer / costs more" for cloud personas, because "VRAM"
+was never the right word there.
+
+→ PLAN.md §10/M17 (open finding, resolved); `AssistantServiceChat.kt`, `AssistantService.kt`,
+`SettingsManager.kt`, `PersonaEditor.kt`, `CloudContextWindowTest.kt`

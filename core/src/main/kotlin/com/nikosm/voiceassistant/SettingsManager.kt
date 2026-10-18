@@ -154,6 +154,9 @@ class SettingsManager(
          */
         const val PERSONA_COMMAND_MODE_PREFIX = "persona_command_mode_"
 
+        /** 2026-10-18: the user changed this persona's Context Window Size; see its accessors. */
+        const val PERSONA_CTX_EXPLICIT_PREFIX = "persona_ctx_explicit_"
+
         /**
          * The workspaces the user has told the write gate to stop asking about (2026-10-17).
          *
@@ -738,6 +741,7 @@ class SettingsManager(
         migratePersonaCommandMode(oldName, newName)
         migratePersonaMcp(oldName, newName)
         migratePersonaMemory(oldName, newName)
+        migratePersonaFlag(PERSONA_CTX_EXPLICIT_PREFIX, oldName, newName)
         val data = store.getString(personaMessagesKey(oldName)) ?: return
         store.edit()
             .putString(personaMessagesKey(newName), data)
@@ -1085,6 +1089,7 @@ class SettingsManager(
         // persona, so it dies with the persona rather than orphaning under a name nothing can
         // reach again.
         store.edit().remove(PERSONA_OUTPUT_DEVICE_PREFIX + personaName).commit()
+        store.edit().remove(PERSONA_CTX_EXPLICIT_PREFIX + personaName).commit()
         removePersonaFs(personaName)
         removePersonaCommandMode(personaName)
         removePersonaMcp(personaName)
@@ -1337,6 +1342,7 @@ class SettingsManager(
                 PERSONA_FS_WORKSPACE_PREFIX,
                 PERSONA_COMMAND_MODE_PREFIX,
                 MCP_PERSONA_PREFIX,
+                PERSONA_CTX_EXPLICIT_PREFIX,
             ).forEach { prefix ->
                 store.allKeys()
                     .filter { it.startsWith(prefix) }
@@ -1517,6 +1523,17 @@ class SettingsManager(
 
     fun saveDarkTheme(enabled: Boolean) {
         store.edit().putBoolean("dark_theme", enabled).commit()
+    }
+
+    // 2026-10-18: whether this persona's Context Window Size was ever changed by the user. Only
+    // an explicit 8192 needs it — every other value is its own evidence (see AssistantServiceChat's
+    // cloudContextWindow). Name-keyed like the other per-persona state, so it follows a rename and
+    // dies with the persona.
+    fun isPersonaContextWindowExplicit(personaName: String): Boolean =
+        store.getBoolean(PERSONA_CTX_EXPLICIT_PREFIX + personaName, false)
+
+    fun markPersonaContextWindowExplicit(personaName: String) {
+        store.edit().putBoolean(PERSONA_CTX_EXPLICIT_PREFIX + personaName, true).commit()
     }
 
     // M17 follow-up (2026-10-18): which palette the application paints with. Stored by NAME rather
@@ -1702,6 +1719,16 @@ class SettingsManager(
         store.edit()
             .putString(PERSONA_COMMAND_MODE_PREFIX + newName, mode.name)
             .remove(PERSONA_COMMAND_MODE_PREFIX + oldName)
+            .commit()
+    }
+
+    /** Moves a name-keyed boolean that defaults to false; absence is the false case. */
+    private fun migratePersonaFlag(prefix: String, oldName: String, newName: String) {
+        if (oldName == newName || oldName.isBlank()) return
+        if (!store.getBoolean(prefix + oldName, false)) return
+        store.edit()
+            .putBoolean(prefix + newName, true)
+            .remove(prefix + oldName)
             .commit()
     }
 

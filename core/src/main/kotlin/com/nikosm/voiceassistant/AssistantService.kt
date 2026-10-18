@@ -1954,6 +1954,12 @@ class AssistantService(
         // with SettingsManager.savePersonas (which persistSettings reaches below) this
         // means an ineligible persona can be neither observed nor stored as enabled.
         val guarded = SpontaneousPolicy.sanitize(persona, ollamaServerNames(), cloudProviderNames())
+        // 2026-10-18: a window other than the seeded default is itself evidence of a choice (the
+        // cloud trim honours it); only an explicit 8192 needs marking, so a cloud persona a user
+        // deliberately kept small is not lifted by the provider floor.
+        if (guarded.numCtx != DEFAULT_PERSONA_CONTEXT_WINDOW) {
+            settingsManager.markPersonaContextWindowExplicit(guarded.name)
+        }
         // 2026-10-18: artwork adopted while the editor still called the draft "New Persona"
         // belongs in the folder of the name it is actually being saved under.
         val stored = settingsManager.adoptPersonaArtwork(guarded)
@@ -1969,6 +1975,12 @@ class AssistantService(
         if (index in current.indices) {
             val previous = current[index]
             val oldName = previous.name
+            // 2026-10-18: the moment the user moves Context Window Size, that value becomes
+            // theirs — including moving it back to 8192, which is otherwise the seeded default
+            // and indistinguishable from never having chosen. The cloud trim reads this flag.
+            if (persona.numCtx != previous.numCtx) {
+                settingsManager.markPersonaContextWindowExplicit(persona.name)
+            }
             if (persona.name != oldName) {
                 // A rename ONTO an existing name is the same collision as a duplicate add,
                 // and strictly worse: `migratePersonaHistory` below would move this

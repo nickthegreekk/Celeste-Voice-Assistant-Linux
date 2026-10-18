@@ -2133,7 +2133,16 @@ internal suspend fun AssistantService.buildCloudRequest(api: CloudApiSetting, pe
     val modelText = buildModelPrompt(text, attachments)
 
     // Budget-aware history selection
-    val contextWindow = persona.numCtx // Fix #3: was hardcoded 128000 — the persona's own Context Window Size setting is now the trimming budget 
+    // A cloud persona's "Context Window Size" is not Ollama's num_ctx: the provider owns the
+    // window. The setting was still gating the client-side trim at its seeded 8192, so a turn
+    // the API would accept was refused (2026-10-18 live finding: ~9.8k tokens on DeepSeek).
+    // While the value is the seeded default and the user never changed it for this persona, the
+    // budget uses a conservative provider floor; any other value, and any value the user placed
+    // with the editor (the service marks that per persona), is honoured exactly.
+    val contextWindow = cloudContextWindow(
+        configured = persona.numCtx,
+        explicitlySet = settingsManager.isPersonaContextWindowExplicit(persona.name),
+    )
     val reservedOutput = persona.maxTokens.coerceAtLeast(1024)
     // Fix #6 (numCtx overflow): same shared budget math + pre-flight refusal as the
     // direct-Ollama path — see resolveHistoryBudget(). A cloud request whose fixed
@@ -3016,8 +3025,33 @@ Do you want a summary?
 // distinguished — a long system prompt, a long message, a large attachment or any
 // combination of them are one and the same problem here, and take the same fix — which is
 // why the check lives in this single shared helper rather than at each call site.
-internal fun AssistantService.resolveHistoryBudget(
-    contextWindow: Int,
+/**
+ * `Persona.numCtx`'s seeded default (Models.kt). A cloud persona still sitting on it has not had
+ * its window chosen by anyone; see [cloudContextWindow].
+ */
+internal const val DEFAULT_PERSONA_CONTEXT_WINDOW = 8192
+
+/**
+ * The floor the client-side budget uses for a cloud persona whose window was never chosen
+ * (2026-10-18). 32k sits below the seeded providers' windows (DeepSeek 64k, GPT-4o 128k, Gemini
+ * far larger) and above ordinary turns, so it stops false refusals without inviting a request
+ * that a smaller OpenAI-compatible model would silently truncate.
+ */
+internal const val CLOUD_CONTEXT_WINDOW_FLOOR = 32768
+
+/**
+ * The window the cloud trim budget uses.
+ *
+ * A configured value other than the seeded default is the user's choice and is returned
+ * unchanged. An explicit 8192 is honoured too — the service marks a per-persona change to that
+ * value in the settings store, because 8192 is otherwise indistinguishable from "never touched".
+ * Only the untouched default is lifted to [CLOUD_CONTEXT_WINDOW_FLOOR].
+ */
+internal fun cloudContextWindow(configured: Int, explicitlySet: Boolean): Int =
+    if (explicitlySet || configured != DEFAULT_PERSONA_CONTEXT_WINDOW) configured
+    else maxOf(configured, CLOUD_CONTEXT_WINDOW_FLOOR)
+
+internal fun AssistantService.resolveHistoryBudget(    contextWindow: Int,
     reservedOutput: Int,
     systemPrompt: String,
     modelText: String,
