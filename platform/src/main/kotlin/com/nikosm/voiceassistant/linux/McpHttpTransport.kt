@@ -6,9 +6,11 @@ import com.nikosm.voiceassistant.McpTransport
 import com.nikosm.voiceassistant.McpTransportException
 import com.nikosm.voiceassistant.StderrLogger
 import java.io.IOException
+import java.net.SocketTimeoutException
 import java.net.URI
 import java.util.Collections
 import java.util.concurrent.Executors
+import java.util.concurrent.RejectedExecutionException
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import okhttp3.Call
@@ -35,12 +37,15 @@ import okio.BufferedSource
  * the GET (405 or a non-SSE answer) is not an error — tool changes then go unseen until the next
  * connection, and that is logged at debug.
  *
- * ## Failure is the whole transport's
+ * ## Failure is the whole transport's — except one request's read timeout
  *
  * A socket error or a non-2xx answer is not attributable to one request from here — this class does
  * not parse ids — so it reports the transport closed once, and the registry fails every request
- * waiting on it with that sentence. JSON-RPC errors inside a 200 body are the server's answer and
- * travel to the registry as an ordinary message.
+ * waiting on it with that sentence. **A `SocketTimeoutException` is the exception**: it is one
+ * request's read deadline, the registry already bounds the logical call, and killing a healthy
+ * connection because one tool was slow would fail every other pending request with it. JSON-RPC
+ * errors inside a 200 body are the server's answer and travel to the registry as an ordinary
+ * message.
  *
  * OkHttp rather than `java.net.http`: it is already in the packaged image (the cloud providers use
  * it) and its SSE bodies can be read line by line without pulling another module into the jlink
@@ -49,6 +54,7 @@ import okio.BufferedSource
 class McpHttpTransport(
     private val server: McpServerConfig,
     private val logger: AppLogger = StderrLogger,
+    readTimeoutMillis: Long = 30_000L,
 ) : McpTransport {
 
     private val executor = Executors.newCachedThreadPool { runnable ->
@@ -56,7 +62,7 @@ class McpHttpTransport(
     }
     private val client = OkHttpClient.Builder()
         .connectTimeout(5, TimeUnit.SECONDS)
-        .readTimeout(30, TimeUnit.SECONDS)
+        .readTimeout(readTimeoutMillis, TimeUnit.MILLISECONDS)
         .build()
     private val streamClient = client.newBuilder().readTimeout(0, TimeUnit.SECONDS).build()
 
@@ -96,7 +102,13 @@ class McpHttpTransport(
 
     override fun send(message: String) {
         if (closed) throw McpTransportException("the server '${server.name}' is not running")
-        executor.execute { post(message) }
+        try {
+            executor.execute { post(message) }
+        } catch (e: RejectedExecutionException) {
+            // close() shut the executor between the check and the dispatch. The caller deserves
+            // the transport's own sentence, not the executor's unchecked exception.
+            throw McpTransportException("the server '${server.name}' is not running", e)
+        }
     }
 
     private fun post(message: String) {
@@ -126,6 +138,10 @@ class McpHttpTransport(
                     if (text.isNotEmpty()) emit(text)
                 }
             }
+        } catch (e: SocketTimeoutException) {
+            // One request's read deadline is not the connection's death. The registry times the
+            // logical call out; every other pending request must be allowed to finish.
+            if (!closed) logger.w(TAG, "[${server.id}] request timed out: ${e.message}")
         } catch (e: IOException) {
             // A closed transport cancels its calls; that IOException is ours, not the server's.
             if (!closed) reportClosed("the request to '${server.name}' failed: ${e.message}")
@@ -144,6 +160,11 @@ class McpHttpTransport(
         val id = response.header(SESSION_HEADER) ?: return
         if (sessionId == id) return
         sessionId = id
+        // A rotated id invalidates the event stream opened for the previous session. Cancel it
+        // and allow exactly one new stream for the new id; without the reset the one-shot CAS
+        // below would leave notifications dead for the rest of the connection.
+        streamCall?.cancel()
+        streamStarted.set(false)
         startEventStream()
     }
 
@@ -215,6 +236,9 @@ class McpHttpTransport(
     }
 
     private fun reportClosed(why: String) {
+        // The transport is dead from this moment: `send` must refuse rather than hand work to an
+        // executor whose connection is gone, even before the registry gets around to closing it.
+        closed = true
         if (reported.compareAndSet(false, true)) onClosed?.invoke(why)
     }
 

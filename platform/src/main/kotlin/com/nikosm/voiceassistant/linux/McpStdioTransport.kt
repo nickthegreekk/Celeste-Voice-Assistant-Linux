@@ -41,9 +41,24 @@ class McpStdioTransport(
     private val logger: AppLogger = StderrLogger,
 ) : McpTransport {
 
+    @Volatile
     private var process: Process? = null
+
+    @Volatile
     private var writer: BufferedWriter? = null
+
+    @Volatile
     private var onClosed: ((String) -> Unit)? = null
+
+    /**
+     * Serializes writers, and **only** writers.
+     *
+     * [close] deliberately does not take this monitor: a send can block forever inside
+     * `writer.flush()` when the server stops reading its stdin, and a close that waited for the
+     * monitor would never reach `process.destroy()` — which is what closes the other end of the
+     * pipe and breaks the blocked write.
+     */
+    private val sendLock = Any()
 
     /** One report per lifetime, whichever side ends it first. */
     private val reported = AtomicBoolean(false)
@@ -99,13 +114,18 @@ class McpStdioTransport(
         }
     }
 
-    @Synchronized
     override fun send(message: String) {
-        val writer = writer ?: throw McpTransportException("the server '${server.name}' is not running")
+        // Fail fast when the transport is already gone: a wedged send may still hold [sendLock].
+        writer ?: throw McpTransportException("the server '${server.name}' is not running")
         try {
-            writer.write(message)
-            writer.newLine()
-            writer.flush()
+            synchronized(sendLock) {
+                // Re-read under the lock: close clears the field to make a queued send answer
+                // "not running" instead of writing into a writer it already closed.
+                val target = writer ?: throw McpTransportException("the server '${server.name}' is not running")
+                target.write(message)
+                target.newLine()
+                target.flush()
+            }
         } catch (e: IOException) {
             throw McpTransportException("could not write to '${server.name}': ${e.message}", e)
         }
@@ -114,22 +134,17 @@ class McpStdioTransport(
     /**
      * Closes the child and refuses further sends.
      *
-     * **The field capture is serialized with [send]**, which is why it takes the same monitor:
-     * closing the writer under a write in flight used to surface as a spurious transport failure
-     * at the caller. The process wait deliberately happens *outside* the monitor — it is bounded
-     * at two seconds, and a caller asking the transport to go away should not hold up a send for
-     * that long. Once the fields are cleared, a send sees "not running", which is the honest
-     * answer.
+     * **The process is destroyed before anything touches the writer**, and the writer is never
+     * closed here. A send can block forever inside `writer.flush()` when the server stops reading
+     * its stdin; `BufferedWriter` holds its own monitor for that call, so a `writer.close()` from
+     * this thread would wait behind it. Destroying the process closes the other end of the pipe,
+     * which makes the blocked flush fail and releases the writer — and the connection can then be
+     * recycled. The wait stays outside every lock and is bounded at two seconds.
      */
     override fun close() {
-        val (process, writer) = synchronized(this) {
-            val p = this.process
-            val w = this.writer
-            this.process = null
-            this.writer = null
-            p to w
-        }
-        runCatching { writer?.close() }
+        val process = this.process
+        this.writer = null
+        this.process = null
         if (process != null) {
             process.destroy()
             if (!process.waitFor(2, TimeUnit.SECONDS)) process.destroyForcibly()

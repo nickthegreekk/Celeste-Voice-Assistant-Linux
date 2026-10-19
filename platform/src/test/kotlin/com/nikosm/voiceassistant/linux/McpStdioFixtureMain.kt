@@ -22,7 +22,13 @@ import kotlinx.serialization.json.put
  * It speaks kotlinx.serialization's JSON rather than the application's `org.json`: this is test
  * code in `:platform`, and `org.json` is core-internal on purpose.
  */
-fun main() {
+fun main(args: Array<String>) {
+    // The wedged-server shape: never read stdin, never write stdout, never exit. A large send
+    // fills the stdin pipe and blocks in flush(), which is what close() has to break.
+    if (args.firstOrNull() == "silent") {
+        Thread.sleep(Long.MAX_VALUE)
+        return
+    }
     System.`in`.bufferedReader(Charsets.UTF_8).forEachLine { line ->
         if (line.isBlank()) return@forEachLine
         val request = runCatching { Json.parseToJsonElement(line).jsonObject }.getOrElse { return@forEachLine }

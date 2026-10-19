@@ -20,6 +20,7 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.int
 import kotlinx.serialization.json.long
 import kotlinx.serialization.json.put
 import org.junit.After
@@ -42,11 +43,13 @@ class McpHttpTransportTest {
     private lateinit var http: HttpServer
     private lateinit var pool: ExecutorService
     private lateinit var transport: McpHttpTransport
+    private lateinit var config: McpServerConfig
 
     private val messages = Collections.synchronizedList(mutableListOf<String>())
     private val authHeaders = Collections.synchronizedList(mutableListOf<String?>())
     private val sessionHeaders = Collections.synchronizedList(mutableListOf<String?>())
     private val releaseStream = CountDownLatch(1)
+    private val closed = CountDownLatch(1)
 
     @Before
     fun setUp() {
@@ -58,7 +61,7 @@ class McpHttpTransportTest {
         http.createContext("/mcp") { exchange -> handle(exchange) }
         http.start()
 
-        val config = McpServerConfig(
+        config = McpServerConfig(
             id = "fixture",
             name = "Fixture",
             transport = McpTransportKind.HTTP,
@@ -66,7 +69,7 @@ class McpHttpTransportTest {
             headers = mapOf("Authorization" to "Bearer test"),
         )
         transport = McpHttpTransport(config)
-        transport.start({ line -> messages += line }, { })
+        transport.start({ line -> messages += line }, { closed.countDown() })
     }
 
     @After
@@ -124,6 +127,44 @@ class McpHttpTransportTest {
             fail("a closed transport must not accept a message")
         } catch (expected: McpTransportException) {
             assertTrue(expected.message!!.isNotBlank())
+        }
+    }
+
+    @Test(timeout = 15_000)
+    fun `a server error closes the transport, not only the request`() {
+        transport.send(request(5, "boom"))
+
+        assertTrue("the transport should report the connection gone", closed.await(5, TimeUnit.SECONDS))
+        try {
+            transport.send(request(6, "ping"))
+            fail("a transport reported closed must refuse further messages")
+        } catch (expected: McpTransportException) {
+            assertTrue(
+                "it says the transport is not running: ${expected.message}",
+                expected.message.orEmpty().contains("not running"),
+            )
+        }
+    }
+
+    @Test(timeout = 15_000)
+    fun `a request timeout does not close the transport`() {
+        // One slow request may time out; the connection is not dead, and the next request must
+        // still work. The old code called reportClosed for the SocketTimeoutException, failing
+        // every pending request and dropping the tool cache on a healthy connection.
+        val slow = McpHttpTransport(config, readTimeoutMillis = 100)
+        slow.start({ line -> messages += line }, { })
+        try {
+            slow.send(request(7, "slow"))
+            Thread.sleep(400) // the 100 ms read timeout has fired by now
+
+            slow.send(request(8, "unknown"))
+            assertEquals(
+                "the transport is still alive after the timeout",
+                -32601,
+                await(8)["error"]!!.jsonObject["code"]!!.jsonPrimitive.int,
+            )
+        } finally {
+            slow.close()
         }
     }
 
@@ -193,6 +234,26 @@ class McpHttpTransportTest {
                         },
                     ),
                 )
+
+                "boom" -> {
+                    exchange.sendResponseHeaders(500, 0)
+                    exchange.responseBody.close()
+                }
+
+                "slow" -> {
+                    // Headers first, then a body delayed past the transport's read timeout: the
+                    // SSE-exemption shape, not a slow header response.
+                    exchange.responseHeaders.add("Content-Type", "text/event-stream")
+                    exchange.sendResponseHeaders(200, 0)
+                    Thread.sleep(400)
+                    exchange.responseBody.use { out ->
+                        out.write(
+                            "data: ${response(id, buildJsonObject { put("ok", true) })}\n\n"
+                                .toByteArray(Charsets.UTF_8),
+                        )
+                        out.flush()
+                    }
+                }
 
                 else -> respondJson(
                     exchange,

@@ -1,6 +1,8 @@
 package com.nikosm.voiceassistant
 
 import java.util.Collections
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.json.JSONArray
 import org.json.JSONObject
@@ -284,6 +286,60 @@ class McpRegistryTest {
     }
 
     // ------------------------------------------------------------------ fakes
+
+    @Test
+    fun `cancelling a tools request cancels it rather than answering with no tools`() = runTest {
+        // A stopped turn must unwind. The old catch (e: Exception) turned the CancellationException
+        // into an empty list, so the turn continued as if the server had said "no tools".
+        val transport = FakeTransport { request ->
+            if (request.getString("method") == "initialize") result(request.getLong("id"), initResult()) else null
+        }
+        val registry = McpRegistry(FakeFactory { transport }, connectTimeoutMillis = 60_000, callTimeoutMillis = 60_000)
+        try {
+            var reachedAfter = false
+            val job = launch {
+                registry.toolsFor(config())
+                reachedAfter = true
+            }
+            runCurrent()
+            job.cancel()
+            job.join()
+
+            assertTrue("the cancelled request stays cancelled", job.isCancelled)
+            assertFalse("a cancelled request must not return normally", reachedAfter)
+        } finally {
+            registry.close()
+        }
+    }
+
+    @Test
+    fun `cancelling a tool call cancels it rather than reporting a failed call`() = runTest {
+        val transport = FakeTransport { request ->
+            val id = request.getLong("id")
+            when (request.getString("method")) {
+                "initialize" -> result(id, initResult())
+                "tools/list" -> result(id, toolsPage(listOf("slow"), null))
+                else -> null // tools/call never answers
+            }
+        }
+        val registry = McpRegistry(FakeFactory { transport }, connectTimeoutMillis = 2_000, callTimeoutMillis = 60_000)
+        try {
+            val tool = registry.toolsFor(config()).single()
+            var reachedAfter = false
+            val job = launch {
+                registry.call(tool, JSONObject())
+                reachedAfter = true
+            }
+            runCurrent()
+            job.cancel()
+            job.join()
+
+            assertTrue("the cancelled call stays cancelled", job.isCancelled)
+            assertFalse("a cancelled call must not return normally", reachedAfter)
+        } finally {
+            registry.close()
+        }
+    }
 
     private class FakeTransport(
         private val handler: (JSONObject) -> JSONObject?,

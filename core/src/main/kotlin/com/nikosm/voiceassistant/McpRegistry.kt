@@ -2,6 +2,7 @@ package com.nikosm.voiceassistant
 
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.sync.Mutex
@@ -78,6 +79,13 @@ internal class McpRegistry(
         }
         val infos = try {
             withTimeout(connectTimeoutMillis + callTimeoutMillis) { connection.tools() }
+        } catch (e: TimeoutCancellationException) {
+            logger.w(TAG, "[${server.id}] no tools this turn: ${e.message}")
+            return emptyList()
+        } catch (e: CancellationException) {
+            // The turn was stopped. A server that is slow is a degraded answer; a turn that was
+            // cancelled is not this function's to answer at all.
+            throw e
         } catch (e: Exception) {
             logger.w(TAG, "[${server.id}] no tools this turn: ${e.message}")
             return emptyList()
@@ -100,6 +108,9 @@ internal class McpRegistry(
             ?: return McpCallOutcome("the MCP server '${tool.serverName}' is not connected.", ok = false)
         return try {
             connection.call(tool.toolName, arguments)
+        } catch (e: CancellationException) {
+            // A stopped turn must unwind, not receive "the server could not run ...".
+            throw e
         } catch (e: Exception) {
             logger.w(TAG, "[${tool.serverId}] ${tool.toolName} failed: ${e.message}")
             McpCallOutcome(
@@ -209,6 +220,10 @@ private class McpConnection(
             McpProtocol.errorOf(response)?.let { throw McpTransportException("the server refused the handshake: $it") }
             val result = McpProtocol.resultOf(response) ?: throw McpTransportException("the handshake carried no result")
             McpHandshake.from(result) ?: throw McpTransportException("the handshake did not describe a server")
+        } catch (e: CancellationException) {
+            // Cancellation while the handshake is in flight is the turn ending, not a bad server.
+            // Leaving `transport` installed is safe: the next turn's ensureReadyLocked reuses it.
+            throw e
         } catch (e: Exception) {
             failure = "the handshake failed: ${e.message}"
             runCatching { opened.close() }

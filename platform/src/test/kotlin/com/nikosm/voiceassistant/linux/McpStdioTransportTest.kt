@@ -7,6 +7,8 @@ import java.nio.file.Path
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicReference
+import kotlin.concurrent.thread
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
@@ -15,6 +17,7 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Test
@@ -32,7 +35,7 @@ class McpStdioTransportTest {
     private val messages = LinkedBlockingQueue<String>()
     private val closed = CountDownLatch(1)
 
-    private fun fixture(): McpServerConfig = McpServerConfig(
+    private fun fixture(mode: String? = null): McpServerConfig = McpServerConfig(
         id = "fixture",
         name = "Fixture",
         transport = McpTransportKind.STDIO,
@@ -41,7 +44,7 @@ class McpStdioTransportTest {
             "-cp",
             System.getProperty("java.class.path"),
             "com.nikosm.voiceassistant.linux.McpStdioFixtureMainKt",
-        ),
+        ) + listOfNotNull(mode),
     )
 
     private fun started(): McpStdioTransport =
@@ -128,12 +131,39 @@ class McpStdioTransportTest {
             transport.send(request(2, "ping"))
             fail("a closed transport must not accept a message")
         } catch (expected: McpTransportException) {
-            // The fields are cleared under the send monitor, so the answer is the seam's own
+            // The field is cleared before the child is destroyed, so the answer is the seam's own
             // "not running" rather than an IOException from a writer that was closed underneath.
             assertTrue(
                 "a closed transport says it is not running: ${expected.message}",
                 expected.message.orEmpty().contains("not running"),
             )
         }
+    }
+
+    @Test(timeout = 20_000)
+    fun `close breaks a send stuck on a server that stopped reading`() {
+        // The server never reads stdin. A large message fills the pipe and blocks `send` inside
+        // flush(); close must destroy the child rather than wait for the writer's monitor.
+        val transport = McpStdioTransport(fixture("silent")).also {
+            it.start({ }, { closed.countDown() })
+        }
+        val failure = AtomicReference<Throwable?>()
+        val sender = thread(isDaemon = true, name = "wedged-send") {
+            try {
+                transport.send("x".repeat(1_000_000))
+            } catch (e: Throwable) {
+                failure.set(e)
+            }
+        }
+
+        Thread.sleep(500) // the pipe is full; the sender is now blocked in flush
+        val startedAt = System.nanoTime()
+        transport.close()
+        val elapsedMs = (System.nanoTime() - startedAt) / 1_000_000
+        sender.join(5_000)
+
+        assertFalse("close must unblock the send, not wait behind it", sender.isAlive)
+        assertTrue("close returned in ${elapsedMs}ms", elapsedMs < 5_000)
+        assertTrue("the send ends with a transport error: ${failure.get()}", failure.get() is McpTransportException)
     }
 }
