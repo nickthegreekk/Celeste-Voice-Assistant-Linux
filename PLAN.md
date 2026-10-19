@@ -298,7 +298,7 @@ seeded template only exists on the second.
 **Every URL in `:core`, and what makes it safe (2026-10-16).** The record the audit checks against.
 AGENTS.md §5 requires that no network call fires without a user action, and the rule is enforced by
 grepping rather than by remembering — so the grep's output belongs somewhere a change to any line can
-be checked against. Nineteen distinct URLs; the file and line are where each is written.
+be checked against. Twenty-one distinct URLs; the file and line are where each is written.
 
 | URL | Where | What makes it safe |
 |---|---|---|
@@ -310,6 +310,8 @@ be checked against. Nineteen distinct URLs; the file and line are where each is 
 | `http://0.0.0.0:11434/v1` | `Models.kt:924` | [1]. The `"OpenAI-Compatible"` template, and the entry the second §5 violation hid behind: it has an empty key and `icon == "C"`, which is what the old kind-based guard tested. |
 | `https://generativelanguage.googleapis.com/v1beta/models` | `AssistantService.kt:2856` | [1] — built inside `fetchCloudModels` from a configured provider's `baseUrl` and key |
 | `https://openrouter.ai/api/v1/models` | `AssistantServiceChat.kt:2120` | **No automatic caller at all.** `syncOpenRouterPricing` is reached only from Settings' "sync prices" button. Was called from `start()` until 2026-10-16. |
+| `https://github.com/nickthegreekk/Celeste-Voice-Assistant-Linux` | `AppInfo.kt` | [5] |
+| `https://api.github.com/repos/nickthegreekk/Celeste-Voice-Assistant-Linux/releases/latest` | `UpdateCheck.kt` | [4] |
 | `http://0.0.0.0:7860` | `AssistantService.kt:1191` | **The seeded A1111 default, and it is inert.** Reached only by an image generation the user starts; the periodic health check walks `_ollamaBaseUrls` and `_serverBases` and never `_imageGenBases`, and the only image-gen probe is `forceCheckHealth(…, true)` from a Settings button. Worth its own row precisely because it looks like the `11434` one. |
 | `http://192.168.1.10:11434` | `WelcomeScreen.kt:94` | [2] |
 | `http://192.168.1.10:8080` | `SettingsScreens.kt:1388` | [2] |
@@ -333,9 +335,21 @@ in an empty field and never parsed, resolved or opened.
 [3] **Comment text.** KDoc examples about URL normalisation and trailing slashes, in a KDoc and a
 related note. Never executed.
 
-**Adding a row is the point of the table.** A new URL literal in `:core` needs one of three answers:
-it is behind the configuration gate, it is a string a human reads, or it is a comment. A fourth
-answer — "it fires on its own and it is fine because it is loopback" — is the carve-out §5 rejects.
+[4] **The About button, and nothing else.** `checkForLatestRelease` in `UpdateCheck.kt` is reached
+only by the **Check for updates** button in the About window (and the About section of Settings).
+There is no caller on launch, no timer, no retry and no background coroutine. It sends one anonymous
+GET, no user data beyond a `User-Agent` naming the application and version, reads public release
+metadata, and never downloads or installs. A failure is a sentence; the releases page is where the
+user goes. This amends the old "no update check" wording to **no automatic update check**.
+
+[5] **A user-facing link.** The repository URL is a constant shown in About and opened only by a
+click; the application never fetches it. `projectReleasesUrl()` derives the releases page from the
+same constant, so the two links cannot disagree.
+
+**Adding a row is the point of the table.** A new URL literal in `:core` needs one of these answers:
+it is behind the configuration gate, it is a string a human reads, it is a comment, it is reached only
+by the user-initiated update button, or it is a user-facing link opened by a click. A further answer
+— "it fires on its own and it is fine because it is loopback" — is the carve-out §5 rejects.
 
 **Replacing a blocking call is a behaviour change with no exception attached (2026-10-15).** Both silent failure
 modes this port *created* rather than inherited came from that one shape. The chunked playback's completion arrives as
@@ -633,7 +647,7 @@ cluster commit lands.
 | Export / import backup (incl. Android file) | M3 | Import path already exists |
 | Encrypted settings | M1 | libsecret instead of Keystore |
 | Certificate pinning / TOFU for self-signed certs | M1 | Same policy, file-backed store |
-| Update check against GitHub Releases | — | **Dropped in v1** (no releases to check yet) |
+| Update check against GitHub Releases | M17/0.2.0 | **Manual only**, from About: one button queries the latest release and reports whether it is newer; no automatic check, no download, no install. The automatic check remains dropped. |
 | Quick-settings tile | M4 | Tray item |
 | Per-persona launcher shortcut | M4 | `.desktop` entry per persona |
 | Share target (text/image into the composer) | M3 | `SendTo` + CLI flags |
@@ -2185,6 +2199,16 @@ bytes), Debian `celeste-linux_0.1.0_amd64.deb` sha256
 `216d582506207fea317d6eb6fa588a0fac47f489d1cc39da5f7f25758b142d6a` (100,364,396 bytes), plus the dbgsym
 package. The annotated tag `v0.1.0` points at that build commit.]
 
+[Follow-up, 2026-10-19 — the update check returns as one button in About, at the user's request. The
+automatic check stays dropped: `checkForLatestRelease` in `UpdateCheck.kt` is reached only by **Check for
+updates** in the About window (and by the same control in Settings' About section). It sends one anonymous
+GET to GitHub's `/releases/latest`, no user data beyond a `User-Agent` naming the application and version,
+and reads public release metadata; the tag is compared numerically with `APP_VERSION` and the answer is a
+sentence. 404 is "no release", 403/429 is the anonymous rate limit, anything else is a reason; no retry, no
+cache, no timer, no download and no install. The releases link remains the update path. This amends §8's
+"dropped" row and AGENTS.md §5 from "no update check" to **no automatic update check**; the API URL is §5
+[4], the repository link [5].]
+
 **Total: 33–50 focused days** (about 4–8 weeks full time, 3–5 months at evenings and weekends).
 A first usable milestone is **M2**: roughly **15–23 days**.
 
@@ -2285,5 +2309,6 @@ substitution being made the wrong way round.]
    gateway's Kokoro?
 6. **Default gateway:** ship placeholder URLs or pre-fill the Voice Gateway / Ollama addresses of
    your own boxes (no credentials in any file)?
-7. **Update check:** drop it for v1 (recommended, nothing published yet) or implement it against a
-   releases endpoint?
+7. ~~**Update check:** drop it for v1 (recommended, nothing published yet) or implement it against a
+   releases endpoint?~~ **Answered 2026-10-19: a manual check in About.** The automatic check stays
+   dropped; the button is the only caller. See §8's row, §10's follow-up and §5 [4].

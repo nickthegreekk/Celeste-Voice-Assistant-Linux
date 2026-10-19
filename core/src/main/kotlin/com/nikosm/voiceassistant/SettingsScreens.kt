@@ -331,6 +331,11 @@ internal fun SettingsCategoryList(
      * the one-pane drill-down, where no row is "current" because the list itself is the screen.
      */
     activeTitle: String? = null,
+    /**
+     * Opens a URL from the About section; null in a host with no browser opener, where the address
+     * is still shown as plain text.
+     */
+    onOpenUrl: ((String) -> Unit)? = null,
 ) {
     LazyColumn(
         // fillMaxSize, not weight(): AnimatedContent already carries the weight(1f) that
@@ -383,7 +388,7 @@ internal fun SettingsCategoryList(
         // category rail in the two-pane layout). Rendered from the same values as the About
         // window, so the two cannot drift.
         item(key = "settings-about") {
-            SettingsAboutSection(accentColor = accentColor)
+            SettingsAboutSection(accentColor = accentColor, onOpenUrl = onOpenUrl)
         }
     }
 }
@@ -651,7 +656,12 @@ fun SettingsDialog(
      * top of a window that is already the settings surface; the desktop hosts the content
      * directly instead. Defaulted, so every existing call site and UI test is untouched.
      */
-    embedded: Boolean = false
+    embedded: Boolean = false,
+    /**
+     * Opens a URL from the About section. Null in a host with no browser opener, where the
+     * addresses are shown as plain text; the desktop Settings window passes its opener.
+     */
+    onOpenUrl: ((String) -> Unit)? = null,
 ) {
     // Drill-down navigation, one level above the Personas/Rooms list-then-editor pattern:
     // which category screen is showing, null = the flat top-level list.
@@ -845,7 +855,8 @@ fun SettingsDialog(
                                 accentColor = personaColor,
                                 summaries = categorySummaries,
                                 activeTitle = railCategory.title,
-                                onCategorySelected = { activeCategory = it }
+                                onCategorySelected = { activeCategory = it },
+                                onOpenUrl = onOpenUrl,
                             )
                         }
                         VerticalDivider(
@@ -894,7 +905,8 @@ fun SettingsDialog(
                                 SettingsCategoryList(
                                     accentColor = personaColor,
                                     summaries = categorySummaries,
-                                    onCategorySelected = { activeCategory = it }
+                                    onCategorySelected = { activeCategory = it },
+                                    onOpenUrl = onOpenUrl,
                                 )
                             } else {
                                 SettingsCategoryScreen(

@@ -13,6 +13,38 @@ not stop for it. Stop only for the four cases listed in AGENTS.md §10.
 
 ---
 
+## 2026-10-19 — The update check comes back as one button in About, never on a timer
+
+The user asked for the update check in About, with the repository link, after 0.1.0 was published.
+The automatic check stays dropped: its defect was that `syncOpenRouterPricing`/`checkForAppUpdate`
+ran from `start()` on every launch, which is the unrequested-network shape AGENTS.md §5 exists to
+forbid. What returns is the opposite shape — a **Check for updates** button in the About window
+(and the same control in Settings' About section), and no caller anywhere else.
+
+**Decided: one anonymous GET to GitHub's `/releases/latest`, only on that button.** The tag is
+compared numerically with `APP_VERSION` (`v` ignored, missing components zero), and the answer is a
+sentence: up to date, a newer version, no release, the anonymous rate limit, or a reason. Nothing is
+downloaded or installed; the releases page remains the update path, and the package manager the user
+installed with is what upgrades the application. The URL opened is the configured releases page,
+never a URL taken from the response body. There is no timer, no retry and no cache — a later press is
+the only retry.
+
+**Rejected: the automatic check.** It is the exact call the port removed; a timer would also make
+the About window a background poller. **Rejected: an in-app downloader/installer.** It would need
+write access to the installed image, a trust chain for the artifact, and a second upgrade mechanism
+beside the package manager. **Rejected: the pinned OkHttp client.** That client is for the user's own
+servers and their TOFU certificates; `api.github.com` is a public-CA host, so a short-timeout default
+client is the honest one.
+
+**The policy sentence changes, in the same commit.** AGENTS.md §5 is now "no automatic update check"
+rather than "no update check"; PLAN.md §8's parity row moves from dropped to manual, §10 records the
+follow-up, and §5's URL table gains the API URL as [4] and the repository link as [5]. The network
+audit is what forced the repository URL row to exist at all: it was already a literal in `AppInfo.kt`
+and the table had not caught up.
+
+→ PLAN.md §5 [4]/[5], §8, §10; `UpdateCheck.kt`, `UpdateCheckUi.kt`, `AboutContent.kt`,
+`SettingsAboutSection.kt`, `SettingsScreens.kt`, `AppInfo.kt`, `UpdateCheckTest.kt`
+
 ## 2026-10-18 — Hard links are refused at the filesystem gate, and the collapse order is pinned
 
 An adversarial run inside Celeste on Debian (workspace `~/Desktop/AI`) probed the M8 file tools with

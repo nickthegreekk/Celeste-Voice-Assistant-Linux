@@ -495,6 +495,7 @@ fun main(args: Array<String>) {
                         openPersonaEditorFor = settingsPersonaRequest,
                         onOpenPersonaEditorConsumed = { settingsPersonaRequest = null },
                         embedded = true,
+                        onOpenUrl = { url -> openInBrowser(url, appEnv.logger) },
                     )
                 }
             }

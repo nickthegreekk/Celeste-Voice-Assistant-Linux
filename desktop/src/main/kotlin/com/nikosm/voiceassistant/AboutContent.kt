@@ -27,8 +27,9 @@ import androidx.compose.ui.unit.dp
  * 2026-10-18: the GitHub repository and releases URLs are shown in place and open in the desktop
  * browser through [onOpenUrl]. [PROJECT_URL] is set since the project was published; were it ever
  * blank again, the row would say "Not published yet" and the releases line would say so too, rather
- * than pretending. The application itself never checks for updates or fetches anything on its own
- * (PLAN.md §8 and §5) — opening the releases page is a user action.
+ * than pretending. The application never checks for updates on its own (PLAN.md §8 and §5); the
+ * **Check for updates** button is the one user-initiated check, and it downloads and installs
+ * nothing. Opening the releases page remains the update path.
  */
 @Composable
 fun AboutContent(
@@ -75,6 +76,11 @@ fun AboutContent(
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
+            Spacer(Modifier.height(4.dp))
+            // The one network action in About, and only on this button. It reports whether a newer
+            // release exists; the link above is where the user goes, and the package manager does
+            // the upgrade.
+            UpdateCheckControl(currentVersion = version)
         } else {
             Text(
                 "Available once the project has a public page.",

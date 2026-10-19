@@ -93,8 +93,10 @@ The fourteen platform seams are listed in [PLAN.md](PLAN.md) §5. Rules:
   Fabricate fixtures. A **real backup file** is never committed either — `voice_assistant_backup*.json` is in
   `.gitignore` because one carries API keys, server passwords and the user's own persona artwork. A
   fabricated backup, with invented values, is what the backup-interop fixture needs.
-- No telemetry. No analytics. No update check (PLAN.md §8 marks it dropped). No network call that
-  the user did not configure, except the build's own dependency resolution.
+- No telemetry. No analytics. **No automatic update check.** The About window's **Check for
+  updates** button is the one manual check (PLAN.md §5 [4]); it is user-initiated, sends no user
+  data beyond the application's version, and never downloads or installs. No other network call
+  that the user did not configure, except the build's own dependency resolution.
 - **An automatic model fetch requires a provider the user has configured (2026-10-16).** Configured
   means a key, or a base URL that differs from the template the application seeds. An unconfigured
   template waits for the button. The rule exists because the old guard tested the provider's *kind*

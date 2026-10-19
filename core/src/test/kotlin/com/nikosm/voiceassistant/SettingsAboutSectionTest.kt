@@ -59,6 +59,8 @@ class SettingsAboutSectionTest {
             assertInList("About")
             assertInList("Version $APP_VERSION")
             assertInList("Upstream commit ${upstreamPin()}")
-            assertInList("GPL-3.0-only · no telemetry, no update check")
+            assertInList("GPL-3.0-only · no telemetry, no automatic update check")
+            assertInList(PROJECT_URL)
+            assertInList("Check for updates")
         }
 }

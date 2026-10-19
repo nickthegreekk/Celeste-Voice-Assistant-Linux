@@ -27,7 +27,8 @@ its personas and its rooms, with the phone idioms replaced by desktop ones.
   and tray, desktop notifications, transcript search, per-persona folders in your home, and a
   colour style that can follow your GTK theme.
 - **Private by design.** No telemetry, no analytics, no automatic update check. It talks only to
-  the servers you configure; one optional button opens the releases page.
+  the servers you configure; About has a manual update check and links to the repository and
+  releases page, and nothing is downloaded or installed from the app.
 
 ## Requirements
 

@@ -6,7 +6,7 @@
 # read as a list of dropped features — and then a fresh install made a real request to openrouter.ai,
 # and a second call of the same shape turned out to be hiding behind a seeded provider template.
 #
-# The table in PLAN.md §5 is the record: nineteen URLs, each with what makes it safe. This is what
+# The table in PLAN.md §5 is the record: twenty-one URLs, each with what makes it safe. This is what
 # keeps the record honest, because a table nobody re-derives becomes a table describing last year.
 #
 # It fails on a URL that is not in the table. **That is the whole point** — a new fetch target is the

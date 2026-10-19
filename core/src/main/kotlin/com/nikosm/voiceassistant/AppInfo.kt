@@ -26,11 +26,12 @@ const val PROJECT_URL = "https://github.com/nickthegreekk/Celeste-Voice-Assistan
 /**
  * Where updates are obtained: the project's releases page, or null while [PROJECT_URL] is blank.
  *
- * The application does not check for updates itself — PLAN.md §8 drops the automatic update
- * check, and §5 forbids network calls the user did not set up. "The update path" is this page:
- * the user opens it from About, sees the latest release, and installs it with the package
- * manager the application was installed with. There is nothing to poll and nothing to trust
- * beyond the page they chose to open.
+ * The application does not check for updates on its own — PLAN.md §8 keeps the automatic check
+ * dropped, and §5 forbids network calls the user did not set up. The one manual check is the
+ * About window's **Check for updates** button ([checkForLatestRelease]); it reports a version and
+ * installs nothing. "The update path" is this page: the user opens it, sees the latest release,
+ * and installs it with the package manager the application was installed with. There is nothing
+ * to poll and nothing to trust beyond the page they chose to open.
  */
 fun projectReleasesUrl(): String? {
     val root = PROJECT_URL.trim().trimEnd('/')
