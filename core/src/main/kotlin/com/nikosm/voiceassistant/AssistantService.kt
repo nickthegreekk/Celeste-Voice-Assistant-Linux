@@ -3496,11 +3496,6 @@ class AssistantService(
     }
 }
 
-private const val UPDATE_CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000L
-
-/** Latest GitHub release advertised by the update check (AssistantService.checkForAppUpdate). */
-data class UpdateInfo(val version: String, val url: String)
-
 /**
  * The OkHttp client every ported call site uses — gateway, cloud, RAG, image generation — with
  * seam 14's TOFU pinning: a certificate is accepted when its SHA-256 fingerprint matches what the
