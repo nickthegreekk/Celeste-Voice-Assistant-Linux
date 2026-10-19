@@ -4,8 +4,17 @@
 **Platforms:** Arch Linux (x86_64), Debian 13 “trixie” (amd64)
 **Upstream base:** `VoiceAssistant` @ `fe584ad0` (unchanged)
 
-This is a bug-fix update to 0.1.0. No new features, no dependency changes and no data
-migration. Existing settings, personas, chats, memories and backups are compatible.
+This is a bug-fix update to 0.1.0, plus one small feature: a manual update check in About.
+No dependency changes and no data migration. Existing settings, personas, chats, memories and
+backups are compatible.
+
+## New
+
+- **Manual update check in About.** A **Check for updates** button queries GitHub’s latest
+  release and reports whether a newer version exists. It runs only when pressed, sends no user
+  data beyond the application version, and never downloads or installs anything. The repository
+  and releases links are shown beside it; the releases page remains the update path. The
+  automatic check stays dropped.
 
 ## Fixes
 
@@ -70,8 +79,8 @@ migration. Existing settings, personas, chats, memories and backups are compatib
 
 | Package | Size | SHA-256 |
 |---|---:|---|
-| `celeste-linux-0.2.0-1-x86_64.pkg.tar.zst` (Arch) | 112,173,098 bytes | `5275f3f00aa20c5f68a3c9374ba3e6aded1fa5f2bcb5c1f2b03832189dc7e41e` |
-| `celeste-linux_0.2.0_amd64.deb` (Debian) | 100,372,716 bytes | `d1385ec33088f4d4cc436fbf57e9d45b04bf8fb12d8df168d15036effb72cf7f` |
+| `celeste-linux-0.2.0-1-x86_64.pkg.tar.zst` (Arch) | 112,205,274 bytes | `25f8ba7bd8b312ad317c07c9a9e9a146bd0d6b5dfc6f6ccee579007104d0746f` |
+| `celeste-linux_0.2.0_amd64.deb` (Debian) | 100,393,608 bytes | `011467915414e83dbbfa9bf52d93c625c503a2c061aabfba3a2467327ab503a5` |
 | `celeste-linux-dbgsym_0.2.0_amd64.deb` (debug symbols) | 1,452,432 bytes | `6e6f6e48a86bc4b194b7f1e13a9d7019795fe533dacccfec4b7f0e5f235a674d` |
 
 Install:
@@ -88,10 +97,14 @@ sudo apt install ./celeste-linux_0.2.0_amd64.deb
 
 - `./gradlew :core:test :platform:test` — green.
 - `./gradlew build` — green.
+- `tools/network-audit.sh` — every URL literal is recorded in PLAN.md §5 (21 URLs), including
+  the manual update check's GitHub endpoint and the repository link.
 - Arch package built with `makepkg -f`; the packaging `check()` loaded the trimmed ONNX
   runtime and reported `onnx native loaded — session inputs: [input, state, sr]`.
 - Debian package built on Debian 13 in the project’s container environment; control version
   is `0.2.0`, and the ONNX jar is the trimmed 5,959,512-byte one.
+- Both packages were checked for the update-check classes (`UpdateCheckKt`,
+  `UpdateCheckUiKt`) inside their `core-0.2.0-*.jar`.
 - `tools/sync-from-android.sh --check` — no drift; upstream `git status` clean.
 - **Live acceptance:** pending. This file is the release body for that run; record the result
   before publishing.
@@ -114,4 +127,4 @@ chats, memories and images stay under the existing XDG paths. Backups from 0.1.0
 unchanged. Filesystem/MCP trust and workspace paths are device-local and are deliberately not
 restored from a backup.
 
-The full commit range for this release is `d2b2e22..7c1bc3e`.
+The full commit range for this release is `d2b2e22..4a14691`.
