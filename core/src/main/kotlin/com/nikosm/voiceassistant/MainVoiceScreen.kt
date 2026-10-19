@@ -104,53 +104,6 @@ private class LayoutRefHolder {
 // fallback. Bounded so a failed/absent duration can never leave the text hidden.
 private const val ReplayRevealDurationWaitMs = 1500L
 
-// Update banner: slim, non-intrusive row shown at the top of the
-// main chat screen while a newer release is available. "View" opens the release page
-// in the browser; the X dismisses it for that specific version (remembered by the
-// service until an even newer release is published).
-@Composable
-private fun UpdateBanner(info: UpdateInfo, onView: () -> Unit, onDismiss: () -> Unit) {
-    Surface(
-        modifier = Modifier.fillMaxWidth(),
-        color = MaterialTheme.colorScheme.surfaceVariant
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 12.dp, vertical = 4.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Icon(
-                imageVector = Icons.Default.SystemUpdate,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(18.dp)
-            )
-            Spacer(modifier = Modifier.width(10.dp))
-            Text(
-                text = "Version ${info.version} is available",
-                style = MaterialTheme.typography.bodySmall,
-                maxLines = 1,
-                modifier = Modifier.weight(1f)
-            )
-            TextButton(
-                onClick = onView,
-                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp)
-            ) {
-                Text("View", style = MaterialTheme.typography.labelLarge)
-            }
-            IconButton(onClick = onDismiss, modifier = Modifier.size(28.dp)) {
-                Icon(
-                    imageVector = Icons.Default.Close,
-                    contentDescription = "Dismiss update banner",
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(16.dp)
-                )
-            }
-        }
-    }
-}
-
 /**
  * Stage-2 chunked-TTS sync engine (karaoke): text is ALWAYS fully visible;
  * the sync computation only positions the highlight on the word currently
@@ -586,8 +539,16 @@ fun MainScreen(
     // suspends. The hazard is kept in mind even though nothing here can hit it: a `--send-file` path
     // is readable for as long as the process lives, where an `ACTION_SEND` Uri arrived with a
     // temporary grant. Two synchronous writes, then the request is cleared.
-    LaunchedEffect(sharedRequest) {
+    LaunchedEffect(service, sharedRequest, isFirstRun) {
+        // The first-run welcome owns the screen; keep the share pending until it is dismissed.
+        // Dropping this guard let a `--send-*` payload land behind the welcome flow unseen.
+        if (isFirstRun) return@LaunchedEffect
         val request = sharedRequest ?: return@LaunchedEffect
+        // Land the share where it can be seen: the normal persona chat, in text mode, out of a
+        // room. Without these two lines a share arriving over a room or the HUD became a draft
+        // nobody was looking at.
+        textModeOpen = true
+        if (activeRoomId != null) service?.leaveRoom()
         when (request) {
             is SharedRequest.Text -> {
                 val landed = appendSharedTextToDraft(textInput, request.text)
