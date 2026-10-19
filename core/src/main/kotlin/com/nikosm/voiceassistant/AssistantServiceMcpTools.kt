@@ -45,6 +45,8 @@ internal class McpApprovalGate {
     /** The question the UI is showing, or null when there is nothing to answer. */
     val pending = _pending.asStateFlow()
 
+    /** Written on the service coroutine, completed from the UI: the volatile is the hand-off. */
+    @Volatile
     private var deferred: CompletableDeferred<McpApprovalDecision>? = null
 
     /** The user's answer. Ignored when no question is pending, like every dialog dismissal. */
@@ -84,6 +86,9 @@ internal class McpApprovalGate {
 }
 
 internal const val MCP_APPROVAL_TIMEOUT_MS = 120_000L
+
+/** One card, reused: there is at most one question pending, and it is answered or withdrawn. */
+internal const val MCP_APPROVAL_NOTIFICATION_ID = 4
 
 /** How much of an arguments object the dialog shows. The audit shows none of it. */
 private const val MCP_ARGUMENTS_PREVIEW = 1_000
@@ -142,7 +147,14 @@ internal suspend fun AssistantService.approveMcpCall(
     }
     if (decision == McpApprovalDecision.TIMEOUT) {
         // The notifier is the one channel that works with the window closed or behind another one.
-        notifyUser("A tool call to \"${server.name}\" is waiting for your approval in the window.")
+        // Past tense: this fires after the gate has withdrawn the question, so the call was denied.
+        runCatching {
+            appEnv.notifier.post(
+                MCP_APPROVAL_NOTIFICATION_ID,
+                "Celeste",
+                "A tool call to \"${server.name}\" was not approved — no answer in time.",
+            )
+        }
     }
     return decision
 }

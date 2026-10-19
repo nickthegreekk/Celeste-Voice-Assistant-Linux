@@ -522,6 +522,8 @@ internal class FsWriteApprovalGate {
     /** The question the UI is showing, or null when there is nothing to answer. */
     val pending = _pending.asStateFlow()
 
+    /** Written on the service coroutine, completed from the UI: the volatile is the hand-off. */
+    @Volatile
     private var deferred: CompletableDeferred<FsWriteDecision>? = null
 
     fun trusts(root: Path): Boolean = trustedRoots.contains(root)
@@ -617,7 +619,7 @@ internal suspend fun AssistantService.requestFsWriteApproval(request: FsWriteReq
         rememberTrustedRoot(workspace.root)
     }
     if (decision == FsWriteDecision.TIMEOUT) {
-        announceWriteNeedsAttention(request)
+        announceWriteTimedOut(request)
     }
     return decision
 }
@@ -647,18 +649,21 @@ internal fun AssistantService.forgetFsWriteTrust() {
 internal const val FS_WRITE_NOTIFICATION_ID = 2
 
 /**
- * Tell the user a write is waiting, on the channel that works when nothing can render the dialog.
+ * Tell the user a write question went unanswered, on the channel that works when nothing can
+ * render the dialog.
  *
  * **The seam and not `notifyUser`, which is what the design's own sentence asks for**: a snackbar is
  * a row in a window, and the case this exists for is a window that is not there — `--headless`, the
- * tray, a spontaneous turn. The message names the path, because "Celeste wanted to write something"
- * is not something a person can decide about from a notification.
+ * tray, a spontaneous turn. The message is past tense because it fires on the timeout, after the
+ * question has already been withdrawn: the write did not happen, and asking the user to open the
+ * window to decide would send them to an empty dialog. The path is named so the notice is
+ * actionable (retry the request), not just alarming.
  */
-internal fun AssistantService.announceWriteNeedsAttention(request: FsWriteRequest) {
+internal fun AssistantService.announceWriteTimedOut(request: FsWriteRequest) {
     appEnv.notifier.post(
         id = FS_WRITE_NOTIFICATION_ID,
-        title = "A file write is waiting",
-        body = "Celeste wanted to write ${request.relativePath} — open the window to decide.",
+        title = "A file write was not approved",
+        body = "Celeste wanted to write ${request.relativePath}, but no one answered in time — nothing was written.",
     )
 }
 

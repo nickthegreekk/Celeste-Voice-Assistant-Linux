@@ -303,7 +303,7 @@ class FsToolTurnTest {
         assertEquals(
             "the window-closed case is exactly what the desktop channel is for: " +
                 notifier.posted,
-            listOf("Celeste wanted to write notes.md — open the window to decide."),
+            listOf("Celeste wanted to write notes.md, but no one answered in time — nothing was written."),
             notifier.posted.map { it.body },
         )
     }

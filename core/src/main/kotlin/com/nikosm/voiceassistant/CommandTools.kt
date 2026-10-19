@@ -147,7 +147,8 @@ internal suspend fun AssistantService.requestCommandApproval(
             appEnv.notifier.post(
                 COMMAND_APPROVAL_NOTIFICATION_ID,
                 "Celeste",
-                "Waiting for you to approve a command: ${command.lineSequence().firstOrNull().orEmpty().take(140)}",
+                "A command was not approved — no answer in time: " +
+                    command.lineSequence().firstOrNull().orEmpty().take(140),
             )
         }
     }
