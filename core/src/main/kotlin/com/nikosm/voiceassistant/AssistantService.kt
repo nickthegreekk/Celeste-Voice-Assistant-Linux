@@ -56,6 +56,13 @@ import javax.net.ssl.X509TrustManager
 private var vadDetector: VADDetector? = null
 private var vadRecorder: VADAudioRecorder? = null
 
+/**
+ * One id for the microphone-lost notification, so a repeated loss replaces the standing card
+ * rather than stacking. Numbered next to [REPLY_NOTIFICATION_ID] (7101) and clear of the
+ * approval ids (2–4) and the spontaneous range (1_000+).
+ */
+internal const val MICROPHONE_LOST_NOTIFICATION_ID = 7102
+
 // ---------------------------------------------------------------------------
 // Cloud model list selection — tier diversity, not pure recency.
 // Pure "top N by date" drops specialty tiers whenever several flagships launch
@@ -3419,12 +3426,55 @@ class AssistantService(
                     } else {
                         _micAmplitude.value = 0f
                     }
-                }
+                },
+                // The loop reports (on Main) when the capture stream ends or cannot be opened.
+                // Without this the service kept `handsFreeMode` on over a recorder that had
+                // already stopped itself: the tray said "listening", the IDLE watcher's resume()
+                // was a no-op on a released stream, and nothing recovered or said why.
+                onDied = { reason -> onVadDied(reason) }
             )
         }
         vadRecorder?.muted = _micMuted.value
         vadRecorder?.start()
         _handsFreeMode.value = true
+    }
+
+    /**
+     * The hands-free recorder lost its microphone: `pw-record` exited, the device was unplugged,
+     * the sound server restarted, or the loop failed before it could open a stream.
+     *
+     * **This is a state transition, not a retry.** The recorder is released through
+     * [stopVadListening], which is the same path the user's toggle takes: hands-free switches off,
+     * the tray stops claiming to listen, and IDLE is restored when no turn owns the state. The
+     * user is told through the notification seam because a window in the tray may not be on
+     * screen — the failure the review found was that the assistant simply went deaf until someone
+     * noticed and toggled it.
+     *
+     * **No automatic reopen.** The upstream rule for a microphone that cannot be opened is "log
+     * once and stop rather than retrying into a hot loop" (`AudioCapture.open`), and a device that
+     * reappears may come back as a different node, so reopening needs a device re-resolution this
+     * path does not have. Starting listening again is one press, and it is also what makes the
+     * device choice apply. Recorded in docs/DECISIONS.md.
+     *
+     * Main-confined: the recorder calls this through `withContext(Dispatchers.Main)`, like
+     * `onSpeechStart` and `onSpeechEnd`.
+     */
+    private fun onVadDied(reason: String) {
+        // A late report from a recorder the user has already switched off. `stop()` cancels the
+        // loop and the recorder checks `isActive` before reporting, so this is belt and braces —
+        // but the cost of a stale report here is turning OFF a session the user just turned on.
+        if (!_handsFreeMode.value) return
+        Log.w("AssistantService", "Hands-free stopped: $reason")
+        stopVadListening()
+        runCatching {
+            appEnv.notifier.post(
+                MICROPHONE_LOST_NOTIFICATION_ID,
+                "Celeste",
+                "Hands-free listening stopped — $reason",
+            )
+        }.onFailure {
+            logger.d("AssistantService", "could not post the microphone notification: ${it.message}")
+        }
     }
 
     fun stopVadListening() {

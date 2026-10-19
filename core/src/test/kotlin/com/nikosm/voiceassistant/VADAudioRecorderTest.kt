@@ -4,10 +4,14 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.test.resetMain
+import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
+import org.junit.Before
 import org.junit.Test
+import java.util.Collections
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
@@ -23,10 +27,12 @@ import java.util.concurrent.atomic.AtomicInteger
  * stop ("Recording error: StandaloneCoroutine was cancelled"), and a log that reports normal
  * operation as a fault is worth a test rather than a promise.
  *
- * The capture is silent, so nothing is ever recorded, no WAV is written, and `Dispatchers.Main` is
- * never reached (it is used only on a speech event) — which is what lets this run on a plain JVM
- * with no audio hardware and no Main dispatcher.
+ * The capture is silent, so nothing is ever recorded and no WAV is written. The loop reaches
+ * `Dispatchers.Main` only for speech callbacks and for `onDied`; the death tests install an
+ * unconfined Main dispatcher, which runs the report inline on the IO thread and keeps the test on
+ * a plain JVM with no audio hardware.
  */
+@OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class VADAudioRecorderTest {
 
     private class RecordingLogger : AppLogger {
@@ -81,6 +87,28 @@ class VADAudioRecorderTest {
         }
     }
 
+    /**
+     * A capture whose stream has already ended: `read` returns [result] forever, which is what a
+     * `pw-record` that exited or a device that was unplugged looks like from the loop.
+     */
+    private class DyingCapture(private val result: Int) : AudioCapture {
+        val closed = CountDownLatch(1)
+
+        override fun open(sampleRate: Int, chunkFrames: Int, target: AudioDevice?): CaptureStream =
+            object : CaptureStream {
+                override fun read(buffer: ShortArray, frames: Int): Int = result
+                override fun drain() = Unit
+                override fun close() {
+                    closed.countDown()
+                }
+            }
+    }
+
+    /** A capture that could not open anything — no sound server, no input device. */
+    private class UnopenableCapture : AudioCapture {
+        override fun open(sampleRate: Int, chunkFrames: Int, target: AudioDevice?): CaptureStream? = null
+    }
+
     // LogSink is process-wide, so it is restored after every test — a leftover recording logger
     // would capture another test's output (LogSinkTest sets the same rule).
     private val originalSink = LogSink.logger
@@ -89,6 +117,16 @@ class VADAudioRecorderTest {
     private val capture = SilentCapture()
     private var recorder: VADAudioRecorder? = null
 
+    /** Reasons the recorder reported as a microphone loss, in order. */
+    private val died: MutableList<String> = Collections.synchronizedList(mutableListOf())
+
+    @Before
+    fun setUp() {
+        // `onDied` is the first callback this test can reach, and it hops to Main like the speech
+        // callbacks. Unconfined keeps that hop on the IO thread, so there is no scheduler to pump.
+        Dispatchers.setMain(Dispatchers.Unconfined)
+    }
+
     @After
     fun tearDown() {
         // Register what you build and stop it (AGENTS.md §6): the loop here owns a real thread
@@ -96,12 +134,13 @@ class VADAudioRecorderTest {
         runCatching { recorder?.stop() }
         scope.cancel()
         LogSink.logger = originalSink
+        Dispatchers.resetMain()
     }
 
-    private fun startRecording(): VADAudioRecorder {
+    private fun startRecording(withCapture: AudioCapture = capture): VADAudioRecorder {
         LogSink.logger = logger
         val r = VADAudioRecorder(
-            capture = capture,
+            capture = withCapture,
             detector = VADDetector(),
             cacheDir = java.nio.file.Files.createTempDirectory("vad-recorder-test").also {
                 it.toFile().deleteOnExit()
@@ -110,6 +149,7 @@ class VADAudioRecorderTest {
             inputDevice = null,
             onSpeechStart = {},
             onSpeechEnd = {},
+            onDied = { reason -> died += reason },
         )
         recorder = r
         r.start()
@@ -182,5 +222,62 @@ class VADAudioRecorderTest {
             awaitLine("capture start → first chunk:"),
         )
         assertTrue("the capture should have been opened", capture.opened.await(5, TimeUnit.SECONDS))
+    }
+
+    @Test
+    fun `a stream that ends is reported, so hands-free cannot stay on over a dead microphone`() {
+        // The 2026-10-19 review's silent-failure gap: the loop ended on read 0 and told nobody, so
+        // `handsFreeMode` stayed true, the tray said listening, and the IDLE watcher's resume() was
+        // a no-op. The reason is the contract with the service — it becomes the notification body.
+        val dying = DyingCapture(result = 0)
+        startRecording(withCapture = dying)
+
+        assertTrue("the stream should have been closed", dying.closed.await(5, TimeUnit.SECONDS))
+        assertEquals(listOf("the capture stream ended"), synchronized(died) { died.toList() })
+    }
+
+    @Test
+    fun `a negative read is the stream ending too, not a short frame to spin on`() {
+        // AudioCapture's contract allows "negative when the stream has ended"; only 0 was handled,
+        // and an implementation using the negative form would have produced the very per-iteration
+        // hot loop the 0 check exists to prevent.
+        val dying = DyingCapture(result = -1)
+        startRecording(withCapture = dying)
+
+        assertTrue("the stream should have been closed", dying.closed.await(5, TimeUnit.SECONDS))
+        assertEquals(listOf("the capture stream ended"), synchronized(died) { died.toList() })
+    }
+
+    @Test
+    fun `a microphone that cannot be opened is reported too`() {
+        // Monitoring never starts, but the service sets `handsFreeMode` immediately after start();
+        // without this report the toggle would sit on over a recorder that opened nothing.
+        startRecording(withCapture = UnopenableCapture())
+
+        val deadline = System.currentTimeMillis() + 5_000
+        while (System.currentTimeMillis() < deadline && synchronized(died) { died.isEmpty() }) {
+            Thread.sleep(10)
+        }
+        assertEquals(
+            listOf("no capture stream could be opened"),
+            synchronized(died) { died.toList() },
+        )
+    }
+
+    @Test
+    fun `stopping on purpose is not a lost microphone`() {
+        // A user toggle and a hardware loss leave the loop through the same teardown. Only the
+        // cancelled job distinguishes them, and a false report here would notify on every switch.
+        val r = startRecording()
+        assertTrue(capture.opened.await(5, TimeUnit.SECONDS))
+        val deadline = System.currentTimeMillis() + 5_000
+        while (System.currentTimeMillis() < deadline && capture.reads.get() == 0) Thread.sleep(5)
+
+        r.stop()
+        assertTrue(capture.closed.await(5, TimeUnit.SECONDS))
+        // Give a mis-timed report time to arrive before asserting its absence.
+        Thread.sleep(150)
+
+        assertEquals("a deliberate stop must not report a death", emptyList<String>(), synchronized(died) { died.toList() })
     }
 }

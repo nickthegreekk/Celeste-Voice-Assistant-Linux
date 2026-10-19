@@ -48,8 +48,10 @@ interface AudioCapture {
 interface CaptureStream {
 
     /**
-     * Reads up to [frames] samples into [buffer], returning how many were read, or a negative
-     * number when the stream has ended or failed.
+     * Reads up to [frames] samples into [buffer], returning how many were read, or **zero (or a
+     * negative number) when the stream has ended or failed**. The current implementation reports
+     * end-of-stream as 0, and both are accepted so an implementation using either convention
+     * cannot make the VAD loop spin on a dead microphone.
      *
      * The caller treats a short read as a warning and keeps going — upstream logs "Unexpected read
      * size" and only acts on a full chunk — so an implementation must not turn a partial read into

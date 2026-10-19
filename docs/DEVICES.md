@@ -66,6 +66,10 @@ unplugged should still be able to speak.
   headphones the microphone hears the reply and the recogniser transcribes it — the failure looks like
   the assistant interrupting itself, not like an error. A PipeWire `module-echo-cancel` sink selected
   as the input device is the system-level answer if you want speaker playback anyway.
+- **A microphone that disappears while listening.** Hands-free switches off, and a desktop
+  notification says the capture stream ended. It does not reopen by itself: the device may come back
+  as a different node, and a hidden retry loop is worse than an honest stop. Start listening again
+  when it is back — that is also when a changed device choice applies.
 - **A default source, on a machine that has not chosen one.** PipeWire's session manager decides which
   device a bare `pw-record` opens, and a fresh machine often has no input marked as default — WirePlumber
   then answers "no target node available". The application falls back to the first input it enumerates

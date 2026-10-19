@@ -1606,3 +1606,33 @@ was never the right word there.
 
 → PLAN.md §10/M17 (open finding, resolved); `AssistantServiceChat.kt`, `AssistantService.kt`,
 `SettingsManager.kt`, `PersonaEditor.kt`, `CloudContextWindowTest.kt`
+
+## 2026-10-19 — A lost microphone stops hands-free and says so; it does not reopen itself
+
+`VADAudioRecorder`'s loop has always known when the capture stream ended — a read of 0 stops it —
+but only it knew. The service kept `handsFreeMode` true, the tray and status line said listening,
+the IDLE watcher's `resume()` was a no-op on a released stream, and nothing recovered. The 2026-10-19
+review named this correctly as a silent failure, which is worse than an error: the assistant simply
+went deaf until someone noticed and toggled it by hand.
+
+**What was chosen.** The recorder reports the loss once, on Main, with a user-facing reason
+(`onDied`), and the service treats it as the same transition as the user's toggle: `stopVadListening()`
+releases the recorder, `handsFreeMode` goes false, IDLE is restored, and a notification through
+seam 9 says "Hands-free listening stopped — …". The open-failure path reports too, because
+`startVadListening` sets the mode *after* `start()` returns and would otherwise leave it on over a
+recorder that never opened a stream. A deliberate `stop()` cancels the job first and is never
+reported: `isActive` is the only thing that distinguishes a user toggle from a hardware loss.
+
+**Rejected: automatic reopen with backoff.** The seam's own rule for a microphone that cannot open
+is "log once and stop rather than retrying into a hot loop", and a USB microphone that reappears
+often comes back as a different PipeWire node — reopening correctly needs a device re-resolution
+this path does not have. Retrying would also re-arm a microphone the user may have switched off
+because they were walking away. Starting again is one press (tray or `--listen`) and is also the
+moment a changed device choice applies.
+
+**Also fixed on the way.** `CaptureStream.read`'s contract allowed a negative return for
+end-of-stream while the loop only handled 0; an implementation using the negative form would have
+produced the very per-iteration hot loop the 0 check exists to prevent. Both are now the end.
+
+→ PLAN.md §10/M17 follow-up; `VADAudioRecorder.kt`, `AssistantService.kt`, `AudioCapture.kt`,
+`VADAudioRecorderTest.kt`, `NoMicrophoneTest.kt`, `MicrophoneLossTest.kt`

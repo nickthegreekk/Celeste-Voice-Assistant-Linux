@@ -6,10 +6,14 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.test.resetMain
+import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
+import org.junit.Before
 import org.junit.Test
+import java.util.concurrent.atomic.AtomicReference
 
 /**
  * M7's "no microphone" error path: the capture seam refuses to open.
@@ -24,6 +28,7 @@ import org.junit.Test
  * The detector is a fake because the real [VADDetector] loads the ONNX session in its constructor;
  * [SpeechDetector] exists for this test, and the recorder never reaches it on this path.
  */
+@OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class NoMicrophoneTest {
 
     private val root: Path = TempRoots.newRoot("celeste-nomic")
@@ -53,10 +58,18 @@ class NoMicrophoneTest {
         override fun open(sampleRate: Int, chunkFrames: Int, target: AudioDevice?): CaptureStream? = null
     }
 
+    @Before
+    fun setUp() {
+        // The failure now reaches the service as well as the log (onDied, dispatched like the
+        // speech callbacks). Unconfined keeps the report on the IO thread.
+        Dispatchers.setMain(Dispatchers.Unconfined)
+    }
+
     @After
     fun tearDown() {
         scope.cancel()
         LogSink.logger = originalLogger
+        Dispatchers.resetMain()
     }
 
     @Test
@@ -66,6 +79,7 @@ class NoMicrophoneTest {
         val detector = FakeDetector()
         var speechStarted = 0
         var speechEnded = 0
+        val diedReason = AtomicReference<String?>(null)
         val recorder = VADAudioRecorder(
             capture = NoCapture,
             detector = detector,
@@ -74,6 +88,7 @@ class NoMicrophoneTest {
             inputDevice = null,
             onSpeechStart = { speechStarted++ },
             onSpeechEnd = { speechEnded++ },
+            onDied = { diedReason.set(it) },
         )
 
         recorder.start()
@@ -91,11 +106,18 @@ class NoMicrophoneTest {
         assertEquals("the failure is reported exactly once: ${logger.lines}", 1, logger.lines.size)
         assertTrue(
             "the message names the missing capture stream: ${logger.lines.single()}",
-            logger.lines.single().contains("No capture stream could be opened"),
+            logger.lines.single().contains("no capture stream could be opened"),
         )
         assertEquals("nothing was heard, so no utterance may start", 0, speechStarted)
         assertEquals("and none may end", 0, speechEnded)
         assertEquals("the detector is never asked about audio that does not exist", 0, detector.calls)
+        // The service is told as well: otherwise startVadListening's handsFreeMode=true would
+        // stand over a recorder that never opened anything (the review's silent-failure gap).
+        assertEquals(
+            "the missing microphone must be reported to the service",
+            "no capture stream could be opened",
+            diedReason.get(),
+        )
     }
 
     private companion object {

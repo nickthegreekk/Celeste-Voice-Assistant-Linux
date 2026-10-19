@@ -4,6 +4,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -66,9 +67,26 @@ class VADAudioRecorder(
     private val inputDevice: AudioDevice?,
     private val onSpeechStart: () -> Unit,
     private val onSpeechEnd: (Path) -> Unit,
-    private val onAmplitudeUpdate: (Float) -> Unit = {}
+    private val onAmplitudeUpdate: (Float) -> Unit = {},
+    /**
+     * The microphone is gone — reported once, on Main, with a user-facing reason.
+     *
+     * The loop is the only thing that can notice: the capture stream ends when `pw-record` exits,
+     * the device is unplugged or the sound server restarts, and a service that is not told keeps
+     * `handsFreeMode` on, leaves the tray claiming to listen, and never stops a recorder that has
+     * already stopped itself. That is the 2026-10-19 review's silent-failure gap.
+     *
+     * Deliberately **not** reported when [stop] ends the loop: a user switching hands-free off and
+     * a microphone disappearing both take the same `break`/`finally`, and only `isActive` tells
+     * them apart. [resume] cannot revive a dead recorder — the service releases it and rebuilds
+     * one when the user starts listening again.
+     */
+    private val onDied: (String) -> Unit = {}
 ) {
     private var job: Job? = null
+
+    /** Exactly one death report per session; only the loop's own coroutine touches it. */
+    private var deathReported = false
 
     /**
      * PLAN.md §6's two budget spans, measured where the loop can mark them.
@@ -141,6 +159,7 @@ class VADAudioRecorder(
         if (isMonitoring) return
         isMonitoring = true
         isPaused = false
+        deathReported = false
         job = scope.launch(Dispatchers.IO) {
             // §6's first span starts here: this call is where the capture process is spawned, and
             // the next chunk to come out of it is what the 50 ms budget is about.
@@ -152,11 +171,14 @@ class VADAudioRecorder(
             latency.captureOpened()
             if (stream == null) {
                 isMonitoring = false
-                LogSink.logger.e(
-                    "VADAudioRecorder",
-                    if (inputDevice == null) "No capture stream could be opened"
-                    else "The selected microphone could not be opened (${inputDevice.label})",
-                )
+                val reason = if (inputDevice == null) "no capture stream could be opened"
+                else "the selected microphone could not be opened (${inputDevice.label})"
+                LogSink.logger.e("VADAudioRecorder", reason)
+                // Monitoring never began, but the service has already been told listening is on
+                // (startVadListening sets `handsFreeMode` immediately after this call returns).
+                // Reporting the same event is what makes the toggle honest instead of leaving it
+                // on over a recorder that never opened anything.
+                reportDeath(reason)
                 return@launch
             }
 
@@ -191,7 +213,9 @@ class VADAudioRecorder(
                     val read = stream.read(buffer, chunkSize)
                     // A read of 0 is the stream *ending*, not a short frame: the recorder process
                     // exited, the microphone was unplugged, or the sound server restarted. There
-                    // will be no more samples, so this stops rather than reading again.
+                    // will be no more samples, so this stops rather than reading again. A negative
+                    // return means the same thing in the seam's contract, and treating only 0 as
+                    // the end would make any implementation that uses the negative form spin.
                     //
                     // Without this the loop spun: it only consumed a full chunk, so a stream that
                     // had ended produced a warning per iteration for as long as the application
@@ -199,8 +223,9 @@ class VADAudioRecorder(
                     // failure can take. Upstream could not hit this, because `AudioRecord.read`
                     // blocks on a device that is still open and an unplugged phone microphone is
                     // not a thing; a subprocess that can exit is.
-                    if (read == 0) {
+                    if (read <= 0) {
                         LogSink.logger.w("VADAudioRecorder", "Capture stream ended — stopping VAD monitoring")
+                        reportDeath("the capture stream ended")
                         break
                     }
                     if (read != chunkSize) {
@@ -294,6 +319,11 @@ class VADAudioRecorder(
                 throw e
             } catch (e: Exception) {
                 LogSink.logger.e("VADAudioRecorder", "Recording error: ${e.message}")
+                // A detector or file failure ends this recorder just as surely as an unplugged
+                // microphone does, and leaving the service believing it is listening is the same
+                // silent failure. `reportDeath` filters the deliberate-stop case (the job is
+                // cancelled by then, so `isActive` is false).
+                reportDeath("recording error: ${e.message}")
             } finally {
                 // Released with the stream it belongs to. Upstream released its
                 // AcousticEchoCanceler here too, before the record it was attached to went away;
@@ -302,6 +332,21 @@ class VADAudioRecorder(
                 isMonitoring = false
             }
         }
+    }
+
+    /**
+     * Reports a microphone loss once, and only while the loop is still running.
+     *
+     * `isActive` is the discriminator between "the stream died on us" and "the user switched
+     * hands-free off": [stop] cancels [job] before the loop reaches its failure branches, so a
+     * deliberate stop can never be announced as a fault. The flag is set before the Main hop, so
+     * an exception thrown by the callback itself cannot re-enter through `catch (Exception)` and
+     * report twice.
+     */
+    private suspend fun reportDeath(reason: String) {
+        if (deathReported || !currentCoroutineContext().isActive) return
+        deathReported = true
+        withContext(Dispatchers.Main) { onDied(reason) }
     }
 
     fun stop() {
