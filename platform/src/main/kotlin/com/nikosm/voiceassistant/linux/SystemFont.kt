@@ -2,7 +2,6 @@ package com.nikosm.voiceassistant.linux
 
 import java.nio.file.Files
 import java.nio.file.Path
-import java.util.concurrent.TimeUnit
 
 /**
  * The desktop's own UI font file, resolved through fontconfig (M17).
@@ -21,16 +20,14 @@ fun systemUiFontPath(): Path? = runCatching {
     val process = ProcessBuilder("fc-match", "-f", "%{file}\n", "sans-serif")
         .redirectErrorStream(true)
         .start()
-    val firstLine = process.inputStream.bufferedReader().use { reader ->
-        reader.lineSequence().firstOrNull()?.trim()
-    }
-    // Read to EOF first (the call above closes the stream), then bound the wait: a hung
-    // fontconfig must not hang the launch.
-    if (!process.waitFor(3, TimeUnit.SECONDS)) {
-        process.destroyForcibly()
-        return null
-    }
-    if (process.exitValue() != 0 || firstLine.isNullOrBlank()) return null
+    // Drain beside the deadline: fontconfig normally answers in milliseconds and closes stdout,
+    // but a hung `fc-match` must not hang the launch on a `readBytes()` that never sees EOF.
+    val output = process.communicateWithin(PROBE_TIMEOUT_MS)
+    if (output.timedOut || output.exitCode != 0) return null
+    val firstLine = String(output.stdout).lineSequence().firstOrNull()?.trim()
+    if (firstLine.isNullOrBlank()) return null
     val path = Path.of(firstLine)
     path.takeIf { Files.isRegularFile(it) }
 }.getOrNull()
+
+private const val PROBE_TIMEOUT_MS = 3_000L

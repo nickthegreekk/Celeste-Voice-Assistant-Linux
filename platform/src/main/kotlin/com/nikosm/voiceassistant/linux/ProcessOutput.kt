@@ -39,7 +39,12 @@ internal fun Process.communicateWithin(timeoutMillis: Long): ProcessOutput {
         destroyForcibly()
         runCatching { waitFor(READ_GRACE_MS, TimeUnit.MILLISECONDS) }
         closePipes()
-        return ProcessOutput(null, stdout.await(READ_GRACE_MS), stderr.await(READ_GRACE_MS), true)
+        return ProcessOutput(
+            null,
+            stdout.awaitOrClose(this, READ_GRACE_MS),
+            stderr.awaitOrClose(this, READ_GRACE_MS),
+            true,
+        )
     }
     if (!finished) {
         destroyForcibly()
@@ -50,8 +55,8 @@ internal fun Process.communicateWithin(timeoutMillis: Long): ProcessOutput {
     }
     return ProcessOutput(
         exitCode = if (finished) runCatching { exitValue() }.getOrNull() else null,
-        stdout = stdout.await(READ_GRACE_MS),
-        stderr = stderr.await(READ_GRACE_MS),
+        stdout = stdout.awaitOrClose(this, READ_GRACE_MS),
+        stderr = stderr.awaitOrClose(this, READ_GRACE_MS),
         timedOut = !finished,
     )
 }
@@ -59,6 +64,17 @@ internal fun Process.communicateWithin(timeoutMillis: Long): ProcessOutput {
 private fun Process.closePipes() {
     runCatching { inputStream.close() }
     runCatching { errorStream.close() }
+}
+
+/**
+ * The reader's result, or — when a grandchild is holding the pipe open after a clean exit — the
+ * bytes collected so far, after closing our end to let the reader finish. A timeout here used to
+ * return an empty array even though the reader had already collected output.
+ */
+private fun StreamReader.awaitOrClose(process: Process, timeoutMillis: Long): ByteArray {
+    await(timeoutMillis)?.let { return it }
+    process.closePipes()
+    return await(READ_GRACE_MS) ?: ByteArray(0)
 }
 
 /**
@@ -91,13 +107,14 @@ private class StreamReader(stream: InputStream, name: String) {
         }
     }
 
-    fun await(timeoutMillis: Long): ByteArray = try {
+    /** The bytes read, or null when the reader has not finished within [timeoutMillis]. */
+    fun await(timeoutMillis: Long): ByteArray? = try {
         result.get(timeoutMillis, TimeUnit.MILLISECONDS)
     } catch (e: InterruptedException) {
         Thread.currentThread().interrupt()
-        ByteArray(0)
+        null
     } catch (_: Exception) {
-        ByteArray(0)
+        null
     }
 
     private companion object {

@@ -105,6 +105,7 @@ class PwPlayback(
 
     // ---------------------------------------------------------------- the one playback at a time
 
+    @Synchronized
     private fun start(file: Path, target: AudioDevice?, onEnd: (PlaybackEnd) -> Unit, ownedTemp: Path?): PlaybackHandle {
         // Contract 1, and the order matters: the outgoing clip is stopped and *its* callback fired
         // before the incoming one is installed, so a caller reacting to a stop by starting something
@@ -156,8 +157,10 @@ class PwPlayback(
                 val probe = ProcessBuilder(candidate.command, *candidate.probeArgs)
                     .redirectErrorStream(true)
                     .start()
-                probe.inputStream.use { it.readBytes() }
-                probe.waitFor() == 0
+                // A probe is the one place a wedged player is most likely (a binary present with
+                // no sound server behind it). Drain beside the wait so the deadline can be reached.
+                val output = probe.communicateWithin(PROBE_TIMEOUT_MS)
+                !output.timedOut && output.exitCode == 0
             } catch (e: IOException) {
                 false
             }
@@ -246,9 +249,12 @@ class PwPlayback(
             // **It blocks its caller, for at most PLAYER_EXIT_GRACE_MS, and that is a considered
             // cost.** `stopAll()` is reached from the service on `Dispatchers.Main`, so a player
             // that ignored SIGTERM would hitch the UI by that much. Measured on this machine:
-            // `pw-play` exits in well under 50 ms.
+            // `pw-play` exits in well under 50 ms. A player that outlasts the grace is killed
+            // forcibly: leaving it alive would keep the sink open and overlap the next utterance.
             process.destroy()
-            process.waitFor(PLAYER_EXIT_GRACE_MS, java.util.concurrent.TimeUnit.MILLISECONDS)
+            if (!process.waitFor(PLAYER_EXIT_GRACE_MS, java.util.concurrent.TimeUnit.MILLISECONDS)) {
+                process.destroyForcibly()
+            }
         }
 
         /**
@@ -295,6 +301,9 @@ class PwPlayback(
 
         /** How long a politely-killed player gets before the device is taken from it. */
         const val PLAYER_EXIT_GRACE_MS = 500L
+
+        /** A version query answers in milliseconds; a wedged player must not block the first play. */
+        const val PROBE_TIMEOUT_MS = 3_000L
 
         /**
          * In preference order, each with the cheapest question that tells whether it can work here.

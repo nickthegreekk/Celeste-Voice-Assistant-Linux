@@ -195,8 +195,10 @@ class ProcessTextToSpeech(
             val ok = try {
                 val p = ProcessBuilder(candidate.command, *candidate.probeArgs)
                     .redirectErrorStream(true).start()
-                p.inputStream.use { it.readBytes() }
-                p.waitFor(PROBE_TIMEOUT_MS, TimeUnit.MILLISECONDS) && p.exitValue() == 0
+                // Drain beside the wait: `--version` normally closes stdout immediately, but a
+                // wedged engine must not be able to hold the probe past its deadline.
+                val output = p.communicateWithin(PROBE_TIMEOUT_MS)
+                !output.timedOut && output.exitCode == 0
             } catch (e: IOException) {
                 false
             }

@@ -5,7 +5,6 @@ import com.nikosm.voiceassistant.AudioDevice
 import com.nikosm.voiceassistant.AudioDevices
 import com.nikosm.voiceassistant.StderrLogger
 import java.io.IOException
-import java.util.concurrent.TimeUnit
 
 /**
  * Seam 3, implemented by asking `pactl`, with `wpctl` as the fallback.
@@ -235,22 +234,19 @@ class LinuxAudioDevices(
             logger.d(TAG, "${command.first()} is not available: ${e.message}")
             return null
         }
-        return try {
-            val output = process.inputStream.bufferedReader().use { it.readLines() }
-            if (!process.waitFor(PROBE_TIMEOUT_MS, TimeUnit.MILLISECONDS)) {
+        // communicateWithin drains while it waits; reading to EOF first would let a wedged
+        // `pactl` block the picker forever, because the deadline would only be reached after EOF.
+        val output = process.communicateWithin(PROBE_TIMEOUT_MS)
+        return when {
+            output.timedOut -> {
                 logger.w(TAG, "${command.first()} did not answer within ${PROBE_TIMEOUT_MS}ms")
-                process.destroyForcibly()
                 null
-            } else if (process.exitValue() != 0) {
-                logger.w(TAG, "${command.first()} exited ${process.exitValue()}")
-                null
-            } else {
-                output
             }
-        } catch (e: InterruptedException) {
-            Thread.currentThread().interrupt()
-            process.destroyForcibly()
-            null
+            output.exitCode != 0 -> {
+                logger.w(TAG, "${command.first()} exited ${output.exitCode}")
+                null
+            }
+            else -> String(output.stdout).lineSequence().toList()
         }
     }
 

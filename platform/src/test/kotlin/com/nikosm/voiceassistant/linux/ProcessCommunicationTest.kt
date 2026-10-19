@@ -65,4 +65,16 @@ class ProcessCommunicationTest {
             String(output.stdout).startsWith("partial"),
         )
     }
+
+    @Test(timeout = 10_000)
+    fun `a clean exit with a grandchild holding the pipe keeps what was read`() {
+        // The direct child exits 0, but a grandchild inherited stdout and keeps it open. The reader
+        // never sees EOF, so the grace expires — and the bytes already collected must survive,
+        // rather than being replaced by the empty array a timed-out await used to return.
+        val output = fixture("orphan").communicateWithin(10_000)
+
+        assertFalse("the direct child exited, so this is not a timeout", output.timedOut)
+        assertEquals(0, output.exitCode)
+        assertEquals("before-orphan", String(output.stdout))
+    }
 }

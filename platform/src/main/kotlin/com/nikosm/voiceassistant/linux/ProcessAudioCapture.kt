@@ -133,8 +133,10 @@ class ProcessAudioCapture(
             val ok = try {
                 val p = ProcessBuilder(candidate.command, "--version")
                     .redirectErrorStream(true).start()
-                p.inputStream.use { it.readBytes() }
-                p.waitFor(PROBE_TIMEOUT_MS, TimeUnit.MILLISECONDS) && p.exitValue() == 0
+                // Drain beside the wait: a wedged binary that never closes stdout would otherwise
+                // block the read before the timeout could be reached.
+                val output = p.communicateWithin(PROBE_TIMEOUT_MS)
+                !output.timedOut && output.exitCode == 0
             } catch (e: IOException) {
                 false
             }
