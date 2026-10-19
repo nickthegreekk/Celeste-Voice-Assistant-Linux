@@ -68,7 +68,7 @@ class JsonSettingsStore(
     override fun getLong(key: String, default: Long): Long = read(key, default) { it as? Long }
 
     override fun getFloat(key: String, default: Float): Float =
-        read(key, default) { (it as? Double)?.toFloat() }
+        read(key, default) { (it as? Number)?.toFloat() }
 
     override fun getBoolean(key: String, default: Boolean): Boolean = read(key, default) { it as? Boolean }
 

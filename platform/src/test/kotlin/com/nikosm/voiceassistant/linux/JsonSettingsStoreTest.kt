@@ -51,6 +51,17 @@ class JsonSettingsStoreTest {
     }
 
     @Test
+    fun `a float put in this session reads back as a float`() {
+        // The in-memory map holds the Float that putFloat stored; only a value read back from JSON
+        // is a Double. Casting to Double here made every same-session read return the default and
+        // log a spurious type mismatch.
+        val store = newStore()
+        store.edit().putFloat("chat_font_size", 14.5f).commit()
+
+        assertEquals(14.5f, store.getFloat("chat_font_size", 0f), 0.0f)
+    }
+
+    @Test
     fun `a full-precision Long survives exactly`() {
         // `total_cost_bits` is Double.doubleToRawLongBits, so it is an arbitrary 64-bit pattern and
         // not a tidy number — a round trip through a JSON *double* would silently change it.
