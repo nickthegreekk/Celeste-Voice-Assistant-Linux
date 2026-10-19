@@ -82,20 +82,29 @@ internal fun personaShortcutFile(personaName: String, applicationsDir: Path): Pa
  * falls back to a generic one rather than a broken entry.
  */
 internal fun personaDesktopEntry(personaName: String, artworkPath: String?): String = buildString {
+    val name = flattenDesktopNewlines(personaName.trim())
     appendLine("[Desktop Entry]")
     appendLine("Type=Application")
-    appendLine("Name=${personaName.trim()}")
-    appendLine("Comment=Chat with ${personaName.trim()}")
-    appendLine("Exec=$PERSONA_SHORTCUT_EXEC --persona \"${escapeForDesktopExec(personaName)}\"")
-    if (!artworkPath.isNullOrBlank()) appendLine("Icon=$artworkPath")
+    appendLine("Name=$name")
+    appendLine("Comment=Chat with $name")
+    appendLine("Exec=$PERSONA_SHORTCUT_EXEC --persona \"${escapeForDesktopExec(name)}\"")
+    if (!artworkPath.isNullOrBlank()) appendLine("Icon=${flattenDesktopNewlines(artworkPath)}")
     appendLine("Terminal=false")
     appendLine("Categories=Utility;")
     // Every persona entry opens the same window, so every one of them claims the same window:
-    // `Main.kt` sets AWT's `sun.awt.X11.XWMClassName` to this name, that is what the window reports
-    // as its `WM_CLASS`, and this is what the entry says it owns. Without the pair a dock cannot
-    // tell which icon a running Celeste should wear and falls back to a generic one.
+    // `Main.kt` sets AWT's reflective `awtAppClassName` field to this name, that is what the
+    // window reports as its `WM_CLASS`, and this is what the entry says it owns. Without the pair a
+    // dock cannot tell which icon a running Celeste should wear and falls back to a generic one.
     appendLine("StartupWMClass=$PERSONA_SHORTCUT_EXEC")
 }
+
+/**
+ * A persona name is local input, and also arrives through a backup import. A newline in it is not
+ * a name — the desktop-entry format reads it as the start of the next key, so a crafted name could
+ * inject `Exec=`, `Icon=` or anything else. Flatten line breaks to spaces before either writing a
+ * key or quoting the name into `Exec`.
+ */
+private fun flattenDesktopNewlines(value: String): String = value.replace('\r', ' ').replace('\n', ' ')
 
 /** The desktop-entry spec's escaping for a quoted `Exec` argument — see [personaDesktopEntry]. */
 internal fun escapeForDesktopExec(value: String): String = buildString {

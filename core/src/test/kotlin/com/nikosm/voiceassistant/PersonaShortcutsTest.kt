@@ -70,10 +70,28 @@ class PersonaShortcutsTest {
         )
         assertFalse("no artwork, no Icon line rather than an empty one", entry.contains("Icon="))
         // A dock draws a running window's icon by matching the window's `WM_CLASS` against the
-        // entries that claim it. `Main.kt` sets AWT's `sun.awt.X11.XWMClassName` to this same
-        // string; if these two ever drift, every entry loses its icon rather than the wrong one
-        // being drawn — which is exactly what happened before either of them existed.
+        // entries that claim it. `Main.kt` sets AWT's reflective `awtAppClassName` field to this
+        // same string; if these two ever drift, every entry loses its icon rather than the wrong
+        // one being drawn — which is exactly what happened before either of them existed.
         assertEquals("StartupWMClass=$PERSONA_SHORTCUT_EXEC", entry.lineSequence().first { it.startsWith("StartupWMClass=") })
+    }
+
+    @Test
+    fun `a newline in a persona name cannot inject desktop keys`() {
+        // Persona names are local input, but also arrive through a backup import. The desktop-entry
+        // format reads a newline as the start of the next key; without flattening, this name would
+        // add an `Exec=/bin/sh` line to a launcher the user may double-click.
+        val entry = personaDesktopEntry("Evil\nExec=/bin/sh", null)
+
+        assertEquals("one line per key", 1, entry.lineSequence().count { it.startsWith("Exec=") })
+        assertFalse(
+            "the injected line must not exist as its own key",
+            entry.lineSequence().any { it == "Exec=/bin/sh" },
+        )
+        assertTrue(
+            "the name is flattened into the existing value instead",
+            entry.contains("Name=Evil Exec=/bin/sh"),
+        )
     }
 
     @Test
