@@ -1,3 +1,17 @@
+celeste-linux (0.2.0) unstable; urgency=medium
+
+  * Bug-fix update from two adversarial reviews: the filesystem gate now
+    refuses hard-linked files; spontaneous deliveries keep their re-armed
+    successor; settings recovery never logs the file's contents; all
+    helper-process reads are deadline-bounded; MCP transports survive a
+    wedged server or a timed-out request and rethrow cancellation; approval
+    timeouts are reported accurately; shared payloads land visibly; persona
+    names cannot inject .desktop keys; same-session float settings read back
+    correctly.
+  * Version bumped to 0.2.0.
+
+ -- Nikos <nikos@localhost>  Mon, 19 Oct 2026 08:40:14 +0300
+
 celeste-linux (0.1.0) unstable; urgency=medium
 
   * Initial packaging: the jpackage app image with its own trimmed runtime under
