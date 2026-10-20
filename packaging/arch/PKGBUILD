@@ -36,10 +36,10 @@
 # `debian/` rules, which is PLAN.md §10/M6's own note.
 
 pkgname=celeste-linux
-# Kept in step by hand with `allprojects { version = "0.2.0" }` in the root build.gradle.kts;
+# Kept in step by hand with `allprojects { version = "0.2.1" }` in the root build.gradle.kts;
 # `build()` refuses to package a mismatch rather than shipping a name that disagrees with its
 # contents.
-pkgver=0.2.0
+pkgver=0.2.1
 pkgrel=1
 pkgdesc="Celeste — a voice assistant that talks to your own models: speech in, speech out, images"
 # The app image carries a host-architecture jlink runtime and a host-architecture ONNX native. An

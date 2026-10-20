@@ -1,3 +1,15 @@
+celeste-linux (0.2.1) unstable; urgency=medium
+
+  * Bug-fix update: hands-free listening stops, switches off and says why when
+    the microphone disappears, instead of staying on over a dead recorder.
+  * Markdown conversation export from the chat and room headers, with images
+    copied into a sibling folder and linked relatively.
+  * A negative capture read is treated as end-of-stream, so an implementation
+    using the documented negative form cannot spin the VAD loop.
+  * Version bumped to 0.2.1.
+
+ -- Nikos <nikos@localhost>  Tue, 20 Oct 2026 09:33:00 +0300
+
 celeste-linux (0.2.0) unstable; urgency=medium
 
   * Bug-fix update from two adversarial reviews: the filesystem gate now

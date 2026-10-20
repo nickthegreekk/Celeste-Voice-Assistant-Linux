@@ -331,7 +331,7 @@ private class McpConnection(
 
     private companion object {
         const val TAG = "McpRegistry"
-        const val CLIENT_VERSION = "0.2.0"
+        const val CLIENT_VERSION = "0.2.1"
         const val NO_ID = Long.MIN_VALUE
 
         /** A server that pages forever must not keep the turn waiting forever. */
