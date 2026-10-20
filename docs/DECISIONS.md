@@ -1636,3 +1636,31 @@ produced the very per-iteration hot loop the 0 check exists to prevent. Both are
 
 → PLAN.md §10/M17 follow-up; `VADAudioRecorder.kt`, `AssistantService.kt`, `AudioCapture.kt`,
 `VADAudioRecorderTest.kt`, `NoMicrophoneTest.kt`, `MicrophoneLossTest.kt`
+
+## 2026-10-20 — Conversation export is Markdown with the images copied beside it
+
+The transcript on disk (`~/.celeste-linux/<persona>/chat.json`, and the same under `rooms/`) is a
+storage format, not something a user can hand to anyone. The 0.2.0 review asked for an export, and
+the header menu now has **Export chat…** (rooms have the same action in their header). The file is
+written through the existing `FileDialogs.save` seam, and the write runs on the service scope for
+the same reason the backup export does: closing the window must not cancel it halfway.
+
+**Copied images, not links.** A message's `imagePath` / `generatedImagePath` is an absolute path in
+the user's home; putting it in a Markdown file gives the recipient a broken image and exposes the
+sender's directory layout. Images are copied into `<export>.images/` with the message index and kind
+in the name, and the document links to them relatively, so the pair survives being moved or emailed.
+A source that is already missing is named in the document — `*[Attached image could not be
+exported]*` — rather than failing an export that still has the words, which are the valuable part.
+
+**Reasoning is omitted.** `ChatMessage.reasoning` is model scratchpad, not conversation; including
+it would roughly double the file for no reader's benefit. The formatter also omits a time for
+messages whose `timestamp` is 0 (the legacy convention documented on the model) rather than
+rendering 1970 or "now".
+
+**Rejected: base64-embedded images.** One self-contained file is tempting, but a 2 MB screenshot
+becomes ~2.7 MB of text and a chat with several images produces a document many editors refuse.
+**Rejected: a separate export screen.** The save dialog already answers where the file goes; a
+preview surface would be a second UI to maintain for no decision the user did not already make.
+
+→ PLAN.md §10/M17 follow-up; `ConversationExport.kt`, `MainVoiceScreen.kt`,
+`ConversationExportTest.kt`, `ConversationExportUiTest.kt`

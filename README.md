@@ -24,8 +24,8 @@ its personas and its rooms, with the phone idioms replaced by desktop ones.
 - **Tools, with a gate.** Filesystem reads and writes (workspace-scoped, approval prompts, audit
   log), MCP servers, and terminal commands that ask per command — off by default.
 - **Desktop-first.** A main window with a sidebar, Settings in its own window, a native menu bar
-  and tray, desktop notifications, transcript search, per-persona folders in your home, and a
-  colour style that can follow your GTK theme.
+  and tray, desktop notifications, transcript search, Markdown export (images copied beside the
+  file), per-persona folders in your home, and a colour style that can follow your GTK theme.
 - **Private by design.** No telemetry, no analytics, no automatic update check. It talks only to
   the servers you configure; About has a manual update check and links to the repository and
   releases page, and nothing is downloaded or installed from the app.

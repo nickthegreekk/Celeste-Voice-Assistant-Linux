@@ -868,6 +868,43 @@ fun MainScreen(
         // action) instead of the persona; currentPersona is left alone so the persona
         // chat underneath is exactly as it was.
         val activeRoom = rooms.find { it.id == activeRoomId }
+
+        /**
+         * Exports the surface the user is looking at — the open room, or the persona
+         * conversation — through the same save dialog the backup export uses. The dialog runs
+         * here, synchronously, because an AWT dialog answers in place; the write and the image
+         * copies run on the service scope (see [exportChatMarkdown]) so closing the window cannot
+         * cancel them halfway.
+         */
+        fun exportCurrentChat() {
+            val svc = service ?: return
+            val room = activeRoom
+            val date = java.time.LocalDate.now()
+            val target = runCatching {
+                if (room != null) {
+                    svc.fileDialogs.save(
+                        "celeste-room-${exportFileSlug(room.name)}-$date.md",
+                        "Export room chat",
+                    )
+                } else {
+                    svc.fileDialogs.save(
+                        "celeste-${exportFileSlug(currentPersona.name)}-$date.md",
+                        "Export chat",
+                    )
+                }
+            }.getOrNull() ?: return
+            if (room != null) {
+                svc.exportRoomMarkdown(target, "Room: ${room.name}", roomMessages)
+            } else {
+                svc.exportChatMarkdown(
+                    target = target,
+                    title = "Conversation with ${currentPersona.name}",
+                    messages = messages,
+                    assistantName = currentPersona.name,
+                )
+            }
+        }
+
         // M11: the session's model for this persona, if one was chosen in the header, and whether
         // the header offers the picker at all. The list is Ollama's, so the control is shown only
         // where the persona is a direct Ollama session — a cloud, gateway or image-generator
@@ -906,7 +943,8 @@ fun MainScreen(
                         room = activeRoom,
                         onRoomClick = { showPersonaPicker = true },
                         onLeaveClick = { service?.leaveRoom() },
-                        onSettingsClick = { requestSettings(null) }
+                        onSettingsClick = { requestSettings(null) },
+                        onExportClick = { exportCurrentChat() }
                     )
                 } else {
                     Header(
@@ -954,7 +992,8 @@ fun MainScreen(
                         onSessionModelClick = if (canOverrideSessionModel) {
                             { showSessionModelPicker = true }
                         } else null,
-                        onSearchClick = { showTranscriptSearch = true }
+                        onSearchClick = { showTranscriptSearch = true },
+                        onExportClick = { exportCurrentChat() }
                     )
                 }
             }
@@ -1340,7 +1379,9 @@ fun RoomHeader(
     room: Room,
     onRoomClick: () -> Unit,
     onLeaveClick: () -> Unit,
-    onSettingsClick: () -> Unit
+    onSettingsClick: () -> Unit,
+    /** Exports the room's conversation to Markdown, through the save dialog. */
+    onExportClick: () -> Unit = {}
 ) {
     Column(
         modifier = Modifier
@@ -1382,6 +1423,13 @@ fun RoomHeader(
                 }
             }
 
+            IconButton(onClick = onExportClick, modifier = Modifier.size(48.dp)) {
+                Icon(
+                    Icons.Default.Save,
+                    contentDescription = "Export room chat",
+                    tint = MaterialTheme.colorScheme.onBackground
+                )
+            }
             TextButton(onClick = onLeaveClick) {
                 Text("Leave")
             }
@@ -1445,7 +1493,9 @@ fun Header(
     sessionModelOverridden: Boolean = false,
     onSessionModelClick: (() -> Unit)? = null,
     /** Opens the transcript search dialog (M13). */
-    onSearchClick: () -> Unit = {}
+    onSearchClick: () -> Unit = {},
+    /** Exports the current conversation to Markdown, through the save dialog. */
+    onExportClick: () -> Unit = {}
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
 
@@ -1580,6 +1630,15 @@ fun Header(
                         onClick = {
                             menuExpanded = false
                             onSearchClick()
+                        },
+                        modifier = Modifier.heightIn(min = 48.dp)
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Export chat…") },
+                        leadingIcon = { Icon(Icons.Default.Save, null, modifier = Modifier.size(24.dp)) },
+                        onClick = {
+                            menuExpanded = false
+                            onExportClick()
                         },
                         modifier = Modifier.heightIn(min = 48.dp)
                     )
