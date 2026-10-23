@@ -1,14 +1,24 @@
-celeste-linux (0.2.1) unstable; urgency=medium
+celeste-linux (0.2.2) unstable; urgency=medium
 
-  * Bug-fix update: hands-free listening stops, switches off and says why when
-    the microphone disappears, instead of staying on over a dead recorder.
-  * Markdown conversation export from the chat and room headers, with images
-    copied into a sibling folder and linked relatively.
-  * A negative capture read is treated as end-of-stream, so an implementation
-    using the documented negative form cannot spin the VAD loop.
-  * Version bumped to 0.2.1.
+  * About section in Settings: version, project page and releases links,
+    GPL-3.0-only licence notice, no telemetry.
+  * App icon unified with the Android build: same green-and-white launcher
+    icon on the window, taskbar and menu entry.
+  * MCP tool servers: per-server enable/disable, trust approval gate with
+    “always allow”, audit log, HTTP-only on Android.
+  * Per-persona long-term memory with add/forget/clear notes.
+  * Backup export can exclude credentials: passwords and API keys, MCP
+    environment values and headers, URL userinfo and query strings, and
+    credential flag values are redacted after an explicit plain-text
+    confirmation. A redacted export keeps every other field, including
+    persona chats, artwork, message images and schedules.
+  * Importing a backup restores MCP servers disabled with trust ASK and never
+    restores trusted certificate pins.
+  * The pinned TLS trust manager fails closed on a null or empty certificate
+    chain instead of treating it as trusted.
+  * Version bumped to 0.2.2.
 
- -- Nikos <nikos@localhost>  Tue, 20 Oct 2026 09:33:00 +0300
+ -- Nikos <nikos@localhost>  Fri, 23 Oct 2026 19:45:00 +0300
 
 celeste-linux (0.2.0) unstable; urgency=medium
 

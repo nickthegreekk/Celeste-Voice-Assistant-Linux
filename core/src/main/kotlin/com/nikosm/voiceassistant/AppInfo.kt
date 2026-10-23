@@ -3,7 +3,7 @@ package com.nikosm.voiceassistant
 /**
  * The application's version, shown in About — the window and the Settings section.
  *
- * Kept in step by hand with `allprojects { version = "0.2.1" }` and the packaging files — the
+ * Kept in step by hand with `allprojects { version = "0.2.2" }` and the packaging files — the
  * same discipline `PKGBUILD` documents for `pkgver`. There is no manifest entry to read: a
  * jpackage app image does not install one, and inventing a resource for a constant that changes
  * once a release would be more machinery than the field is worth.
@@ -11,7 +11,7 @@ package com.nikosm.voiceassistant
  * It lives in `:core` rather than `:desktop` because Settings renders it (M17 follow-up,
  * 2026-10-17) and `:core` may not import the desktop shell.
  */
-const val APP_VERSION = "0.2.1"
+const val APP_VERSION = "0.2.2"
 
 /**
  * The project's public page (2026-10-18).
