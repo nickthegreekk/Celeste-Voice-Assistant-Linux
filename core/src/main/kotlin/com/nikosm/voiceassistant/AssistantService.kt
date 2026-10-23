@@ -3582,35 +3582,7 @@ internal fun buildPinnedClient(
     trustedCerts: () -> Map<String, String>,
     onUntrusted: (CertApprovalRequest) -> Unit,
 ): OkHttpClient {
-    val pinnedTrustManager = object : javax.net.ssl.X509ExtendedTrustManager() {
-        override fun checkClientTrusted(chain: Array<out X509Certificate>?, authType: String?, socket: java.net.Socket?) {}
-        override fun checkServerTrusted(chain: Array<out X509Certificate>?, authType: String?, socket: java.net.Socket?) {
-            val host = (socket as? javax.net.ssl.SSLSocket)?.handshakeSession?.peerHost ?: "unknown"
-            verify(chain, host)
-        }
-        override fun checkClientTrusted(chain: Array<out X509Certificate>?, authType: String?, engine: javax.net.ssl.SSLEngine?) {}
-        override fun checkServerTrusted(chain: Array<out X509Certificate>?, authType: String?, engine: javax.net.ssl.SSLEngine?) {
-            val host = engine?.peerHost ?: "unknown"
-            verify(chain, host)
-        }
-        override fun checkClientTrusted(chain: Array<out X509Certificate>?, authType: String?) {}
-        override fun checkServerTrusted(chain: Array<out X509Certificate>?, authType: String?) {
-            verify(chain, "unknown")
-        }
-        override fun getAcceptedIssuers(): Array<X509Certificate> = arrayOf()
-
-        private fun verify(chain: Array<out X509Certificate>?, host: String) {
-            if (chain == null || chain.isEmpty()) return
-            val cert = chain[0]
-            val fingerprint = sha256Fingerprint(cert)
-            val stored = trustedCerts()[host]
-
-            if (stored == null || stored != fingerprint) {
-                onUntrusted(CertApprovalRequest(host, fingerprint, cert))
-                throw javax.net.ssl.SSLHandshakeException(if (stored == null) "New self-signed cert" else "Cert changed!")
-            }
-        }
-    }
+    val pinnedTrustManager = PinnedTrustManager(trustedCerts, onUntrusted)
 
     val sslContext = SSLContext.getInstance("TLS")
     sslContext.init(null, arrayOf(pinnedTrustManager), SecureRandom())
