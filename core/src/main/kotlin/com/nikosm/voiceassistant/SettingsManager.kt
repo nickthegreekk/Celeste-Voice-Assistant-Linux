@@ -1214,7 +1214,7 @@ class SettingsManager(
             // MCP definitions restore; the grant does not. The export already stripped trust, and
             // this second copy of the rule is what protects against a hand-edited backup that says
             // TRUSTED — an imported file must never be a way to run tools without the confirmation.
-            saveMcpServers(backup.mcpServers.map { it.copy(trust = McpTrust.ASK) })
+            saveMcpServers(backup.mcpServers.map { it.copy(enabled = false, trust = McpTrust.ASK) })
             // Skills land BEFORE the personas, because each persona's enabledSkillIds are
             // pruned against this exact list below: a backup that carried skills but a
             // persona referencing a skill this backup doesn't contain must not restore an
@@ -1270,7 +1270,6 @@ class SettingsManager(
             }
             saveTotalCost(backup.totalCost)
             saveFavoriteModels(backup.favoriteModels)
-            saveTrustedCertificates(backup.trustedCerts)
             backup.searxngUrl?.let { saveSearxngUrl(it) }
             backup.userLocation?.let { saveUserLocation(it) }
             backup.ragServerUrl?.let { saveRagServerUrl(it) }
