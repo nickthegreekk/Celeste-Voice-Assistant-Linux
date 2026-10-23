@@ -1105,7 +1105,7 @@ class SettingsManager(
         }
     }
 
-    fun exportBackup(): String {
+    fun exportBackup(excludeSecrets: Boolean = false): String {
         val personas = getPersonas() ?: emptyList()
         val personaMessages = personas.associate { it.name to (getPersonaMessages(it.name) ?: emptyList()) }
         val exportedRooms = getRooms() ?: emptyList()
@@ -1183,7 +1183,11 @@ class SettingsManager(
             // the references against what the backup actually brought back.
             scheduledSkills = getScheduledSkills(),
         )
-        return json.encodeToString(backup)
+        return if (excludeSecrets) {
+            json.encodeToString(redactBackupCredentials(backup))
+        } else {
+            json.encodeToString(backup)
+        }
     }
 
     fun importBackup(jsonString: String): Boolean {
