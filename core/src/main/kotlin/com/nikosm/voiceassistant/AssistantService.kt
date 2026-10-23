@@ -2671,10 +2671,10 @@ class AssistantService(
     // revoked at any moment; a path from a save/open dialog is a file this process can simply open.
     // The one thing worth keeping from upstream's shape is that the write happens off Main and that
     // a failure is reported rather than thrown — both survive below.
-    fun exportBackupToFile(target: Path, password: String? = null) {
+    fun exportBackupToFile(target: Path, password: String? = null, excludeCredentials: Boolean) {
         serviceScope.launch {
             try {
-                val backup = exportBackup()
+                val backup = settingsManager.exportBackup(excludeSecrets = excludeCredentials)
                 val output = if (password.isNullOrBlank()) backup
                 else withContext(Dispatchers.IO) { encryptBackupJson(backup, password) }
                 withContext(Dispatchers.IO) {

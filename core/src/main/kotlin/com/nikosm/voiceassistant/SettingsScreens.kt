@@ -961,6 +961,20 @@ fun SettingsDialog(
 
 
 /**
+ * What "Exclude credentials" removes from an exported backup. Every claim here is checked against
+ * [redactBackupCredentials] in BackupRedaction.kt — keep the two in step.
+ */
+internal const val EXCLUDE_CREDENTIALS_DESCRIPTION =
+    "Cleared: passwords and API keys for servers, image generators, cloud providers and RAG; " +
+    "the RAG username; MCP environment values and headers; user:password, query strings and " +
+    "fragments in URLs; and the value after flags such as --token, --api-key, --apikey, --key, " +
+    "--password, --secret, --auth and --bearer in MCP arguments. Kept: server usernames, the " +
+    "rest of each URL, all chats — main, room and persona — exactly as written, personas, rooms, " +
+    "skills, persona artwork, message images, schedules and location. Text typed into a chat or " +
+    "persona prompt is not screened, and a secret passed as a bare argument cannot be detected, " +
+    "so both stay in the file."
+
+/**
  * General category screen: appearance, chat font, cost, location, history, backup.
  *
  * Body of [SettingsCategoryScreen] — a whole category's content, not an embeddable
@@ -1013,6 +1027,10 @@ fun GeneralSettings(
     var exportConfirmPassword by remember { mutableStateOf("") }
     var exportPasswordError by remember { mutableStateOf<String?>(null) }
     var pendingExportPassword by remember { mutableStateOf<String?>(null) }
+    // Redact credentials from the exported file. A plain-text export that would still carry them
+    // asks first (showExportConfirmation); the answer is decided by decideExport in ExportDecision.kt.
+    var excludeCredentials by remember { mutableStateOf(false) }
+    var showExportConfirmation by remember { mutableStateOf(false) }
 
     // Upstream used `ActivityResultContracts.CreateDocument("application/json")` and
     // `ActivityResultContracts.OpenDocument()` here. Seam 13 replaces both, and the two
@@ -1024,13 +1042,13 @@ fun GeneralSettings(
     // backups; an AWT dialog has no type list to get wrong. The service still validates the
     // format and still reports "Invalid format" for a wrong file, which is the guarantee that
     // mattered.
-    fun exportBackup() {
+    fun exportBackup(exclude: Boolean) {
         val target = runCatching {
             service.fileDialogs.save("celeste-backup.json", "Export backup")
         }.getOrNull() ?: return
         // Runs on serviceScope (inside the service) so closing the Settings dialog can
         // no longer cancel the export mid-write and leave a truncated file.
-        service.exportBackupToFile(target, pendingExportPassword)
+        service.exportBackupToFile(target, pendingExportPassword, exclude)
         pendingExportPassword = null
     }
 
@@ -1405,24 +1423,46 @@ Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
                     Text(err, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
                 }
             }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Checkbox(
+                    checked = excludeCredentials,
+                    onCheckedChange = { excludeCredentials = it }
+                )
+                Text("Exclude credentials")
+            }
+            Text(
+                EXCLUDE_CREDENTIALS_DESCRIPTION,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
+            )
             OutlinedButton(
                 onClick = {
-                    if (encryptExport) {
+                    val validated = if (encryptExport) {
                         when {
-                            exportPassword.length < 8 ->
+                            exportPassword.length < 8 -> {
                                 exportPasswordError = "Password must be at least 8 characters."
-                            exportPassword != exportConfirmPassword ->
+                                false
+                            }
+                            exportPassword != exportConfirmPassword -> {
                                 exportPasswordError = "Passwords do not match."
+                                false
+                            }
                             else -> {
                                 exportPasswordError = null
                                 pendingExportPassword = exportPassword
-                                exportBackup()
+                                true
                             }
                         }
                     } else {
                         exportPasswordError = null
                         pendingExportPassword = null
-                        exportBackup()
+                        true
+                    }
+                    if (validated) {
+                        when (val d = decideExport(encryptExport, excludeCredentials)) {
+                            ExportDecision.NeedsConfirmation -> showExportConfirmation = true
+                            is ExportDecision.ExportNow -> exportBackup(d.excludeCredentials)
+                        }
                     }
                 },
                 modifier = Modifier.fillMaxWidth(),
@@ -1449,6 +1489,36 @@ Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
         }
     }
 }
+
+    // A plain-text export that would still carry credentials: ask before a file is written.
+    // The three answers cover decideExport's NeedsConfirmation outcome (redacted or not) and
+    // Cancel, which only closes the dialog — no file chooser, no file.
+    if (showExportConfirmation) {
+        AlertDialog(
+            onDismissRequest = { showExportConfirmation = false },
+            title = { Text("Export credentials in plain text?") },
+            text = { Text("This file will contain your passwords and API keys in plain text.") },
+            confirmButton = {
+                Column {
+                    TextButton(onClick = {
+                        showExportConfirmation = false
+                        exportBackup(true)
+                    }) {
+                        Text("Exclude credentials and export")
+                    }
+                    TextButton(onClick = {
+                        showExportConfirmation = false
+                        exportBackup(false)
+                    }) {
+                        Text("Export with credentials anyway")
+                    }
+                    TextButton(onClick = { showExportConfirmation = false }) {
+                        Text("Cancel")
+                    }
+                }
+            }
+        )
+    }
 
     // Fix #7: prompt for the password of an encrypted backup. Shown when the
     // service-side import detects the encrypted envelope; the answer resumes the
