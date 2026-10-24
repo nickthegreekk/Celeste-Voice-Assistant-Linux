@@ -54,8 +54,9 @@ counterpart, and a PipeWire `module-echo-cancel` sink is the right place for it 
 
 ## Install
 
-Packages are built from this tree (see [Build from source](#build-from-source)); once a release is
-published it will appear on the
+Packages are built from this tree (see [Build from source](#build-from-source)). The current
+release is **0.2.2** — what changed, the package hashes and the known limitations are in
+[docs/RELEASE-0.2.2.md](docs/RELEASE-0.2.2.md) — and published packages appear on the
 [Releases](https://github.com/nickthegreekk/Celeste-Voice-Assistant-Linux/releases) page.
 
 ```sh
@@ -117,6 +118,13 @@ packaging/debian/           # .deb, built ON Debian (a jpackage runtime carries 
 Backups are a single `celeste-backup.json`: conversations, settings, personas, skills, rooms,
 memories, artwork, attachments and generated images, encrypted with a password (AES-256-GCM) if you
 ask for one. Cached speech audio is not included — it is regenerable.
+
+An export can **exclude credentials**: server, image-generator, cloud and RAG passwords and API
+keys, the RAG username, MCP environment values and headers, URL userinfo/query strings and
+credential flag values are cleared after a plain-text confirmation. The redacted file keeps
+everything else, including persona chats, artwork, message images and schedules. Text typed into a
+chat or a persona prompt is not screened and stays in the file, and trusted certificate pins are
+still exported (they are not secret, and import never restores them).
 
 ## Licence and provenance
 
