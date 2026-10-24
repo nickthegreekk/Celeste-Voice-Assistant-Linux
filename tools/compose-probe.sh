@@ -20,7 +20,7 @@
 #   tools/compose-probe.sh --deps     with material3 + icons added, i.e. the post-fix answer
 set -uo pipefail
 
-UPSTREAM="${UPSTREAM:-../VoiceAssistant}"
+UPSTREAM="${UPSTREAM:-$(cd "$(dirname "$0")/../.." && pwd)/VoiceAssistant}"
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 SRC="$UPSTREAM/app/src/main/java/com/nikosm/voiceassistant"
 # The probe file lives in :core, beside the UI it is asking about. Not :desktop, and that is

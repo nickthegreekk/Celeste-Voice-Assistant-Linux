@@ -43,11 +43,11 @@
 #   tools/sync-from-android.sh --list           print the groups, the test resolution and the pin
 #
 # Environment:
-#   UPSTREAM   path to the upstream Android project (default: ../VoiceAssistant)
+#   UPSTREAM   path to the upstream Android project (default: ../VoiceAssistant beside this checkout)
 
 set -eu
 
-UPSTREAM="${UPSTREAM:-../VoiceAssistant}"
+UPSTREAM="${UPSTREAM:-$(cd "$(dirname "$0")/../.." && pwd)/VoiceAssistant}"
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
 UPSTREAM_APP="$UPSTREAM/app/src/main"

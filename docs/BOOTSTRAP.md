@@ -7,7 +7,7 @@ the specification). This file is about the mechanics: the harness, the machine, 
 
 ## 1. The machine
 
-The build runs on **buildhost** (`withheld`), in `$HOME/VoiceAssistant-Linux`. That box also
+The build runs on **buildhost**, in `$HOME/VoiceAssistant-Linux`. That box also
 hosts ComfyUI on a 12 GB GPU, and **ComfyUI is stopped for the duration of the build** to give the
 JVM the whole 32 GB. Two consequences:
 

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# dev-session.sh — run a Celeste-port coding session on buildhost, with the machine freed for it.
+# dev-session.sh — run a Celeste-port coding session on the build host, with the machine freed for it.
 #
 # Order of operations, and why:
 #   1. find the repo                      — fail before touching the machine if anything is wrong
@@ -29,16 +29,16 @@
 # Environment:
 #   DEEPSEEK_API_KEY    key, if you keep it in the environment instead of a file
 #   DEEPSEEK_KEY_FILE   override the keyfile path (default ~/.config/celeste-linux/deepseek.key)
-#   REPO                override the repo path   (default $HOME/VoiceAssistant-Linux)
+#   REPO                override the repo path   (default: this checkout)
 #
-# Written for buildhost by the ServerBox agent, 2026-10-15. Mirrors the user's ~/bin/dev-mode.
+# Written for the build host by the ServerBox agent, 2026-10-15. Mirrors the user's ~/bin/dev-mode.
 
 set -Eeuo pipefail
 
-REPO="${REPO:-$HOME/VoiceAssistant-Linux}"
+REPO="${REPO:-$(cd "$(dirname "$0")/.." && pwd)}"
 KEYFILE="${DEEPSEEK_KEY_FILE:-$HOME/.config/celeste-linux/deepseek.key}"
 API_BASE="https://api.deepseek.com"
-UPSTREAM="${UPSTREAM:-../VoiceAssistant}"
+UPSTREAM="${UPSTREAM:-$(cd "$(dirname "$0")/../.." && pwd)/VoiceAssistant}"
 USAGE_URL="https://platform.deepseek.com/usage"
 COMFY_SERVICE="comfyui"
 

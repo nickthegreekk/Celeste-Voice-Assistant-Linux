@@ -21,7 +21,7 @@
 #   tools/ledger.sh --check    the table, and exit 1 if it does not reconcile
 set -uo pipefail
 
-UPSTREAM="${UPSTREAM:-../VoiceAssistant}"
+UPSTREAM="${UPSTREAM:-$(cd "$(dirname "$0")/../.." && pwd)/VoiceAssistant}"
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 SYNC="$REPO_ROOT/tools/sync-from-android.sh"
 

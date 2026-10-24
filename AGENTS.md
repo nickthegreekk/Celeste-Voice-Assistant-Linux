@@ -19,7 +19,7 @@ the user** — the correct answer is always that the change belongs in this repo
 your own copy commands; the list of files that may be copied lives in that script.
 It carries three modes with different jobs: `--group m0|m1` copies a COPY or test file byte-identically; `--seed <name>` places one PORT+ file as a verbatim starting copy, so the port is reviewable as a `diff -u` against upstream instead of being retyped; and `--check` reports drift for copies only. `--seed` refuses a name that is not on `PORT_SOURCES`, refuses a destination that already exists, and never counts what it placed as drift — a PORT+ file is expected to differ, and a COPY file must never be on that list.
 
-Nothing outside this directory is yours either: not `$HOME/ComfyUI`, not `other mounts`, not
+Nothing outside this directory is yours either: not `$HOME/ComfyUI`, not other mounts, not
 the user's `~/.config`. Do not start, stop or restart systemd services, and in particular do not
 touch `comfyui`: the user cannot restart it without interactive authentication.
 
