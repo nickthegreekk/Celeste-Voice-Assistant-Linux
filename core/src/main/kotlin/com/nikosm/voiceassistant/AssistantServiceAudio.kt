@@ -95,6 +95,75 @@ fun cleanTextForTts(text: String): String {
     return cleaned
 }
 
+/** Ported from upstream's `formatWordTimestampsJson` - uses org.json to safely escape
+ * word values that may contain quotes or backslashes, producing valid JSON for karaoke
+ * highlights and word-timestamp playback. */
+internal fun formatWordTimestampsJson(timestamps: List<Map<String, Any>>): String {
+    val arr = org.json.JSONArray()
+    for (m in timestamps) {
+        val obj = org.json.JSONObject()
+        obj.put("word", m["word"]?.toString() ?: "")
+        obj.put("start", m["start"] ?: 0.0)
+        obj.put("end", m["end"] ?: 0.0)
+        arr.put(obj)
+    }
+    return arr.toString()
+}
+
+/** Ported from upstream's `wavDurationSeconds` - dynamically scans RIFF chunks to find the
+ * <code>data</code> chunk, handling <code>LIST</code> metadata chunks that may precede it.
+ * Includes sampleRate in the fallback bytes-per-second calculation. Guarantees:
+ * - Loop terminates (offset strictly increases)
+ * - Chunk sizes clamped to remaining bytes (Long arithmetic, never toInt() on unclamped size)
+ * - Data size of 0 or 0xFFFFFFFF returns sensible duration from remaining bytes
+ * - Odd-sized chunks are padded
+ * - sampleRate included in fallback bytes-per-second
+ */
+internal fun wavDurationSeconds(wavBytes: ByteArray): Double {
+    if (wavBytes.size < 12) return 0.0
+    fun tag(at: Int) = String(wavBytes, at, 4, Charsets.ISO_8859_1)
+    if (tag(0) != "RIFF" || tag(8) != "WAVE") return 0.0
+
+    fun u16(at: Int) = (wavBytes[at].toInt() and 0xFF) or ((wavBytes[at + 1].toInt() and 0xFF) shl 8)
+    fun u32(at: Int): Long =
+        (0 until 4).fold(0L) { acc, i -> acc or ((wavBytes[at + i].toLong() and 0xFF) shl (8 * i)) }
+
+    var sampleRate = 0L
+    var channels = 0
+    var bitsPerSample = 0
+    var byteRate = 0L
+    var dataSize = 0L
+
+    var offset = 12L
+    while (offset + 8 <= wavBytes.size) {
+        val at = offset.toInt()
+        val id = tag(at)
+        val size = u32(at + 4)
+        val body = offset + 8
+        when (id) {
+            "fmt " -> if (size >= 16 && body + 16 <= wavBytes.size) {
+                val b = body.toInt()
+                channels = u16(b + 2)
+                sampleRate = u32(b + 4)
+                byteRate = u32(b + 8)
+                bitsPerSample = u16(b + 14)
+            }
+            "data" -> {
+                val remaining = (wavBytes.size - body).coerceAtLeast(0L)
+                dataSize = if (size == 0L || size == 0xFFFFFFFFL) remaining else size
+                break
+            }
+        }
+        val next = body + size + (size and 1L)
+        if (next <= offset || next > wavBytes.size) break
+        offset = next
+    }
+
+    if (dataSize <= 0 || sampleRate <= 0) return 0.0
+    val bytesPerSec = if (byteRate > 0) byteRate.toDouble()
+        else sampleRate.toDouble() * channels.coerceAtLeast(1) * bitsPerSample.coerceAtLeast(8) / 8.0
+    return if (bytesPerSec <= 0.0) 0.0 else dataSize / bytesPerSec
+}
 /**
  * Parses the duration (seconds) of a WAV file from its raw bytes by reading
  * the canonical 44-byte RIFF header: sample rate at offset 24, data-subchunk
@@ -113,35 +182,6 @@ fun cleanTextForTts(text: String): String {
  * Ported unchanged: it reads bytes and does arithmetic, and it has no platform
  * dependency to substitute.
  */
-fun wavDurationSeconds(wavBytes: ByteArray): Double {
-    if (wavBytes.size < 44) return 0.0
-    // "RIFF" magic
-    if (wavBytes[0] != 0x52.toByte() || wavBytes[1] != 0x49.toByte()) return 0.0
-    if (wavBytes[2] != 0x46.toByte() || wavBytes[3] != 0x46.toByte()) return 0.0
-    // "WAVE" magic
-    if (wavBytes[8] != 0x57.toByte() || wavBytes[9] != 0x41.toByte()) return 0.0
-    if (wavBytes[10] != 0x56.toByte() || wavBytes[11] != 0x45.toByte()) return 0.0
-    var sampleRate = 0
-    for (i in 24 until 28) {
-        sampleRate = sampleRate or ((wavBytes[i].toInt() and 0xFF) shl (8 * (i - 24)))
-    }
-    if (sampleRate <= 0) return 0.0
-    var byteRate = 0L
-    for (i in 28 until 32) {
-        byteRate = byteRate or ((wavBytes[i].toInt() and 0xFF).toLong() shl (8 * (i - 28)))
-    }
-    var dataSizeLong = 0L
-    for (i in 40 until 44) {
-        dataSizeLong = dataSizeLong or (((wavBytes[i].toInt() and 0xFF).toLong()) shl (8 * (i - 40)))
-    }
-    if (dataSizeLong <= 0) return 0.0
-    // dataSize is in BYTES. Prefer the header's byteRate (bytes/sec); fall back
-    // to channels*bitsPerSample/8 when byteRate is absent.
-    val bytesPerSec = if (byteRate > 0) byteRate.toDouble()
-        else 1.0 * (wavBytes[22].toInt() and 0xFF) * ((wavBytes[34].toInt() and 0xFF) or ((wavBytes[35].toInt() and 0xFF) shl 8)) / 8.0
-    if (bytesPerSec <= 0) return 0.0
-    return dataSizeLong.toDouble() / bytesPerSec
-}
 
 // ─── Stage-2 streaming TTS: sentence-boundary splitter ─────────────────────
 // Splits accumulated LLM output into TTS-sized chunks at natural sentence
@@ -171,7 +211,7 @@ internal fun splitIntoTtsChunks(text: String, minChunkChars: Int = 80): List<Str
     // or digit (heuristic for "actually the next sentence"). The lookbehind
     // allows . ! ? … and the lookahead checks it's a real boundary.
     val sentenceEnd = Regex(
-        """(?<=[.!?…])\s+(?=[A-Z0-9"'(])""",
+        """(?<=[.!?…;。！？])\s+(?=[\p{Lu}0-9"'(])|(?<=[。！？])(?=\S)""",
         setOf(RegexOption.MULTILINE)
     )
 
@@ -187,7 +227,7 @@ internal fun splitIntoTtsChunks(text: String, minChunkChars: Int = 80): List<Str
     for (i in 1 until rawSentences.size) {
         val lastWord = pending.substringAfterLast(" ").substringBeforeLast(".")
         val isAbbrev = lastWord.lowercase() in abbreviations ||
-            pending.endsWith(".") && pending.lastOrNull()?.isDigit() == true
+            pending.endsWith(".") && pending.dropLast(1).lastOrNull()?.isDigit() == true
         if (isAbbrev) {
             pending = pending + " " + rawSentences[i]
         } else {
@@ -295,6 +335,9 @@ fun AssistantService.toggleEarpieceMode() {
  * copies of an identical sequence is how a fourth line gets added to nine of them. Two of the
  * deleted calls were the focus abandonment, which is why this is now purely state.
  */
+/** True while the generation a playback was started under is still the current one. */
+internal fun isPlaybackGenerationCurrent(currentGen: Long, expectedGen: Long): Boolean = currentGen == expectedGen
+
 internal fun AssistantService.landInIdle() {
     _state.value = AssistantState.IDLE
     updateNotification("Ready to help")
@@ -364,6 +407,11 @@ internal fun AssistantService.speakWithEspeak(text: String, persona: Persona) {
         return
     }
 
+    // Captured AFTER the stopAudio() above and BEFORE the blocking synthesis below: a Stop or a
+    // newer turn while synthesizeLocal() runs bumps ttsGeneration again, and the Main block must
+    // then not play audio that was cancelled.
+    val myGeneration = ttsGeneration
+
     serviceScope.launch(Dispatchers.IO) {
         val voiceName = when (persona.targetLanguage.lowercase()) {
             "greek" -> "el"
@@ -390,6 +438,7 @@ internal fun AssistantService.speakWithEspeak(text: String, persona: Persona) {
         val speech = tts.synthesizeLocal(text, voiceName)
 
         withContext(Dispatchers.Main) {
+            if (!isPlaybackGenerationCurrent(ttsGeneration, myGeneration)) return@withContext
             if (speech == null || speech.pcm.isEmpty() || speech.sampleRate <= 0) {
                 landInIdle()
                 return@withContext
@@ -474,6 +523,8 @@ fun AssistantService.stopAudio() {
     // stopped twice, and every stopped playback reports `Stopped` to its caller rather than
     // falling silent — which is what lets a caller tell "a newer turn took over" from "it failed".
     audioPlayback.stopAll()
+    // A callback from the utterance this stop just cut off must not match the next turn's id.
+    currentUtteranceId = null
     if (assistantState.value == AssistantState.SPEAKING) {
         landInIdle()
     }
@@ -706,9 +757,7 @@ internal suspend fun AssistantService.playChunkedTtsGateway(
                         )
                     }
                     // Publish the accumulated timestamps to the service StateFlow
-                    _ttsWordTimestamps.value = accumulatedTimestamps.joinToString(",", "[", "]") { m ->
-                        """{"word":"${m["word"]}","start":${m["start"]},"end":${m["end"]}}"""
-                    }
+                    _ttsWordTimestamps.value = formatWordTimestampsJson(accumulatedTimestamps)
                 } catch (e: Exception) {
                     logger.w("AssistantService", "Failed to parse word timestamps: ${e.message}")
                 }

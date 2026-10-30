@@ -72,11 +72,12 @@ class AssistantServiceAudioTest {
 
     @Test
     fun `a zero byteRate falls back to channels times bits per sample`() {
-        // 1 channel x 16 bits / 8 = 2 bytes per frame; 400 bytes is therefore 200 frames, which is
-        // 200 "seconds" only because the fallback path counts frames — the assertion is that the
-        // fallback ran at all, since a zero byteRate would otherwise divide by nothing.
+        // With byteRate = 0 the rate is sampleRate x channels x bits / 8 = 8000 x 1 x 16 / 8 =
+        // 16000 bytes per second, so 400 bytes is 0.025 s. The previous version of this test
+        // expected 200.0, because the fallback then omitted the sample rate and divided by
+        // bytes per FRAME (2) instead of bytes per SECOND; that value was the bug, not a contract.
         val bytes = wav(sampleRate = 8_000, channels = 1, bitsPerSample = 16, byteRate = 0, dataSize = 400)
-        assertEquals(200.0, wavDurationSeconds(bytes), 1e-9)
+        assertEquals(0.025, wavDurationSeconds(bytes), 1e-9)
     }
 
     @Test
@@ -216,5 +217,93 @@ class AssistantServiceAudioTest {
     fun `every chunk is non-blank`() {
         val text = "First sentence. Second sentence. Third one. Fourth one. Fifth one."
         assertTrue(splitIntoTtsChunks(text).none { it.isBlank() })
+    }
+
+    @Test
+    fun `a playback is current only under the generation it started with`() {
+        assertTrue(isPlaybackGenerationCurrent(5, 5))
+        assertTrue(!isPlaybackGenerationCurrent(6, 5))
+    }
+
+    @Test
+    fun `a numbered list marker is not split from its text`() {
+        val chunks = splitIntoTtsChunks("1. Open the settings and turn the option on now. 2. Save it and close the window.", minChunkChars = 10)
+        assertTrue(chunks.none { it.trim() == "1." || it.trim() == "2." })
+    }
+
+    @Test
+    fun `greek sentences are split after the minimum`() {
+        val chunks = splitIntoTtsChunks("Καλημέρα σας, πώς είστε σήμερα; Είμαι πολύ καλά ευχαριστώ για την ερώτηση.", minChunkChars = 10)
+        assertTrue(chunks.size >= 2)
+    }
+
+    @Test
+    fun `russian sentences are split after the minimum`() {
+        val chunks = splitIntoTtsChunks("Привет, как у тебя дела сегодня? Спасибо, у меня всё хорошо сегодня.", minChunkChars = 10)
+        assertTrue(chunks.size >= 2)
+    }
+
+    @Test
+    fun `cjk sentences are split without needing a space`() {
+        val chunks = splitIntoTtsChunks("今日は天気がいいですね。明日も晴れるといいですね。", minChunkChars = 5)
+        assertTrue(chunks.size >= 2)
+    }
+
+    @Test
+    fun `word timestamps with quotes and backslashes are valid json`() {
+        val json = formatWordTimestampsJson(listOf(mapOf("word" to "say \"hi\" \\ now", "start" to 0.0, "end" to 0.5)))
+        val parsed = org.json.JSONArray(json)
+        assertEquals("say \"hi\" \\ now", parsed.getJSONObject(0).getString("word"))
+    }
+
+    /** Puts another chunk between the format chunk and the data chunk. */
+    private fun wavWithChunkBeforeData(chunkId: String, chunkSize: Int, dataSize: Int): ByteArray {
+        val base = wav(dataSize = dataSize)
+        val extra = ByteArray(8 + chunkSize + (chunkSize and 1))
+        chunkId.forEachIndexed { i, c -> extra[i] = c.code.toByte() }
+        for (i in 0 until 4) extra[4 + i] = ((chunkSize shr (8 * i)) and 0xFF).toByte()
+        return base.copyOfRange(0, 36) + extra + base.copyOfRange(36, base.size)
+    }
+
+    @Test
+    fun `a LIST chunk before data does not hide the audio`() {
+        assertEquals(1.0, wavDurationSeconds(wavWithChunkBeforeData("LIST", 26, 44_100)), 1e-9)
+    }
+
+    @Test
+    fun `an odd sized chunk is padded to an even boundary`() {
+        assertEquals(1.0, wavDurationSeconds(wavWithChunkBeforeData("fact", 5, 44_100)), 1e-9)
+    }
+
+    @Test
+    fun `a data size of zero uses the bytes that follow`() {
+        val bytes = wav(dataSize = 44_100)
+        for (i in 0 until 4) bytes[40 + i] = 0
+        assertEquals(1.0, wavDurationSeconds(bytes), 1e-9)
+    }
+
+    @Test
+    fun `a streaming data size of 0xFFFFFFFF uses the bytes that follow`() {
+        val bytes = wav(dataSize = 44_100)
+        for (i in 0 until 4) bytes[40 + i] = 0xFF.toByte()
+        assertEquals(1.0, wavDurationSeconds(bytes), 1e-9)
+    }
+
+    @Test
+    fun `a header cut off inside a chunk is zero and does not hang`() {
+        assertEquals(0.0, wavDurationSeconds(wav().copyOfRange(0, 30)), 1e-9)
+    }
+
+    @Test
+    fun `a huge declared chunk size cannot loop or overflow`() {
+        val bytes = wavWithChunkBeforeData("JUNK", 8, 100)
+        for (i in 0 until 4) bytes[36 + 4 + i] = 0xFF.toByte()
+        assertEquals(0.0, wavDurationSeconds(bytes), 1e-9)
+    }
+
+    @Test
+    fun `a number followed by a period does not end a sentence`() {
+        val chunks = splitIntoTtsChunks("Step 1. Open the settings. Then step 2. Save it.", minChunkChars = 1)
+        assertTrue(chunks.none { it.trim().endsWith("Step 1.") || it.trim() == "1." })
     }
 }
