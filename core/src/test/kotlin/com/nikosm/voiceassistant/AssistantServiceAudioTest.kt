@@ -218,4 +218,86 @@ class AssistantServiceAudioTest {
         val text = "First sentence. Second sentence. Third one. Fourth one. Fifth one."
         assertTrue(splitIntoTtsChunks(text).none { it.isBlank() })
     }
+
+    @Test
+    fun `a playback is current only under the generation it started with`() {
+        assertTrue(isPlaybackGenerationCurrent(5, 5))
+        assertTrue(!isPlaybackGenerationCurrent(6, 5))
+    }
+
+    @Test
+    fun `a numbered list marker is not split from its text`() {
+        val chunks = splitIntoTtsChunks("1. Open the settings and turn the option on now. 2. Save it and close the window.", minChunkChars = 10)
+        assertTrue(chunks.none { it.trim() == "1." || it.trim() == "2." })
+    }
+
+    @Test
+    fun `greek sentences are split after the minimum`() {
+        val chunks = splitIntoTtsChunks("Καλημέρα σας, πώς είστε σήμερα; Είμαι πολύ καλά ευχαριστώ για την ερώτηση.", minChunkChars = 10)
+        assertTrue(chunks.size >= 2)
+    }
+
+    @Test
+    fun `russian sentences are split after the minimum`() {
+        val chunks = splitIntoTtsChunks("Привет, как у тебя дела сегодня? Спасибо, у меня всё хорошо сегодня.", minChunkChars = 10)
+        assertTrue(chunks.size >= 2)
+    }
+
+    @Test
+    fun `cjk sentences are split without needing a space`() {
+        val chunks = splitIntoTtsChunks("今日は天気がいいですね。明日も晴れるといいですね。", minChunkChars = 5)
+        assertTrue(chunks.size >= 2)
+    }
+
+    @Test
+    fun `word timestamps with quotes and backslashes are valid json`() {
+        val json = formatWordTimestampsJson(listOf(mapOf("word" to "say \"hi\" \\ now", "start" to 0.0, "end" to 0.5)))
+        val parsed = org.json.JSONArray(json)
+        assertEquals("say \"hi\" \\ now", parsed.getJSONObject(0).getString("word"))
+    }
+
+    /** Puts another chunk between the format chunk and the data chunk. */
+    private fun wavWithChunkBeforeData(chunkId: String, chunkSize: Int, dataSize: Int): ByteArray {
+        val base = wav(dataSize = dataSize)
+        val extra = ByteArray(8 + chunkSize + (chunkSize and 1))
+        chunkId.forEachIndexed { i, c -> extra[i] = c.code.toByte() }
+        for (i in 0 until 4) extra[4 + i] = ((chunkSize shr (8 * i)) and 0xFF).toByte()
+        return base.copyOfRange(0, 36) + extra + base.copyOfRange(36, base.size)
+    }
+
+    @Test
+    fun `a LIST chunk before data does not hide the audio`() {
+        assertEquals(1.0, wavDurationSeconds(wavWithChunkBeforeData("LIST", 26, 44_100)), 1e-9)
+    }
+
+    @Test
+    fun `an odd sized chunk is padded to an even boundary`() {
+        assertEquals(1.0, wavDurationSeconds(wavWithChunkBeforeData("fact", 5, 44_100)), 1e-9)
+    }
+
+    @Test
+    fun `a data size of zero uses the bytes that follow`() {
+        val bytes = wav(dataSize = 44_100)
+        for (i in 0 until 4) bytes[40 + i] = 0
+        assertEquals(1.0, wavDurationSeconds(bytes), 1e-9)
+    }
+
+    @Test
+    fun `a streaming data size of 0xFFFFFFFF uses the bytes that follow`() {
+        val bytes = wav(dataSize = 44_100)
+        for (i in 0 until 4) bytes[40 + i] = 0xFF.toByte()
+        assertEquals(1.0, wavDurationSeconds(bytes), 1e-9)
+    }
+
+    @Test
+    fun `a header cut off inside a chunk is zero and does not hang`() {
+        assertEquals(0.0, wavDurationSeconds(wav().copyOfRange(0, 30)), 1e-9)
+    }
+
+    @Test
+    fun `a huge declared chunk size cannot loop or overflow`() {
+        val bytes = wavWithChunkBeforeData("JUNK", 8, 100)
+        for (i in 0 until 4) bytes[36 + 4 + i] = 0xFF.toByte()
+        assertEquals(0.0, wavDurationSeconds(bytes), 1e-9)
+    }
 }
