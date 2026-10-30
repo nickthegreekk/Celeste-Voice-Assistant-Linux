@@ -335,6 +335,9 @@ fun AssistantService.toggleEarpieceMode() {
  * copies of an identical sequence is how a fourth line gets added to nine of them. Two of the
  * deleted calls were the focus abandonment, which is why this is now purely state.
  */
+/** True while the generation a playback was started under is still the current one. */
+internal fun isPlaybackGenerationCurrent(currentGen: Long, expectedGen: Long): Boolean = currentGen == expectedGen
+
 internal fun AssistantService.landInIdle() {
     _state.value = AssistantState.IDLE
     updateNotification("Ready to help")
@@ -404,6 +407,11 @@ internal fun AssistantService.speakWithEspeak(text: String, persona: Persona) {
         return
     }
 
+    // Captured AFTER the stopAudio() above and BEFORE the blocking synthesis below: a Stop or a
+    // newer turn while synthesizeLocal() runs bumps ttsGeneration again, and the Main block must
+    // then not play audio that was cancelled.
+    val myGeneration = ttsGeneration
+
     serviceScope.launch(Dispatchers.IO) {
         val voiceName = when (persona.targetLanguage.lowercase()) {
             "greek" -> "el"
@@ -430,6 +438,7 @@ internal fun AssistantService.speakWithEspeak(text: String, persona: Persona) {
         val speech = tts.synthesizeLocal(text, voiceName)
 
         withContext(Dispatchers.Main) {
+            if (!isPlaybackGenerationCurrent(ttsGeneration, myGeneration)) return@withContext
             if (speech == null || speech.pcm.isEmpty() || speech.sampleRate <= 0) {
                 landInIdle()
                 return@withContext
@@ -514,6 +523,8 @@ fun AssistantService.stopAudio() {
     // stopped twice, and every stopped playback reports `Stopped` to its caller rather than
     // falling silent — which is what lets a caller tell "a newer turn took over" from "it failed".
     audioPlayback.stopAll()
+    // A callback from the utterance this stop just cut off must not match the next turn's id.
+    currentUtteranceId = null
     if (assistantState.value == AssistantState.SPEAKING) {
         landInIdle()
     }
