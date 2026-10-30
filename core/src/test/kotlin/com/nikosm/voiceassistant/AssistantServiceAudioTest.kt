@@ -300,4 +300,10 @@ class AssistantServiceAudioTest {
         for (i in 0 until 4) bytes[36 + 4 + i] = 0xFF.toByte()
         assertEquals(0.0, wavDurationSeconds(bytes), 1e-9)
     }
+
+    @Test
+    fun `a number followed by a period does not end a sentence`() {
+        val chunks = splitIntoTtsChunks("Step 1. Open the settings. Then step 2. Save it.", minChunkChars = 1)
+        assertTrue(chunks.none { it.trim().endsWith("Step 1.") || it.trim() == "1." })
+    }
 }
