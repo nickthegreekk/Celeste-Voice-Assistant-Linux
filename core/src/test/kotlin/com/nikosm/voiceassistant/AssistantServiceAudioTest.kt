@@ -72,11 +72,12 @@ class AssistantServiceAudioTest {
 
     @Test
     fun `a zero byteRate falls back to channels times bits per sample`() {
-        // 1 channel x 16 bits / 8 = 2 bytes per frame; 400 bytes is therefore 200 frames, which is
-        // 200 "seconds" only because the fallback path counts frames — the assertion is that the
-        // fallback ran at all, since a zero byteRate would otherwise divide by nothing.
+        // With byteRate = 0 the rate is sampleRate x channels x bits / 8 = 8000 x 1 x 16 / 8 =
+        // 16000 bytes per second, so 400 bytes is 0.025 s. The previous version of this test
+        // expected 200.0, because the fallback then omitted the sample rate and divided by
+        // bytes per FRAME (2) instead of bytes per SECOND; that value was the bug, not a contract.
         val bytes = wav(sampleRate = 8_000, channels = 1, bitsPerSample = 16, byteRate = 0, dataSize = 400)
-        assertEquals(200.0, wavDurationSeconds(bytes), 1e-9)
+        assertEquals(0.025, wavDurationSeconds(bytes), 1e-9)
     }
 
     @Test
