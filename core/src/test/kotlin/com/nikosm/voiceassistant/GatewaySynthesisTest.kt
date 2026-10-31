@@ -140,4 +140,54 @@ class GatewaySynthesisTest {
         assertTrue(speech.noAudioReason!!.contains("the text was empty"))
         assertEquals("no request may be sent for nothing", 0, requests.get())
     }
+
+    @Test
+    fun `a BASIC gateway with no password is refused before any request`() = runTest {
+        val p = persona()
+        service!!._serverBases.value = listOf(
+            ServerConfig(name = "GW", url = p.backendUrl, authType = AuthType.BASIC, username = "Celeste")
+        )
+
+        val speech = service!!.synthesizeWithGateway("Hello there.", p)
+
+        assertNull(speech.audio)
+        val reason = speech.noAudioReason!!
+        assertTrue("the empty field is named, not a server 401: $reason", reason.contains("no password"))
+        assertTrue("the gateway is named: $reason", reason.contains("'GW'"))
+        assertTrue("the route is named: $reason", reason.contains("gateway TTS was not attempted"))
+        assertEquals("an unauthenticated request must not be sent", 0, requests.get())
+    }
+
+    @Test
+    fun `the voice test reports a missing password and sends nothing`() {
+        val url = persona().backendUrl
+        service!!._serverBases.value = listOf(
+            ServerConfig(name = "GW", url = url, authType = AuthType.BASIC, username = "Celeste")
+        )
+
+        service!!.testAudio("Hello there", VoiceMode.GATEWAY, url, "English", false, "kokoro", "af_heart")
+
+        val status = service!!.statusLine.value
+        assertTrue("the Test Voice action must say what is missing: $status", status.contains("no password"))
+        assertTrue("and which entry: $status", status.contains("'GW'"))
+        assertEquals("an unauthenticated request must not be sent", 0, requests.get())
+        assertEquals("a refused test must not take the state machine", AssistantState.IDLE, service!!.assistantState.value)
+    }
+
+    @Test
+    fun `an API-key gateway with no key is refused before any request`() = runTest {
+        val p = persona()
+        service!!._serverBases.value = listOf(
+            ServerConfig(name = "GW", url = p.backendUrl, authType = AuthType.API_KEY)
+        )
+
+        val speech = service!!.synthesizeWithGateway("Hello there.", p)
+
+        assertNull(speech.audio)
+        assertTrue(
+            "the missing API key is named: ${speech.noAudioReason}",
+            speech.noAudioReason!!.contains("no API key")
+        )
+        assertEquals("an unauthenticated request must not be sent", 0, requests.get())
+    }
 }
