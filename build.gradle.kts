@@ -24,5 +24,5 @@ plugins {
 
 allprojects {
     group = "com.nikosm.voiceassistant"
-    version = "0.2.4"
+    version = "0.2.5"
 }

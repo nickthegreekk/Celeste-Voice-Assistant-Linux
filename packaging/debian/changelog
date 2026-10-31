@@ -1,3 +1,13 @@
+celeste-linux (0.2.5) unstable; urgency=medium
+
+  * Gateway transcription refuses a missing BASIC password or API key before
+    building a request: it names the empty field and the Servers entry, skips
+    that gateway, and still fails over to a valid one. Previously the request
+    went out as `Basic user:` and the server answered a bare 401.
+  * Version bumped to 0.2.5.
+
+ -- Nikos <nikos@localhost>  Sat, 31 Oct 2026 19:04:27 +0200
+
 celeste-linux (0.2.4) unstable; urgency=medium
 
   * Ollama chat fixes: `think` is sent as a request field rather than an
