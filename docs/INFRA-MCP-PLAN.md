@@ -392,10 +392,11 @@ from the read keys. No key path or value appears in a tool argument, result, err
 6. Map the app's servers by URL, not by name. In the current Linux settings, `secret` points at
    host-exec (`:8003`, 15 tools) and `server info` points at the separate backup-status server
    (`:8002`, 3 tools); Android calls the latter `server look up`. Do not disable `secret` — it is
-   the 15-tool server under a misleading name. Do not use `server info`/`server look up` for host
-   status; it is the 3-tool backup server. It reports 5800x as permission-denied because 5800x has
-   no backup-status collector or key; drop 5800x from that server's inventory. Host-exec `:8003`
-   covers 5800x. Use `:8002` for jasoninn/ziptie backup details only.
+   the 15-tool server under a misleading name. **Retire `server info`/`server look up` (`:8002`)
+   from the operator persona**: it is the stale backup-status server, it reported 5800x as
+   permission-denied with no collector there, and `:8003` covers both host health and backup
+   details. If `:8002` is kept for a backup-only purpose, drop 5800x from its inventory and never
+   use it for host status.
 
 ### Persona system prompt
 
@@ -486,15 +487,22 @@ test.
   'ms-cert=2023k'`. It is a VM configuration change, not a disk fix; the read tool suggests it but
   nothing executes it. Decide whether to do it manually in an approved window or add a specific
   tool; if the VM is on `old.ssd`, the protection rule applies.
-- **Third “Secret” server (2026-10-31).** The external system-check report uses a “Secret” server
-  whose host status differs from both CT 104 servers: it says ziptie refused and 5800x healthy,
-  while `:8002` says ziptie reachable and 5800x permission-denied, and `:8003` says all four
-  reachable. It is not on CT 104. Get its URL and retire or fix it; **do not reboot ziptie** — both
-  CT 104 servers reach it.
-- **Backup-status inventory (2026-10-31).** Drop 5800x from `:8002`. It has no backup-status
-  collector or key there, and `:8003` already covers 5800x; provisioning a duplicate would create a
-  second host report that can diverge from host-exec. Keep `:8002` for jasoninn/ziptie backup
-  details.
+- **The "Secret" server does not exist (corrected 2026-10-31, measured).** Every MCP server lives on
+  100.83.145.46: `:8000` weather (6 tools), `:8001` athens-sites (3), `:8002` backup-status (3),
+  `:8003` host-exec (15). All four probed: none returns a `{"success": …, "error": …, "host": …}`
+  envelope, and no other port listens on the container. The report claiming "ziptie refused SSH,
+  5800x healthy" therefore came from no tool — the persona generated it. The values are also
+  cross-contaminated: adrian's 3.9 GB of RAM reported as 5800x's (which has 48 GB), `old.ssd` placed
+  on 5800x (it exists only on jasoninn), an 18-hour uptime for a host up 4 days. **Do not reboot
+  ziptie**; `:8003` reaches all four hosts in ~3 s. Client-side fix: the persona prompt and the model,
+  plus `stateDir/mcp-tool-audit.jsonl` — a turn with no tool-call line is a fabricated result. The
+  stale `:8002` backup data was a separate source of confusion; retire it from the operator (next
+  bullet).
+- **Backup-status inventory (2026-10-31).** Retire `:8002` from the operator persona. It has no
+  collector or key for 5800x and reports it permission-denied, while `:8003` covers 5800x; its
+  stale backup data was a source of the conflicting reports. If `:8002` is kept for a backup-only
+  purpose, drop 5800x from its inventory. `:8003`'s `get_backup_status`/`get_task_log` cover the
+  operator's backup details.
 - **`old.ssd` is protected.** It hosts a VM and stays as it is. Its 87.8 % usage is a manual
   capacity decision, not an automated fix.
 - **First fix.** Withdrawn: move off `old.ssd`. Choose it from phase 1 evidence; if no safe
