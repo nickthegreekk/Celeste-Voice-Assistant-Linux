@@ -1,6 +1,8 @@
 package com.nikosm.voiceassistant
 
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
@@ -456,13 +458,37 @@ internal fun AssistantService.speakWithEspeak(text: String, persona: Persona) {
  * happen on the service's side of the boundary.
  */
 private fun AssistantService.playSynthesisedSpeech(speech: SpeechSamples) {
-    audioPlayback.playPcm(speech.pcm, speech.sampleRate, playbackTarget()) { end ->
+    val generation = ttsGeneration
+    val ended = AtomicBoolean(false)
+    val handle = audioPlayback.playPcm(speech.pcm, speech.sampleRate, playbackTarget()) { end ->
+        ended.set(true)
         serviceScope.launch(Dispatchers.Main) {
             if (end !is PlaybackEnd.Finished) {
                 logger.d("AssistantService", "Speak playback ended: $end")
             }
             if (assistantState.value == AssistantState.SPEAKING) {
                 landInIdle()
+            }
+        }
+    }
+
+    // The local engine returns samples, not word boundaries. The UI's karaoke gate needs a
+    // playback fraction; `ttsActiveWordRange` then estimates each word char-proportionally from
+    // the text and this duration. The Gateway path gets its fraction from the chunk sequencer —
+    // this is the local PCM path's equivalent clock. Without it eSpeak (and any future local
+    // engine) had no teleprompter: `_ttsWordTimestamps` is null by design here, and the fraction
+    // was never published, so the gate never opened.
+    if (handle.durationMs > 0) {
+        _ttsPlaybackFraction.value = 0f
+        serviceScope.launch {
+            while (!ended.get() && isPlaybackGenerationCurrent(ttsGeneration, generation)) {
+                val duration = handle.durationMs
+                if (duration <= 0) break
+                val position = handle.positionMs
+                _ttsPlaybackFraction.value =
+                    (position.toFloat() / duration).coerceIn(0f, 1f)
+                if (position >= duration) break
+                delay(100)
             }
         }
     }
