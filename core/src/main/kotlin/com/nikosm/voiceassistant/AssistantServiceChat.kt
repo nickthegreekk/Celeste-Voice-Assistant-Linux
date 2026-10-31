@@ -1758,6 +1758,11 @@ internal suspend fun AssistantService.performDirectOllamaChat(baseUrl: String, m
     // is generated. Each line carries message.content (and message.thinking
     // for reasoning models); the final line carries done=true plus usage stats.
     json.put("stream", true)
+    // Ollama reads `think` from the REQUEST, not from `options` (measured on 0.40: the
+    // options-level flag is ignored). In `options` it silently left a thinking-capable model
+    // such as ornith-1.5:9b in its default thinking mode, where the hidden reasoning consumes
+    // `num_predict` and the turn can end with an empty message.content — a blank reply.
+    json.put("think", persona.enableThinking && isKnownThinkingModel(model))
 
     // A-attachments: the model-facing prompt includes extracted file content. The
     // original `text` is still used for search/news below.
@@ -1888,7 +1893,6 @@ internal suspend fun AssistantService.performDirectOllamaChat(baseUrl: String, m
     // Debug-only: per-request reasoning trace (fires once per direct-Ollama completion).
     // Kept gated — useful with the thinking-aware read-timeout multiplier in getDynamicClient.
     if (appEnv.debugLogging) android.util.Log.d("AssistantService", "DEBUG: persona.name=${persona.name} enableThinking=${persona.enableThinking} isKnownThinking=${isKnownThinkingModel(model)}")
-    options.put("think", persona.enableThinking && isKnownThinkingModel(model))
     options.put("num_predict", persona.maxTokens)
 
     json.put("options", options)
@@ -2912,7 +2916,9 @@ Do you want a summary?
                     val json = JSONObject().apply {
                         put("model", actualModel)
                         put("stream", false)
-                        put("options", JSONObject().put("num_predict", 300).put("temperature", 0.7).put("think", false))
+                        // Top level, not inside options: Ollama ignores options.think.
+                        put("think", false)
+                        put("options", JSONObject().put("num_predict", 300).put("temperature", 0.7))
                         put("messages", JSONArray().apply {
                             put(JSONObject().put("role", "system").put("content", systemInstruction))
                             put(JSONObject().put("role", "user").put("content", promptText))
