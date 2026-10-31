@@ -49,7 +49,7 @@ The four hosts, with the live readings taken during discovery (2026-10-31):
 |---|---|---|
 | `jasoninn` | Proxmox VE (node `nas`) | `old.ssd` hosts a VM and is **protected**: status only, no move/delete/write. `hdd2tb` (~708 GiB free) is the candidate backup target; the job's actual target must be confirmed from the task/job config. Mount paths are `/media/OLD-SSD` and `/media/hdd`; tools use the IDs. |
 | `ziptie` | Proxmox VE (node `ziptie`) | `/mnt/hdd2tb` at 90.7 % used (~174 GB free); its weekly warned vzdump is the motivating case. Keep `pve_*` enabled. |
-| `5800x` | Proxmox VE (node `home-server`) | Home server. Keep `pve_*` enabled. |
+| `5800x` | Proxmox VE (node `home-server`) | Home server; keep `pve_*` enabled. The live status reports its SSD VM storage `old.ssd` at ~81 %; protect it if it hosts the VM. |
 | `adrian-nas` | Linux, no systemd; not Proxmox | SMB log is permission-denied because the service account is not in `adm`. |
 
 The percentages are snapshots. The tools return live values; a plan must never hardcode them.
@@ -240,7 +240,9 @@ so on). Only then is a fix proposed.
 
 `old.ssd` is marked `protected: true` in the host config. The status tools may report its usage and
 the VM's presence; `preview_fix` refuses any action whose storage or path is protected, and
-`apply_fix` and the host helper re-check. The VM stays as it is.
+`apply_fix` and the host helper re-check. The VM stays as it is. Protection is per host/storage, not
+by name alone: jasoninn's `old.ssd` and 5800x's `old.ssd` (if it is the VM storage) both carry
+`protected: true`; no action may touch either.
 
 ### Candidate fixes, after evidence
 
@@ -387,6 +389,9 @@ from the read keys. No key path or value appears in a tool argument, result, err
    persona.
 5. The approval is the Celeste dialog, not a chat “yes”. The model must not call `apply_fix` before
    showing the preview; if it does, the user declines. A denied call is reported as **not applied**.
+6. Disable the legacy `secret`/`server info` host tools for the operator persona. They can remain
+   for other uses, but the model may otherwise call the old prose tools and produce stale reports;
+   the new `host-exec` tools are the operator path.
 
 ### Persona system prompt
 
