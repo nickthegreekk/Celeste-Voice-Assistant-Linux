@@ -311,9 +311,11 @@ class MessageTimestampServiceTest {
 
             val sent = historyContents(stub.lastBody.get()!!)
 
+            // The production budget also holds back an eighth of the window for tokenizer drift
+            // (measured 32,672 prompt + 96 output at 32k); this recomputation mirrors it.
             val budget = SMALL_NUM_CTX - RESERVED_OUTPUT_TOKENS -
                 estimateTokens(LOCAL_SYSTEM_PROMPT) - estimateTokens(MODEL_STAMP_INSTRUCTION) -
-                estimateTokens(CURRENT_MESSAGE) + BUDGET_SLACK
+                estimateTokens(CURRENT_MESSAGE) - (SMALL_NUM_CTX / 8) + BUDGET_SLACK
 
             // budgetedHistory's own rule, recomputed: newest-first, stop at the first that
             // does not fit, never skip past it.

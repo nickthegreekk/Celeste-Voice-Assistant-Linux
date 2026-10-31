@@ -3088,7 +3088,14 @@ internal fun AssistantService.resolveHistoryBudget(    contextWindow: Int,
                 "Try a shorter message, a smaller attachment, or increase Context Window Size in this persona's settings."
         )
     }
-    return rawBudget
+    // **Headroom, because the estimate is not the server's tokenizer.** `estimateTokens` is
+    // chars/4; measured on 2026-10-31 against the 5800x, a 32k persona reached 32,672 prompt
+    // tokens and was left with 96 output tokens (and the next turn 32,724 + 44), so replies
+    // stopped mid-sentence at the context ceiling. Filling the window exactly made the reply
+    // reserve a promise the tokenizer did not keep. Hold back an eighth of the window from
+    // history: the prompt can then never reach the ceiling, and `reservedOutput` stays real.
+    val headroom = (contextWindow / 8).coerceAtLeast(1)
+    return (rawBudget - headroom).coerceAtLeast(0)
 }
 
 internal fun AssistantService.estimateTokens(text: String): Int = (text.length / 4.0).toInt().coerceAtLeast(1)
