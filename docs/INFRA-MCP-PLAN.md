@@ -24,6 +24,12 @@ So the plan changes shape:
   needs general read access.
 - The live host facts in §1 replace the earlier illustrative numbers.
 
+A second correction (2026-10-31): **`old.ssd` hosts a VM and must stay as it is.** It is a
+protected storage: read-only status is allowed, but no fix may move, delete, resize or otherwise
+change it. The earlier “move the backups off `old.ssd`” first fix is withdrawn. The actual vzdump
+target must be read from the job/task evidence; `hdd2tb` has ~174 GB free, so space may not be the
+cause at all.
+
 ## 1. The goal
 
 A Celeste persona can answer **“systems status update”** with live data from the hosts, fetch the
@@ -35,7 +41,7 @@ The four hosts, with the live readings taken during discovery (2026-10-31):
 
 | Host | Kind | Notes |
 |---|---|---|
-| `jasoninn` | Proxmox VE | Storage IDs `old.ssd` (87.8 % used) and `hdd2tb` (56.9 %, ~174 GB free). Mount paths are `/media/OLD-SSD` and `/media/hdd`; tools use the IDs. |
+| `jasoninn` | Proxmox VE | `old.ssd` hosts a VM and is **protected**: status only, no move/delete/write. `hdd2tb` (56.9 %, ~174 GB free) is the candidate backup target; the job's actual target must be confirmed from the task/job config. Mount paths are `/media/OLD-SSD` and `/media/hdd`; tools use the IDs. |
 | `ziptie` | Linux + systemd | `/mnt/hdd2tb` at 90.7 % used. |
 | `5800x` | Linux + systemd | Home server. |
 | `adrian-nas` | Linux, no systemd | SMB log is permission-denied because the service account is not in `adm`. |
@@ -102,8 +108,9 @@ with a forced command is preferred because it bounds the blast radius; root SSH 
 when the helper is fixed and no raw command is exposed.
 
 The helper is the privileged unit: the ops key's `authorized_keys` entry forces a fixed helper, the
-helper validates its arguments, recomputes the backup inventory, compares it with the token's
-fingerprint, and only then moves files. The MCP server itself has no general read or shell.
+helper validates its arguments, rejects any protected storage (`old.ssd`), recomputes the backup
+inventory on the actual backup storage, compares it with the token's fingerprint, and only then
+performs the allowlisted backup action. The MCP server itself has no general read or shell.
 
 ### Why not add `apply_fix` to host-exec
 
@@ -122,14 +129,15 @@ two-server split proves too awkward. It must not be slipped in as part of this i
 
 The read server mints the plan; the ops server executes it. Two processes, no shared memory.
 
-`preview_fix` returns a compact token:
+`preview_fix` returns a compact token. The action below is illustrative; the first fix is chosen
+from phase 1 evidence:
 
 ```text
 payload = base64url(JSON {
   "v": 1,
   "host": "jasoninn",
   "action": "move_vzdump_backups",
-  "params": {"storage": "old.ssd", "destination": "hdd2tb", "keep_last": 3},
+  "params": {"storage": "<actual-backup-storage>", "destination": "hdd2tb", "keep_last": 3},
   "effects_hash": "sha256:...",
   "finding_id": "jasoninn/vzdump/UPID:...",
   "iat": 1770000000,
@@ -167,12 +175,12 @@ a sentence the model can repeat.
 
 | Tool | Input | Returns |
 |---|---|---|
-| `get_system_status` | `hosts?: string[]` | Per-host uptime, load, memory, disks/inodes, failed units (systemd only), last backup task, and `findings[]`. Parallel, 5 s per host, 20 s total. |
+| `get_system_status` | `hosts?: string[]` | Per-host uptime, load, memory, disks/inodes, failed units (systemd only), last backup task, storage roles/protected flags and `findings[]`. Parallel, 5 s per host, 20 s total. |
 | `get_backup_status` | `host` | Last 10 vzdump tasks with status, warning counts, target storage ID, mount path and free bytes. |
 | `get_task_log` | `host`, `task_id`, `max_lines? = 200` | The Proxmox task log, warning/error lines plus context. |
 | `get_service_log` | `host`, `unit`, `since? = "24h"`, `max_lines? = 200` | `journalctl` for one unit, warning/error priority. |
 | `get_file_log` | `host`, `log_name`, `max_lines? = 200` | A log from the host's configured allowlist; for `adrian-nas` SMB and other non-systemd sources. Never an arbitrary path. |
-| `preview_fix` | `host`, `action`, `parameters`, `finding_id` | A signed plan: token, exact effects (paths, sizes, freed bytes), risk, rollback, expiry. No host side effects. |
+| `preview_fix` | `host`, `action`, `parameters`, `finding_id` | A signed plan: token, exact effects (paths, sizes, freed bytes), risk, rollback, expiry. Refuses a protected storage or a non-backup storage. No host side effects. |
 
 `get_service_log` on `adrian-nas` returns `unsupported: host has no systemd`, not an error. The
 model uses `get_file_log` there. If the configured log is unreadable, the result carries a
@@ -183,20 +191,21 @@ pretend the host is healthy.
 
 | Tool | Input | Returns |
 |---|---|---|
-| `apply_fix` | `token`, `host`, `action`, `parameters` | Verifies the token, expiry, nonce and argument match; calls the host helper; returns the helper's output and post-checks. |
+| `apply_fix` | `token`, `host`, `action`, `parameters` | Verifies the token, expiry, nonce, argument match and protected-storage refusal; calls the host helper; returns the helper's output and post-checks. |
 
 ### Findings
 
 Every finding has a stable ID, `severity`, `area`, `summary`, `evidence[]`, `confidence`
 (`confirmed` or `hypothesis`) and the observed timestamp. Examples:
 
-- `jasoninn/disk/old.ssd` — `old.ssd` at 87.8 %; evidence: `pvesm status` line.
+- `jasoninn/disk/old.ssd` — `old.ssd` (VM storage, **protected**) at 87.8 %; evidence: `pvesm status`. This is a capacity observation for manual review; no automated fix is offered.
 - `jasoninn/vzdump/<task-id>` — last task `WARNINGS`; evidence: task log lines.
 - `ziptie/disk/mnt-hdd2tb` — 90.7 %; evidence: `df -B1`.
 - `adrian-nas/log/smb` — permission denied; evidence: the error line.
 
 `preview_fix` requires a current finding ID. The plan is bound to that finding and to the inventory
-fingerprint.
+fingerprint. Any action whose storage or path is protected is refused before a token is minted;
+`apply_fix` and the host helper re-check the same rule.
 
 ### Thresholds
 
@@ -214,34 +223,44 @@ tool.
 
 ## 6. Fix catalog
 
-Start with **move**, not delete. `old.ssd` is the full storage; `hdd2tb` has the free space.
+**First, no fix.** `old.ssd` hosts a VM and is protected: no tool may move, delete, resize or
+otherwise change it. The earlier move-off-`old.ssd` design is withdrawn. The actual vzdump target
+must be read from the task log and job config first. If the job targets `hdd2tb`, its ~174 GB free
+means space is not the cause; the warning must be read from the log (guest agent, snapshot, lock,
+and so on). Only then is a fix proposed.
 
-### First fix: `move_vzdump_backups`
+### Protected storage
 
-- Inputs: `storage` (`old.ssd`), `destination` (`hdd2tb`), `keep_last` (from the preview; minimum 2).
-- Both storage IDs are configured in the server; the server maps them to mount paths. The model
-  never supplies a path.
-- The preview lists every source path, size, destination path, bytes freed on the source and bytes
-  used on the destination, and states that the moved files leave the job's retention scope.
-- The destination must have enough free bytes for the whole set plus a margin (1 GiB). If not, the
-  preview refuses and suggests a smaller set or a prune plan; it does not delete automatically.
-- The host helper copies each file to the destination, verifies the result, then removes the
-  source. A failure leaves the source file intact and reports exactly what moved. Integrity is
-  checked per file; a partial set is reported, never hidden.
-- This is a stopgap. The job's target and retention should be reviewed separately; changing the
-  job is not in this catalog.
+`old.ssd` is marked `protected: true` in the host config. The status tools may report its usage and
+the VM's presence; `preview_fix` refuses any action whose storage or path is protected, and
+`apply_fix` and the host helper re-check. The VM stays as it is.
 
-### Later, opt-in
+### Candidate fixes, after evidence
 
-- `prune_vzdump_backups(storage, keep_last)` — deletes the same set instead of moving. The preview
-  says **deletes data, no rollback**. It is not the first fix and is not enabled by default.
+- `prune_vzdump_backups(storage, keep_last)` — only on the **actual backup storage**, never
+  `old.ssd`. Deletes data; the preview says so; opt-in, not the first fix.
+- `move_vzdump_backups(storage, destination, keep_last)` — only between backup storages, never
+  `old.ssd`. Useful if the actual backup target is full; not assumed.
 - `restart_systemd_unit(host, unit)` — only units in an allowlist; verify active before and after.
 - `vacuum_journal(host, keep_days)` — `keep_days >= 7`; report bytes freed.
+- A warning that is not a space problem may need a configuration or manual action (for example a
+  guest-agent or snapshot warning); the model reports it and does not invent an automated fix.
+
+The first fix is chosen from the phase 1 evidence, not pre-committed. The integrity and capacity
+rules for a backup move still apply when such a move is chosen:
+
+- Inputs use configured storage IDs; the model never supplies a path.
+- The preview lists every source path, size, destination path, bytes freed and bytes used, and
+  states that the moved files leave the job's retention scope.
+- The destination must have enough free bytes for the set plus a 1 GiB margin; otherwise the
+  preview refuses and suggests a smaller set, not an automatic delete.
+- The helper copies, verifies, then removes each source; a failure leaves that source intact and
+  reports what moved.
 
 ### Not in the catalog
 
-Reboot, arbitrary `rm`, changing a backup job's target or schedule, package upgrades, raw shell.
-Those stay manual.
+Reboot, arbitrary `rm`, changing a backup job's target or schedule, package upgrades, raw shell,
+and anything that touches `old.ssd` or its VM. Those stay manual.
 
 ## 7. Server implementation
 
@@ -275,8 +294,8 @@ hosts:
     ssh: host-exec@jasoninn
     pve_node: jasoninn
     storages:
-      old.ssd: /media/OLD-SSD
-      hdd2tb: /media/hdd
+      old.ssd: {path: /media/OLD-SSD, protected: true, role: vm}
+      hdd2tb: {path: /media/hdd, role: candidate-backup}
   ziptie:
     kind: systemd
     ssh: host-exec@ziptie
@@ -294,6 +313,7 @@ ops:
   jasoninn:
     ssh: infra-ops@jasoninn
     helper: /usr/local/sbin/celeste-backup-move
+    protected_storages: [old.ssd]
 ```
 
 ### Time budget
@@ -309,9 +329,9 @@ The implementation agent has root on these hosts; the items below are its tasks,
 - `adrian-nas`: the service account needs read access to the configured SMB log. Add it to the group
   that owns the log (the discovery says `adm`), or configure a readable log. Until then,
   `get_file_log` returns a `log_unreadable` finding. The status tool must not fail the whole report.
-- `jasoninn`: create the dedicated ops service account and its forced helper; grant it access to
-  `old.ssd` and `hdd2tb` without sudo. Create the plan key and make it readable by host-exec and
-  infra-ops only.
+- `jasoninn`: create the dedicated ops service account and its forced helper; grant it write access
+  to the actual backup storage and `hdd2tb`, never `old.ssd`. The helper rejects a protected storage
+  before any inventory. Create the plan key and make it readable by host-exec and infra-ops only.
 - `ziptie` and `5800x`: no new privileges for reads; `journalctl` access as configured today.
 - Host keys are verified; no `StrictHostKeyChecking=no`.
 
@@ -367,6 +387,8 @@ Server-side, without real hosts:
 
 - Command construction: every action rejects wrong hosts, units, storage IDs, paths, traversal and
   extra arguments.
+- Protected storage: `preview_fix` and `apply_fix` refuse `old.ssd`; the helper re-checks; the VM
+  path never appears in a plan.
 - Plan token: signature, expiry, replay, semantic-argument mismatch, consumed nonce, stale
   fingerprint, destination full.
 - Host helper: inventory hash matches the preview; a changed inventory refuses; a failed copy
@@ -378,21 +400,26 @@ Server-side, without real hosts:
 
 Celeste live acceptance, on the real hosts:
 
-1. Status prompt returns live data for all four; no narration; under 20 s. `old.ssd`, `hdd2tb` and
-   `ziptie` usage match the host's own tools at the same moment.
+1. Status prompt returns live data for all four; no narration; under 20 s. `old.ssd` is reported
+   as protected VM storage, and `hdd2tb` and `ziptie` usage match the host's own tools at the same
+   moment.
 2. The jasoninn vzdump warning is followed by its actual log lines.
 3. `adrian-nas` reports the SMB log as unreadable until the permission fix; after the fix, it returns
    lines. A missing log never fails the whole status.
-4. Preview lists exact files, sizes, freed/used bytes, risk and rollback; no host change occurs.
+4. A preview targeting `old.ssd` is refused; a valid backup-storage preview lists exact files,
+   sizes, freed/used bytes, risk and rollback; no host change occurs.
 5. Decline: Celeste audit shows `denied`; ops audit shows no execution; the host is unchanged; the
    model says “not applied”.
-6. Accept: the previewed move runs; the helper's output is reported; both audits agree on the plan
-   ID; the source storage's free bytes increase by the reported amount.
+6. Accept: if the evidence supports a backup-storage fix, the previewed action runs; the helper's
+   output is reported; both audits agree on the plan ID; the source's free bytes change by the
+   reported amount, and `old.ssd` and its VM are unchanged. If the evidence supports no automated
+   fix, the model proposes a manual action and does not call `apply_fix`.
 7. The read server answers without a dialog; the ops server always asks.
 8. A grep of tool output and audit files finds no key material.
 9. A second apply of the same token is refused; an expired token is refused; a token with changed
    parameters is refused.
 10. One host down: partial report, turn completes within 20 s.
+11. After the run, `old.ssd` and its VM are unchanged: no policy, fix or helper touched them.
 
 ## 10. Rollout
 
@@ -400,7 +427,7 @@ Celeste live acceptance, on the real hosts:
 |---|---|---|
 | 0 | Discovery: host-exec's tools, keys, audit, trust; confirm the endpoint and the host facts. **Done in this revision.** | A written discovery note. |
 | 1 | Add `get_system_status` and `get_file_log` to host-exec; parallel collectors; findings and thresholds; tests. No write. | Acceptance 1, 2, 3, 10. |
-| 2 | Add `preview_fix` with the signed token; build `infra-ops` and the `jasoninn` move helper; untrusted in Celeste. | Acceptance 4–9. |
+| 2 | Add `preview_fix` with the signed token; build `infra-ops` and the host helper; choose the first fix from phase 1 evidence; never touch `old.ssd`. Untrusted in Celeste. | Acceptance 4–9 and 11. |
 | 3 | Add `get_backup_status`/`get_task_log`/`get_service_log` refinements; restart/vacuum later; scheduled read-only status; consider per-tool trust only if the split hurts. | A normal week of use. |
 
 No write tool is enabled before phase 1 is green. No fix is enabled without a preview and a decline
@@ -413,11 +440,14 @@ test.
 - **Ops deployment.** A separate unit on CT 104 with a forced helper on `jasoninn` is the default.
   The agent has root to provision it; root SSH is the fallback, not the preferred design.
 - **`adrian-nas` log access.** Fix the group membership or accept the `log_unreadable` finding.
-- **`keep_last`.** Choose from the preview, minimum 2; do not hardcode a number in the plan.
-- **Destination retention.** Moved files leave the job's retention scope; decide whether `hdd2tb`
-  is an archive or should become the job target. That is a separate change.
-- **Long-term job target.** Moving old backups is a stopgap; review the job's target and retention
-  after the immediate full-storage finding is cleared.
+- **Actual vzdump target.** Read it from the job/task evidence. Do not assume `old.ssd` or `hdd2tb`;
+  if the target is `hdd2tb`, its ~174 GB free means space is not the cause.
+- **`old.ssd` is protected.** It hosts a VM and stays as it is. Its 87.8 % usage is a manual
+  capacity decision, not an automated fix.
+- **First fix.** Withdrawn: move off `old.ssd`. Choose it from phase 1 evidence; if no safe
+  automated fix exists, the model proposes a manual action.
+- **Backup move parameters.** If a move is later chosen, `keep_last` comes from the preview
+  (minimum 2), and destination retention/scope must be reviewed. None of this is pre-committed.
 - **Per-tool trust in Celeste.** Not phase 1. It is the only way to put read and write tools on one
   server safely, and it needs its own M9 decision.
 - **Existing prose tools.** Keep them; add JSON tools rather than changing callers. Revisit only if
@@ -431,3 +461,4 @@ test.
 - Replacing the existing monitoring or backup schedule.
 - Changing Celeste's core in phase 1.
 - Adding `apply_fix` to the trusted `host-exec-mcp` server.
+- Any change to `old.ssd`, its VM, or its disks.
