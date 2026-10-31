@@ -114,6 +114,7 @@ class ProcessTextToSpeech(
         // At most one utterance, enforced here rather than by the caller: the seam's KDoc makes it
         // the implementation's obligation, and this is the line that keeps it.
         speaking.getAndSet(null)?.stop()
+        stopDaemonSpeech()
 
         val process = try {
             ProcessBuilder(tool.command, *tool.args(text, null)).redirectErrorStream(true).start()
@@ -136,7 +137,34 @@ class ProcessTextToSpeech(
     }
 
     override fun stopSystem() {
-        speaking.get()?.stop()
+        speaking.getAndSet(null)?.stop()
+        stopDaemonSpeech()
+    }
+
+    /**
+     * Kill the client **and tell the daemon**.
+     *
+     * Killing `spd-say` alone is not enough: measured 2026-10-31, closing the application left
+     * speech-dispatcher's `sd_espeak-ng` module speaking the already-queued utterance after the
+     * client was gone — audio with no application behind it. `-S` stops the current message.
+     * `-C` would cancel every client's queue in a shared speech-dispatcher, which this seam has
+     * no right to do.
+     */
+    private fun stopDaemonSpeech() {
+        val tool = systemPlayerCache ?: return
+        try {
+            val process = ProcessBuilder(tool.command, "-S")
+                .redirectErrorStream(true)
+                .start()
+            val output = process.communicateWithin(PROBE_TIMEOUT_MS)
+            if (output.timedOut) {
+                logger.w(TAG, "${tool.command} -S did not finish within ${PROBE_TIMEOUT_MS}ms")
+            } else if (output.exitCode != 0) {
+                logger.w(TAG, "${tool.command} -S exited ${output.exitCode}")
+            }
+        } catch (e: IOException) {
+            logger.w(TAG, "could not stop the speech daemon: ${e.message}")
+        }
     }
 
     override fun synthesizeLocal(text: String, voice: String): SpeechSamples? {
