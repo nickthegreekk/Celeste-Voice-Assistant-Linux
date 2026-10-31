@@ -1,8 +1,9 @@
 # Execution plan — report and suggest, over host-exec-mcp
 
-**Author:** ServerBox agent. **Updated:** 2026-10-31, revision 3 (read half complete).
-**Status:** staged and green — **nothing deployed**. The live service in CT 104 is unchanged and
-still serves the original nine tools. Deployment waits for review.
+**Author:** ServerBox agent. **Updated:** 2026-10-31, revision 4 (read half deployed).
+**Status:** **deployed 2026-10-31** (reviewer-signed). 15 tools live in CT 104
+(`host_exec_server.py` `6a0d5f62…`, `hosts.json` `3f1ef48c…`), guards `0fc9297…` on all four hosts,
+115 tests green. The write half remains unbuilt by design.
 **Contract:** `docs/INFRA-MCP-PLAN.md` (owned by another agent). This file does not edit it.
 
 ## 0. Where the files are
@@ -17,9 +18,9 @@ Staged on the **Jason Inn NAS** (ServerBox `pXCtwfb00`, hostname `nas`) under **
 | `test_host_exec.py` | 30,165 | `74edeb968d950c36` |
 | `*.pre-v3`, `*.pre-v2` | — | earlier revisions, for diffing |
 
-Live in CT 104, untouched: `host_exec_server.py` = `dda377aee377b8dd…`, service `active`.
-A scratch copy used only for running the suite lives in `/root/v3check/` inside CT 104; **delete it
-once this is reviewed** — nothing uses it.
+Live in CT 104 after deployment: `host_exec_server.py` `6a0d5f62…`, `hosts.json` `3f1ef48c…`,
+service `active`. Rollback copies (`*.pre-v2` … `*.pre-v6`, `.deployed-before`) remain in
+`/root/hostexec-v2/`. The `/root/v3check/` scratch copy was deleted after the live pass went green.
 
 ## 1. Conformance to the eleven constraints
 
@@ -28,7 +29,7 @@ once this is reviewed** — nothing uses it.
 | 1 | `old.ssd` protected | `protected:true, acknowledge:true` in config; status reports it as `info` with the word protected; `suggested_fix` never mentions it (test asserts this); no preview/apply exists to refuse it in — see 7 |
 | 2 | No `move_vzdump_backups` off `old.ssd` | Nothing of the kind exists anywhere in the build |
 | 3 | No `apply_fix` in host-exec | Grep finds no write verb, no `shell=True`, no `shutil`, no `os.remove`. The only subprocess is the ssh argv executor |
-| 4 | Read half finished | `get_system_status`, `get_backup_status`, `get_task_log`, `get_service_log`, `get_file_log`, `get_disk_health` — multi-host aggregation, 5 s/host, 5.5 s gather, partial results, JSON everywhere |
+| 4 | Read half finished | `get_system_status`, `get_backup_status`, `get_task_log`, `get_service_log`, `get_file_log`, `get_disk_health` — multi-host aggregation, 5 s/host, 3.1 s end to end after SSH multiplexing, partial results, JSON everywhere |
 | 5 | Nine prose tools kept | All nine still registered; their output is unchanged |
 | 6 | `suggested_fix` advisory | Text only: action, why, steps, risk, rollback, evidence. No command string. Nothing executes it; `info` findings produce no suggestion at all |
 | 7 | Phase gates | Write half absent: no ops server, no plan token, no nonce store. They belong to a later, separate decision |
@@ -66,8 +67,8 @@ Three test expectations were also wrong once the fixture matched production: `pv
 host that really has no `pve_node` (adrian, not 5800x); `list_hosts` now prints four lines; the
 acknowledged-disk case needed a mount actually over 85 % to produce the `info` finding.
 
-Suite: **111 passed** (52 test functions, parametrised), run in `/root/v3check` against the staged
-code with the existing venv. Network-free.
+Suite: **115 passed** after the four live-pass fixes (the initial staged suite was 111; 52 test
+functions, parametrised), run against the staged code with the existing venv. Network-free.
 
 ## 4. Inventory decision (resolved 2026-10-31)
 
@@ -81,7 +82,7 @@ Plan corrections applied in `docs/INFRA-MCP-PLAN.md`: `pve_node: nas` for jasoni
 figure belongs to ziptie's `/mnt/hdd2tb`, while jasoninn's `hdd2tb` has ~708 GiB free. Both PVE
 nodes' job configs must be read before proposing a space fix.
 
-## 5. Deployment (NOT executed)
+## 5. Deployment procedure (executed 2026-10-31 — see §7)
 
 1. Push the four files; `chmod 640 /etc/host-exec-mcp/hosts.json`.
 2. Re-install the guard on four hosts, verifying sha256 `0fc929709e4994c4…` on each: ziptie,
@@ -99,3 +100,40 @@ nodes' job configs must be read before proposing a space fix.
 - `get_disk_health` stays a separate tool; SMART on every status call would exceed the 20 s budget.
 - The SMB `directoty mask` typo is a host configuration fix, approved separately; the status report
   keeps surfacing it until fixed.
+- The ziptie vzdump warning is `EFI disk without 'ms-cert=2023k'`: a VM EFI configuration change, not
+  a disk fix. The read tool suggests it but nothing executes it. If the VM is on `old.ssd`, the
+  protection rule applies; decide separately whether to do it manually or build a specific tool.
+
+## 7. Deployment outcome (2026-10-31)
+
+Executed in the approved order: guards on all four hosts and hash-verified **before** the restart;
+then the server and config; then the nine old tools, which all answered; then the live pass.
+
+The live pass is what earned its keep — it found four defects the unit tests could not:
+
+1. **Proxmox hosts timed out inside their own collector.** Eight sequential SSH calls took 5.4 s
+   against a 5 s budget, so ziptie and jasoninn were reported unreachable while their old tools
+   answered fine. Fixed with SSH connection multiplexing (`ControlMaster=auto`,
+   `ControlPath=/run/host-exec-cm-%C`, `ControlPersist=60`): the same eight calls take 2.8 s.
+   All four hosts now report in **3.1 s** end to end.
+2. **`thermal` matched boot announcements** — `Thermal Zone [TZ01] (30 C)` is not an event. The rule
+   now requires `over-temperature`, `critical temperature`, `thermal shutdown|event|trip|alert` or
+   `throttl`.
+3. **Pseudo filesystems and wrapped df rows produced findings** — `efivarfs` is always 100 %, and a
+   wrapped line yields an empty mount name (`" at 89.9%"`). Only real `/dev/*` mounts with a name
+   are classified now.
+4. **The same filesystem was reported twice** — once by `pvesm`, once by `df`. The storage inventory
+   is the authority for its own mounts; a df row is suppressed only when `pvesm` reports that mount,
+   and `acknowledge` is carried through from config so ziptie's backup disk reads `info`.
+
+Final live state: 4/4 hosts reachable, 3 findings — `hdd2tb` 89.9 % **info** (acknowledged),
+`old.ssd` 87.8 % **info** (protected), and one real **warning**: ziptie's last vzdump reports
+`WARNINGS: 1`. Exactly one suggested fix, for the backup warning; nothing mentions `old.ssd`.
+`get_task_log` on that task surfaces the cause: `WARN: EFI disk without 'ms-cert=2023k' option`.
+
+Also verified live: `get_disk_health` on ziptie and 5800x (all disks PASSED; the 320 GB WD Blue shows
+one historical CRC error and no pending sectors), `get_file_log(adrian-nas, smb)` returning the
+`directoty mask` Samba typo, and `get_service_log` answering `unsupported` on adrian with no SSH.
+
+Rollback material stays in `/root/hostexec-v2/` (`*.pre-v2` … `*.pre-v6`, `.deployed-before`).
+The scratch test directory `/root/v3check/` was deleted after the pass went green.

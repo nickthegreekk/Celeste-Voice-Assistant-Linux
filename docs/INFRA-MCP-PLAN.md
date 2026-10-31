@@ -269,6 +269,16 @@ rules for a backup move still apply when such a move is chosen:
 Reboot, arbitrary `rm`, changing a backup job's target or schedule, package upgrades, raw shell,
 and anything that touches `old.ssd` or its VM. Those stay manual.
 
+### Live evidence (2026-10-31)
+
+The read half is deployed and green. The ziptie vzdump warning is not a disk problem: the task log
+says `WARN: EFI disk without 'ms-cert=2023k' option`. The suggested fix is to enroll the Microsoft
+2023 UEFI certificates on the affected VM's EFI disk. That is a VM configuration change, not a
+backup move; it is outside this catalog and needs its own approved maintenance window. If the VM's
+disk is on `old.ssd`, the protection rule applies and the change is not eligible for automation.
+`hdd2tb` at 89.9 % is acknowledged info; `old.ssd` at 87.8 % is protected info. No backup move or
+prune is justified by the live evidence.
+
 ## 7. Server implementation
 
 ### host-exec changes
@@ -441,8 +451,8 @@ Celeste live acceptance, on the real hosts:
 | Phase | Work | Stop at |
 |---|---|---|
 | 0 | Discovery: host-exec's tools, keys, audit, trust; confirm the endpoint and the host facts. **Done in this revision.** | A written discovery note. |
-| 1 | Read half staged in `hostexec-v2`: status, backup, task/service/file logs, disk health; parallel 5 s/host and 20 s total; findings. Review, deploy and run the live read pass. No write. See `INFRA-MCP-EXECUTION.md`. | Acceptance 1, 2, 3, 10. |
-| 2 | Add `preview_fix` with the signed token; build `infra-ops` and the host helper; choose the first fix from phase 1 evidence; never touch `old.ssd`. Untrusted in Celeste. | Acceptance 4–9 and 11. |
+| 1 | Read half deployed 2026-10-31: 15 tools, 4/4 hosts, 3.1 s end to end, 115 tests; live pass green. | Done. |
+| 2 | Decide the first fix from live evidence. The warning is an EFI secure-boot cert issue, not a backup move; if the VM is on `old.ssd`, the protection rule applies. Build `preview_fix`/`infra-ops` only for an approved action. | Acceptance 4–9 and 11. |
 | 3 | Refine the read tools after deployment; restart/vacuum later; scheduled read-only status; consider per-tool trust only if the split hurts. | A normal week of use. |
 
 No write tool is enabled before phase 1 is green. No fix is enabled without a preview and a decline
@@ -461,6 +471,10 @@ test.
 - **Inventory (resolved 2026-10-31).** ziptie (node `ziptie`), 5800x (node `home-server`) and
   jasoninn (node `nas`) all expose `pve_*`; ziptie's backup visibility is required. `adrian-nas` is
   not Proxmox and keeps no `pve_node`.
+- **EFI secure-boot warning (2026-10-31).** The ziptie vzdump warning is `EFI disk without
+  'ms-cert=2023k'`. It is a VM configuration change, not a disk fix; the read tool suggests it but
+  nothing executes it. Decide whether to do it manually in an approved window or add a specific
+  tool; if the VM is on `old.ssd`, the protection rule applies.
 - **`old.ssd` is protected.** It hosts a VM and stays as it is. Its 87.8 % usage is a manual
   capacity decision, not an automated fix.
 - **First fix.** Withdrawn: move off `old.ssd`. Choose it from phase 1 evidence; if no safe
