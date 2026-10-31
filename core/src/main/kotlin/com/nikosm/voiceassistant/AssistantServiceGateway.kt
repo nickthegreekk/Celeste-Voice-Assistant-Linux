@@ -551,6 +551,15 @@ internal suspend fun AssistantService.transcribeWithGateway(file: Path, persona:
 
     var lastEx: Exception? = null
     for (gw in gwsToTry.distinct()) {
+        val credentialProblem = gatewayCredentialProblem(gw)
+        if (credentialProblem != null) {
+            logger.e(
+                "AssistantService",
+                "Gateway transcription refused — $credentialProblem. No request was sent."
+            )
+            lastEx = Exception(credentialProblem)
+            continue
+        }
         val url = gw.url
         try {
             val result = withContext(Dispatchers.IO) {

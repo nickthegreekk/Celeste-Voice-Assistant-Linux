@@ -202,6 +202,59 @@ class GatewayCredentialResolutionTest {
     }
 
     @Test
+    fun `a missing BASIC password never sends a transcription request`() = runTest {
+        RecordingCredentialGateway().use { gateway ->
+            NoOpCloudProvider().use { cloud ->
+                mainSync {
+                    service._serverBases.value = listOf(
+                        ServerConfig(
+                            name = PROBE_GATEWAY,
+                            url = gateway.url,
+                            username = PROBE_USER,
+                            // Deliberately no password: effectiveAuthType is BASIC, and the
+                            // old code would send `Basic user:` and surface a 401.
+                            authType = AuthType.BASIC
+                        )
+                    )
+                    service._customCloudApis.value = listOf(
+                        CloudApiSetting(
+                            name = PROBE_PROVIDER,
+                            baseUrl = cloud.url,
+                            icon = "C",
+                            color = PROBE_COLOR
+                        )
+                    )
+                }
+                val persona = cloudPersona(backendUrl = gateway.url)
+                mainSync {
+                    service.currentPersonaName = persona.name
+                    service.messagesOwnerName = persona.name
+                    service._messages.value = emptyList()
+                }
+                Files.createDirectories(env.cacheDir)
+                val file = env.cacheDir.resolve("missing_password_probe_${System.currentTimeMillis()}.wav")
+                Files.write(file, ByteArray(64))
+                scratchFiles.add(file)
+
+                mainSync { service.sendAudioToServer(file, persona) }
+                awaitService(25_000, "the voice turn never reported the missing credential") {
+                    service.messages.value.any { it.isError }
+                }
+
+                assertEquals(
+                    "no unauthenticated transcription request may be sent",
+                    0,
+                    gateway.requests.count { it.path.startsWith("/transcribe") }
+                )
+                assertTrue(
+                    "the failure must name the empty field: ${service.messages.value.filter { it.isError }.map { it.text }}",
+                    service.messages.value.any { it.isError && it.text.contains("no password") }
+                )
+            }
+        }
+    }
+
+    @Test
     fun `voice test refuses an unresolvable gateway instead of sending an unauthenticated request`() = runTest {
         StrayGateway().use { strayGateway ->
             mainSync {
