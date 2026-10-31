@@ -28,6 +28,12 @@ The read-only base is stronger than the plan assumed. The suite demonstrates:
 This is a sound **read-only, trusted** server. Keep `host-exec` trusted and keep `apply_fix` off it.
 The suite is network-free; the timeout and cap tests spawn only `sleep` and `head`.
 
+**The fixture is not production.** The test `HOSTS` uses `ziptie` as a Proxmox fixture, `adrian` as
+a sysvinit fixture, and has no `jasoninn`. The production inventory is `ziptie`/systemd,
+`5800x`/systemd, `adrian-nas`/non-systemd and `jasoninn`/Proxmox, with storage IDs `old.ssd`
+(**protected**, VM) and `hdd2tb` (candidate backup target). Do not copy the fixture into the real
+`hosts.json`.
+
 ## 2. Gaps before the read half is complete
 
 Ordered by what blocks the acceptance flow.
