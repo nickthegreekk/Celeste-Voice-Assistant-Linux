@@ -389,9 +389,11 @@ from the read keys. No key path or value appears in a tool argument, result, err
    persona.
 5. The approval is the Celeste dialog, not a chat “yes”. The model must not call `apply_fix` before
    showing the preview; if it does, the user declines. A denied call is reported as **not applied**.
-6. Disable the legacy `secret`/`server info` host tools for the operator persona. They can remain
-   for other uses, but the model may otherwise call the old prose tools and produce stale reports;
-   the new `host-exec` tools are the operator path.
+6. Map the app's servers by URL, not by name. In the current Linux settings, `secret` points at
+   host-exec (`:8003`, 15 tools) and `server info` points at the separate backup-status server
+   (`:8002`, 3 tools); Android calls the latter `server look up`. Do not disable `secret` — it is
+   the 15-tool server under a misleading name. Do not use `server info`/`server look up` for host
+   status; it is the 3-tool backup server and may have a stale SSH target.
 
 ### Persona system prompt
 
@@ -399,6 +401,8 @@ from the read keys. No key path or value appears in a tool argument, result, err
 You are the system operator. You have read-only MCP tools and one write tool.
 
 1. For a status request, call get_system_status. Do not describe the result from memory.
+   Host tools live on host-exec: get_system_status, get_task_log, get_backup_status. There is no
+   other host server. If you cannot call it, say so — never state a result you did not receive.
 2. If any finding is a warning or failure, call the matching evidence tool
    (get_backup_status, get_task_log, get_service_log, get_file_log) BEFORE writing the report.
 3. Never say "Let me...", "I'll...", or "Want me to...". Call the tool now, or state exactly which
