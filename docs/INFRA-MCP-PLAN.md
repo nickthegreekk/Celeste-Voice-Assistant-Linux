@@ -27,8 +27,9 @@ So the plan changes shape:
 A second correction (2026-10-31): **`old.ssd` hosts a VM and must stay as it is.** It is a
 protected storage: read-only status is allowed, but no fix may move, delete, resize or otherwise
 change it. The earlier “move the backups off `old.ssd`” first fix is withdrawn. The actual vzdump
-target must be read from the job/task evidence; `hdd2tb` has ~174 GB free, so space may not be the
-cause at all.
+target must be read from the job/task evidence. jasoninn's `hdd2tb` has ~708 GiB free; ziptie's
+`/mnt/hdd2tb` is at ~90.7 % with ~174 GB free. Either way, read the target and the warning before
+proposing a space fix.
 
 The current implementation state is tracked separately in
 [`INFRA-MCP-EXECUTION.md`](INFRA-MCP-EXECUTION.md): `hostexec-v2` already has status, file-log and
@@ -46,10 +47,10 @@ The four hosts, with the live readings taken during discovery (2026-10-31):
 
 | Host | Kind | Notes |
 |---|---|---|
-| `jasoninn` | Proxmox VE | `old.ssd` hosts a VM and is **protected**: status only, no move/delete/write. `hdd2tb` (56.9 %, ~174 GB free) is the candidate backup target; the job's actual target must be confirmed from the task/job config. Mount paths are `/media/OLD-SSD` and `/media/hdd`; tools use the IDs. |
-| `ziptie` | Linux + systemd | `/mnt/hdd2tb` at 90.7 % used. |
-| `5800x` | Linux + systemd | Home server. |
-| `adrian-nas` | Linux, no systemd | SMB log is permission-denied because the service account is not in `adm`. |
+| `jasoninn` | Proxmox VE (node `nas`) | `old.ssd` hosts a VM and is **protected**: status only, no move/delete/write. `hdd2tb` (~708 GiB free) is the candidate backup target; the job's actual target must be confirmed from the task/job config. Mount paths are `/media/OLD-SSD` and `/media/hdd`; tools use the IDs. |
+| `ziptie` | Proxmox VE (node `ziptie`) | `/mnt/hdd2tb` at 90.7 % used (~174 GB free); its weekly warned vzdump is the motivating case. Keep `pve_*` enabled. |
+| `5800x` | Proxmox VE (node `home-server`) | Home server. Keep `pve_*` enabled. |
+| `adrian-nas` | Linux, no systemd; not Proxmox | SMB log is permission-denied because the service account is not in `adm`. |
 
 The percentages are snapshots. The tools return live values; a plan must never hardcode them.
 
@@ -230,9 +231,10 @@ tool.
 
 **First, no fix.** `old.ssd` hosts a VM and is protected: no tool may move, delete, resize or
 otherwise change it. The earlier move-off-`old.ssd` design is withdrawn. The actual vzdump target
-must be read from the task log and job config first. If the job targets `hdd2tb`, its ~174 GB free
-means space is not the cause; the warning must be read from the log (guest agent, snapshot, lock,
-and so on). Only then is a fix proposed.
+must be read from the task log and job config first. If the job targets jasoninn's `hdd2tb`
+(~708 GiB free), space is not the cause. If it targets ziptie's `/mnt/hdd2tb` (~174 GB free), space
+may be a factor, but the warning must still be read from the log (guest agent, snapshot, lock, and
+so on). Only then is a fix proposed.
 
 ### Protected storage
 
@@ -297,13 +299,20 @@ hosts:
   jasoninn:
     kind: proxmox
     ssh: host-exec@jasoninn
-    pve_node: jasoninn
+    pve_node: nas
     storages:
       old.ssd: {path: /media/OLD-SSD, protected: true, role: vm}
       hdd2tb: {path: /media/hdd, role: candidate-backup}
   ziptie:
-    kind: systemd
+    kind: proxmox
     ssh: host-exec@ziptie
+    pve_node: ziptie
+    storages:
+      hdd2tb: {path: /mnt/hdd2tb, role: candidate-backup}
+  5800x:
+    kind: proxmox
+    ssh: host-exec@5800x
+    pve_node: home-server
   adrian-nas:
     kind: nosystemd
     ssh: host-exec@adrian-nas
@@ -406,9 +415,10 @@ Server-side, without real hosts:
 Celeste live acceptance, on the real hosts:
 
 1. Status prompt returns live data for all four; no narration; under 20 s. `old.ssd` is reported
-   as protected VM storage, and `hdd2tb` and `ziptie` usage match the host's own tools at the same
-   moment.
-2. The jasoninn vzdump warning is followed by its actual log lines.
+   as protected VM storage, `ziptie` retains its Proxmox backup visibility, and `hdd2tb` and
+   `ziptie` usage match the host's own tools at the same moment.
+2. The ziptie weekly warned vzdump is followed by its actual log lines and the target storage is
+   named; the jasoninn task log is available the same way.
 3. `adrian-nas` reports the SMB log as unreadable until the permission fix; after the fix, it returns
    lines. A missing log never fails the whole status.
 4. A preview targeting `old.ssd` is refused; a valid backup-storage preview lists exact files,
@@ -431,9 +441,9 @@ Celeste live acceptance, on the real hosts:
 | Phase | Work | Stop at |
 |---|---|---|
 | 0 | Discovery: host-exec's tools, keys, audit, trust; confirm the endpoint and the host facts. **Done in this revision.** | A written discovery note. |
-| 1 | Add `get_system_status` and `get_file_log` to host-exec; parallel collectors; findings and thresholds; tests. No write. | Acceptance 1, 2, 3, 10. |
+| 1 | Read half staged in `hostexec-v2`: status, backup, task/service/file logs, disk health; parallel 5 s/host and 20 s total; findings. Review, deploy and run the live read pass. No write. See `INFRA-MCP-EXECUTION.md`. | Acceptance 1, 2, 3, 10. |
 | 2 | Add `preview_fix` with the signed token; build `infra-ops` and the host helper; choose the first fix from phase 1 evidence; never touch `old.ssd`. Untrusted in Celeste. | Acceptance 4–9 and 11. |
-| 3 | Add `get_backup_status`/`get_task_log`/`get_service_log` refinements; restart/vacuum later; scheduled read-only status; consider per-tool trust only if the split hurts. | A normal week of use. |
+| 3 | Refine the read tools after deployment; restart/vacuum later; scheduled read-only status; consider per-tool trust only if the split hurts. | A normal week of use. |
 
 No write tool is enabled before phase 1 is green. No fix is enabled without a preview and a decline
 test.
@@ -446,7 +456,11 @@ test.
   The agent has root to provision it; root SSH is the fallback, not the preferred design.
 - **`adrian-nas` log access.** Fix the group membership or accept the `log_unreadable` finding.
 - **Actual vzdump target.** Read it from the job/task evidence. Do not assume `old.ssd` or `hdd2tb`;
-  if the target is `hdd2tb`, its ~174 GB free means space is not the cause.
+  read ziptie's and jasoninn's job configs. jasoninn's `hdd2tb` has ~708 GiB free; ziptie's
+  `/mnt/hdd2tb` has ~174 GB free.
+- **Inventory (resolved 2026-10-31).** ziptie (node `ziptie`), 5800x (node `home-server`) and
+  jasoninn (node `nas`) all expose `pve_*`; ziptie's backup visibility is required. `adrian-nas` is
+  not Proxmox and keeps no `pve_node`.
 - **`old.ssd` is protected.** It hosts a VM and stays as it is. Its 87.8 % usage is a manual
   capacity decision, not an automated fix.
 - **First fix.** Withdrawn: move off `old.ssd`. Choose it from phase 1 evidence; if no safe

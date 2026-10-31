@@ -1,177 +1,101 @@
-# Infrastructure MCP — execution state and next steps
+# Execution plan — report and suggest, over host-exec-mcp
 
-**Status:** execution document, 2026-10-31. It complements
-[`INFRA-MCP-PLAN.md`](INFRA-MCP-PLAN.md); where the two disagree, this file records the actual
-`hostexec-v2` state and the next step.
-**Source reviewed:** the `test_host_exec.py` suite from `/srv/mcp/host-exec/tests` (pasted
-2026-10-31), plus the protected-`old.ssd` correction.
+**Author:** ServerBox agent. **Updated:** 2026-10-31, revision 3 (read half complete).
+**Status:** staged and green — **nothing deployed**. The live service in CT 104 is unchanged and
+still serves the original nine tools. Deployment waits for review.
+**Contract:** `docs/INFRA-MCP-PLAN.md` (owned by another agent). This file does not edit it.
 
-## 1. What is already built
+## 0. Where the files are
 
-The read-only base is stronger than the plan assumed. The suite demonstrates:
+Staged on the **Jason Inn NAS** (ServerBox `pXCtwfb00`, hostname `nas`) under **`/root/hostexec-v2/`**:
 
-| Area | Evidence in the suite |
-|---|---|
-| Two-sided allowlist and host guard | `test_allowlist_*`, `test_disallowed_command_never_reaches_ssh`, `test_guard_*`; dry-run is ignored on a real SSH session. |
-| Strict argv, no shell | `sh -c`, metacharacters, traversal, `tail -f`, arbitrary `systemctl`, non-UPID task paths all refused before SSH. |
-| Redaction | secret values, PEMs, `ssh-ed25519`, tokens, long hex; result, logs and audit are checked. |
-| Audit | timestamp, tool, host, argv, exit code, duration, bytes, output SHA-256, truncation, timeout, error class; no secret values. |
-| Failure honesty | unreachable vs not authorised, timeout, truncated output, non-empty stderr on failure; no traceback to the model. |
-| Host aliases and notes | `zip`, `Zip Tie`, `5800`; a CT note is surfaced by `list_hosts`. |
-| Proxmox task paging | the whole 648-line log is read, not the first 50; output capped; bad UPIDs refused. |
-| Non-systemd hosts | `adrian`/sysvinit: `service_status` and `journal_tail` explain instead of calling systemd; `syslog_tail` uses the fixed path. |
-| Status JSON | `get_system_status` findings, severity, kernel I/O critical, unreachable host as a finding, non-systemd survival, acknowledged storage; `suggested_fix` steps. |
-| File logs | `get_file_log` allowlist, permission denied reported as a failure, no arbitrary path. |
-| Disk health | SMART pending/offline sectors; “needs root” when `smartctl` is unprivileged. |
-| Output discipline | 65,536-byte cap, truncation marker, JSON cap for paged Proxmox output. |
+| File | Bytes | sha256 (first 16) |
+|---|---|---|
+| `host_exec_server.py` | 66,231 | `84f3182181080f23` |
+| `host-exec-guard` | 5,429 | `0fc929709e4994c4` |
+| `hosts.json` | 2,007 | `86f8bcb3bc192735` |
+| `test_host_exec.py` | 30,165 | `74edeb968d950c36` |
+| `*.pre-v3`, `*.pre-v2` | — | earlier revisions, for diffing |
 
-This is a sound **read-only, trusted** server. Keep `host-exec` trusted and keep `apply_fix` off it.
-The suite is network-free; the timeout and cap tests spawn only `sleep` and `head`.
+Live in CT 104, untouched: `host_exec_server.py` = `dda377aee377b8dd…`, service `active`.
+A scratch copy used only for running the suite lives in `/root/v3check/` inside CT 104; **delete it
+once this is reviewed** — nothing uses it.
 
-**The fixture is not production.** The test `HOSTS` uses `ziptie` as a Proxmox fixture, `adrian` as
-a sysvinit fixture, and has no `jasoninn`. The production inventory is `ziptie`/systemd,
-`5800x`/systemd, `adrian-nas`/non-systemd and `jasoninn`/Proxmox, with storage IDs `old.ssd`
-(**protected**, VM) and `hdd2tb` (candidate backup target). Do not copy the fixture into the real
-`hosts.json`.
+## 1. Conformance to the eleven constraints
 
-## 2. Gaps before the read half is complete
+| # | Constraint | State |
+|---|---|---|
+| 1 | `old.ssd` protected | `protected:true, acknowledge:true` in config; status reports it as `info` with the word protected; `suggested_fix` never mentions it (test asserts this); no preview/apply exists to refuse it in — see 7 |
+| 2 | No `move_vzdump_backups` off `old.ssd` | Nothing of the kind exists anywhere in the build |
+| 3 | No `apply_fix` in host-exec | Grep finds no write verb, no `shell=True`, no `shutil`, no `os.remove`. The only subprocess is the ssh argv executor |
+| 4 | Read half finished | `get_system_status`, `get_backup_status`, `get_task_log`, `get_service_log`, `get_file_log`, `get_disk_health` — multi-host aggregation, 5 s/host, 5.5 s gather, partial results, JSON everywhere |
+| 5 | Nine prose tools kept | All nine still registered; their output is unchanged |
+| 6 | `suggested_fix` advisory | Text only: action, why, steps, risk, rollback, evidence. No command string. Nothing executes it; `info` findings produce no suggestion at all |
+| 7 | Phase gates | Write half absent: no ops server, no plan token, no nonce store. They belong to a later, separate decision |
+| 8 | adrian-nas has no systemd | `get_service_log` returns `{"unsupported": "host has no systemd"}` with no SSH attempt; `get_file_log` uses the allowlist; an unreadable log becomes a finding, never a failed report |
+| 9 | Root is provisioning only | Keys stay on CT 104; the MCP surface is semantic; no raw shell; redaction on every result, error, audit line |
+| 10 | Fixture ≠ production | Fixture now mirrors all four hosts (ziptie, 5800x, jasoninn, adrian) with fake key paths. **Resolved, see §4** |
+| 11 | Tests network-free | Transport stubbed in every test; no real address or key path in the suite; `/tmp/fake-key-*` only |
 
-Ordered by what blocks the acceptance flow.
+## 2. Tools (15 registered: 9 prose + 6 JSON)
 
-### P1 — multi-host status and the 20-second budget
+| Tool | Kind | Notes |
+|---|---|---|
+| `get_system_status(hosts="")` | JSON | per-host uptime/load/mem/disks/inodes/storages/failed units/last backup + `findings[]` + `suggested_fix[]` |
+| `get_backup_status(host, limit=10)` | JSON | vzdump tasks with guest, duration, status; non-OK → `backup` warning |
+| `get_task_log(host, task_id, max_lines=200)` | JSON | warning/error lines **plus one line of context each side**, `matched_warning_or_error` flag |
+| `get_service_log(host, unit, since="24h", max_lines=200)` | JSON | `journalctl -p err..warning`; `since` ∈ {1h, 24h, 7d}; unsupported on adrian |
+| `get_file_log(host, log_name, lines=50)` | text | allowlisted names only (`smb`, `kern`, `syslog` on adrian) |
+| `get_disk_health(host)` | text | `smartctl -H -A` per disk; flags verdict failure, reallocated, pending, offline-uncorrectable |
 
-The current status test calls `get_system_status("ziptie")` for one host. The plan requires
-`get_system_status(hosts?: string[])` to aggregate all four, run per-host collectors in parallel,
-use a 5 s per-host deadline and a 20 s total budget, and return partial results when a host is down.
-The suite does not test the aggregate or the timing. Add it before calling phase 1 done.
+Findings: `id`, `host`, `area`, `severity` (`info|warning|critical`), `summary`, `evidence[]`
+(redacted, ≤500 chars), `confidence`, `observed_at`.
 
-### P1 — protected `old.ssd`
+Allowlist additions, enforced in **both** `_is_allowed()` and the host guard: `df -i`,
+`pvesm status`, `lsblk -dno NAME,TYPE,SIZE,MODEL`, `smartctl -H -A /dev/<dev>`, `tail -n N <one of
+three allowlisted paths>`, `systemctl list-units --state=failed …`, `journalctl -k -p err..warning …`,
+`journalctl -u <unit> -p err..warning -n N --since <-1h|-24h|-7d> --no-pager`.
 
-`old.ssd` hosts a VM and must stay as is. The suite has no `old.ssd` fixture and no protected-storage
-rule. Add:
+## 3. What the tests caught
 
-- `protected: true` (and `role: vm`) in the host config;
-- a status finding that reports its usage as **info**, not a fix candidate;
-- `suggested_fix` must never mention `old.ssd`, its mount path, or the VM;
-- in phase 2, `preview_fix` and `apply_fix` refuse it; the host helper re-checks.
+**A real bug**: the smartctl rule read `argv[:2] == ["smartctl", "-H", "-A"]` — a two-element slice
+compared against a three-element list, so it could never match and every `get_disk_health` call was
+refused by its own allowlist. Fixed on both sides; `test_disk_health_*` now pass.
 
-### P1 — the actual vzdump target
+Three test expectations were also wrong once the fixture matched production: `pve_task_list` needed a
+host that really has no `pve_node` (adrian, not 5800x); `list_hosts` now prints four lines; the
+acknowledged-disk case needed a mount actually over 85 % to produce the `info` finding.
 
-Do not assume `old.ssd` or `hdd2tb` is the job target. Add a read path for `/etc/pve/jobs.cfg` and
-the task evidence, and a fixture with `jasoninn`, `old.ssd` protected and `hdd2tb` as a candidate.
-If the target is `hdd2tb` (56.9 %, ~174 GB free), space is not the cause; the warning must be read
-from the task log. No fix is proposed until that evidence exists.
+Suite: **111 passed** (52 test functions, parametrised), run in `/root/v3check` against the staged
+code with the existing venv. Network-free.
 
-### P2 — JSON backup and log tools
+## 4. Inventory decision (resolved 2026-10-31)
 
-The current `pve_backup_status`, `pve_task_log` and `journal_tail` are prose. The plan's model needs
-JSON:
+**Keep all three measured Proxmox VE nodes as PVE:** ziptie (node `ziptie`), 5800x (node
+`home-server`) and jasoninn (node `nas`). Do not restrict `pve_*` to jasoninn. ziptie's weekly
+warned vzdump is the motivating case; hiding its backup visibility would defeat the integration.
+`adrian-nas` is not Proxmox and keeps no `pve_node`. The read tools are allowlisted, so this adds no
+write risk.
 
-- `get_backup_status(host)` — last 10 tasks, warning counts, target storage ID, mount path, free
-  bytes.
-- `get_task_log(host, task_id, max_lines)` — warning/error filter plus context.
-- `get_service_log(host, unit, since, max_lines)` — systemd only; `unsupported` on `adrian-nas`.
+Plan corrections applied in `docs/INFRA-MCP-PLAN.md`: `pve_node: nas` for jasoninn; the ~174 GB
+figure belongs to ziptie's `/mnt/hdd2tb`, while jasoninn's `hdd2tb` has ~708 GiB free. Both PVE
+nodes' job configs must be read before proposing a space fix.
 
-Keep the prose tools for existing callers. Add the JSON tools alongside them.
+## 5. Deployment (NOT executed)
 
-### P2 — status envelope details
+1. Push the four files; `chmod 640 /etc/host-exec-mcp/hosts.json`.
+2. Re-install the guard on four hosts, verifying sha256 `0fc929709e4994c4…` on each: ziptie,
+   jasoninn, 5800x as root into `/usr/local/sbin/`; **adrian-nas** as `adrian` into
+   `/home/adrian/.local/bin/` (its `authorized_keys` line already points there, and that account has
+   no passwordless sudo).
+3. `systemctl restart host-exec-mcp`, then run the suite in place.
+4. Live pass: status for all four under 20 s (with 5800x awake and asleep), `get_disk_health` on
+   ziptie and 5800x, `get_file_log(adrian, smb)`, `get_service_log` on ziptie, and the nine old tools
+   still answering.
+5. Rollback: restore `*.pre-v3`, restart. Guards may stay; the new shapes are additive.
 
-Add `observed_at`, storage roles/protected flags, stable finding IDs, and a per-host `reachable`
-field in the aggregate. Ensure `suggested_fix` is advisory data, never a command the model is told
-to execute; the approval flow is `preview_fix` → user → `apply_fix`.
+## 6. Still open
 
-### P2 — `adrian-nas` SMB log
-
-The suite already proves permission denied is reported honestly. The host-side fix (service account
-in the log-owning group, likely `adm`) is an agent task now that the agent has root. Until it is
-done, the status must carry a `log_unreadable` warning and not fail the whole report.
-
-### P3 — phase 2 write half
-
-Not built and not to be added to `host-exec`:
-
-- `preview_fix` on `host-exec` — read-only, signs the HMAC plan token;
-- `infra-ops` — separate, untrusted, `apply_fix` only;
-- host helper — protected-storage refusal, inventory fingerprint, copy/verify/remove;
-- nonce store, expiry, semantic-argument match;
-- tests for replay, expiry, mismatch and stale fingerprint.
-
-The first fix is chosen from phase 1 evidence, not pre-committed. No action may touch `old.ssd`.
-
-## 3. Execution checklist
-
-### Step 1 — finish the read half
-
-- [ ] Add `hosts?: string[]` aggregate to `get_system_status`; parallel collectors, 5 s per host,
-      20 s total, partial results.
-- [ ] Add `observed_at`, storage role/protected flags and stable finding IDs.
-- [ ] Mark `old.ssd` protected; report it as info; exclude it from every `suggested_fix`.
-- [ ] Add `get_backup_status`, `get_task_log`, `get_service_log` JSON tools; keep the prose tools.
-- [ ] Read the actual job target and warning; add a `jasoninn` fixture with `old.ssd` protected and
-      `hdd2tb` candidate.
-- [ ] Add `log_unreadable` handling for the `adrian-nas` SMB log; fix the group membership as root
-      and re-test.
-- [ ] Add the new tests listed in §4; run the existing suite unchanged.
-
-### Step 2 — live read acceptance
-
-- [ ] Configure the persona's read server and trust `host-exec`.
-- [ ] “Systems status update” returns all four hosts in under 20 s with one host down; no narration.
-- [ ] The jasoninn warning is followed by actual log lines; the target storage is named.
-- [ ] `old.ssd` is shown as protected VM storage; no suggested fix touches it.
-- [ ] `adrian-nas` reports the SMB log honestly (unreadable or lines after the fix).
-
-### Step 3 — phase 2 write half (only after step 1–2)
-
-- [ ] Add `preview_fix` to `host-exec`; HMAC token, TTL, nonce, semantic args.
-- [ ] Build `infra-ops` separately; trust **ASK**; its only tool is `apply_fix`.
-- [ ] Build the host helper; refuse `old.ssd`; re-check the inventory fingerprint; copy/verify/remove.
-- [ ] Test deny, accept, replay, expiry, parameter mismatch, stale fingerprint and protected storage.
-- [ ] Choose the first fix from evidence. If the job targets `hdd2tb` and its free space is ample,
-      a space fix is not justified; address the actual warning instead.
-
-## 4. Tests to add
-
-- `test_status_aggregates_hosts_in_parallel_with_one_slow_host` — elapsed < 20 s; partial result.
-- `test_status_marks_old_ssd_protected_and_offers_no_fix` — info finding; no `old.ssd` in any
-  suggested step.
-- `test_status_reports_the_actual_backup_target` — from the job config/task evidence; no assumptions.
-- `test_status_includes_observed_at_and_stable_finding_ids`.
-- `test_backup_status_json_includes_target_and_free_space`.
-- `test_task_log_filters_warning_error_with_context`.
-- `test_status_output_is_capped_and_truncated`.
-- `test_preview_refuses_protected_storage` (phase 2).
-- `test_apply_rechecks_protected_storage` (phase 2).
-- `test_apply_rejects_replayed_and_expired_tokens` (phase 2).
-- `test_no_fix_touches_old_ssd` — a model-facing guard test, plus a server-side refusal.
-
-## 5. Guardrails
-
-- `host-exec` stays read-only and trusted; `apply_fix` belongs on the separate ASK server.
-- `old.ssd` is protected: no move, delete, resize, or VM change; status only.
-- The first fix is evidence-driven. If the actual target is `hdd2tb` with ample free space, do not
-  propose a space fix; read the warning.
-- No raw shell, no arbitrary path, no key material in a result, error or audit.
-- 20 s total / 5 s per host; 24 KiB tool output; no secrets.
-- `suggested_fix` is advisory data, not an instruction; the approval flow remains preview → user →
-  apply.
-- The suite stays network-free; live acceptance is the only network run.
-
-## 6. How to run
-
-```sh
-/srv/mcp/host-exec/.venv/bin/python -m pytest -q /srv/mcp/host-exec/tests
-```
-
-Add the new tests to the same suite. Do not point tests at the real hosts; the recorder transport
-and the `sleep`/`head` process tests are the pattern.
-
-## 7. Open questions
-
-- Where `get_system_status` should accept both a single host (current callers) and a list (the
-  aggregate); keep the single-host form as a convenience.
-- The actual vzdump target and warning; the tools must read them, not assume.
-- Whether `suggested_fix` should include human-readable steps at all, or only a finding and a
-  pointer to the evidence; if kept, it must never contain a raw command or touch `old.ssd`.
-- The `adrian-nas` SMB log group and path; fix as root, then re-test.
-- The phase 2 fix catalog after the evidence is known.
+- `get_disk_health` stays a separate tool; SMART on every status call would exceed the 20 s budget.
+- The SMB `directoty mask` typo is a host configuration fix, approved separately; the status report
+  keeps surfacing it until fixed.
