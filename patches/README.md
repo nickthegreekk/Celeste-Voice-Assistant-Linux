@@ -1,29 +1,36 @@
 # Android patches
 
-`android-gateway-credential-guard.patch` is the Android counterpart of commit
-`a594f11` in this repository. It targets `../VoiceAssistant` on branch
-`hardening-wip` at commit `cc6a257`, and touches only
-`app/src/main/java/com/nikosm/voiceassistant/AssistantServiceGateway.kt`.
+These are the Android counterparts of fixes in this repository, delivered as patches because
+`../VoiceAssistant` is read-only for this repository's agents (AGENTS.md §1). They target
+`hardening-wip` at commit `cc6a257`.
 
-Apply from the Android checkout:
+| Patch | What it fixes | Linux reference |
+|---|---|---|
+| `android-gateway-credential-guard.patch` | Refuses gateway TTS/Test Voice before sending when a BASIC entry has no username/password or an API-key entry has no key; names the empty field. | `a594f11` |
+| `android-ollama-think-flag.patch` | Sends `think` as a top-level request field; Ollama ignores `options.think`, which left thinking models burning `num_predict` and returning blank replies. | `61e44b1` |
+| `android-context-headroom.patch` | Holds back an eighth of the context window from history, so a near-window prompt cannot leave the reply with only a few dozen output tokens. | `1a29b17` |
+
+All three apply together from the Android checkout:
 
 ```sh
-git apply --check /mnt/SSD1TB/VoiceAssistant-Linux/patches/android-gateway-credential-guard.patch
-git apply         /mnt/SSD1TB/VoiceAssistant-Linux/patches/android-gateway-credential-guard.patch
+cd ../VoiceAssistant
+git apply --check /mnt/SSD1TB/VoiceAssistant-Linux/patches/android-gateway-credential-guard.patch \
+                     /mnt/SSD1TB/VoiceAssistant-Linux/patches/android-ollama-think-flag.patch \
+                     /mnt/SSD1TB/VoiceAssistant-Linux/patches/android-context-headroom.patch
+git apply         /mnt/SSD1TB/VoiceAssistant-Linux/patches/android-gateway-credential-guard.patch \
+                     /mnt/SSD1TB/VoiceAssistant-Linux/patches/android-ollama-think-flag.patch \
+                     /mnt/SSD1TB/VoiceAssistant-Linux/patches/android-context-headroom.patch
 ```
 
-What it does: refuses gateway synthesis and the Test Voice action *before*
-building a request when a BASIC entry has no username or password, or an
-API-key entry has no key. The message names the empty field and the Servers
-entry; an unauthenticated request is never sent. Android surfaces it through
-the foreground notification; the Linux version additionally carries it as the
-no-audio reason in the transcript.
+Tests to port:
 
-Tests to port: the three credential cases in `GatewaySynthesisTest` in this
-repository, which are mutation-checked against the guard. The Android JVM
-harness is `GatewayResolutionTest`; the instrumented
-`GatewayCredentialResolutionInstrumentedTest` covers the resolved-credential
-path.
+- credentials: the three credential cases in `GatewaySynthesisTest`, mutation-checked against
+  the guard; Android's harness is `GatewayResolutionTest` / the instrumented
+  `GatewayCredentialResolutionInstrumentedTest`.
+- `think`: `ThinkingFlagPlacementTest`, which captures the request body and asserts `think` is
+  top-level and absent from `options`, for a thinking and a non-thinking persona.
+- headroom: the budget arithmetic cases in `Fix6OverflowTest`, plus
+  `MessageTimestampServiceTest`'s recomputation of the budget.
 
-The patch was generated without writing to `../VoiceAssistant`; AGENTS.md §1
-keeps that checkout read-only for this repository's agents.
+The eSpeak teleprompter and the speech-dispatcher stop fix are Linux-specific implementations
+(seams 2 and 6); they have no Android counterpart in these patches.

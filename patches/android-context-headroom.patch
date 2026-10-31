@@ -1,0 +1,16 @@
+--- a/app/src/main/java/com/nikosm/voiceassistant/AssistantServiceChat.kt
++++ b/app/src/main/java/com/nikosm/voiceassistant/AssistantServiceChat.kt
+@@ -2889,7 +2889,12 @@
+                 "Try a shorter message, a smaller attachment, or increase Context Window Size in this persona's settings."
+         )
+     }
+-    return rawBudget
++    // Tokenizer headroom: estimateTokens is chars/4, not the server's tokenizer. Measured
++    // against the 5800x, a 32k persona filled the window to 32,672 prompt + 96 output tokens,
++    // then 32,724 + 44; replies stopped mid-sentence at the 32,768 ceiling. Hold back an
++    // eighth of the window from history so the prompt cannot reach the ceiling.
++    val headroom = (contextWindow / 8).coerceAtLeast(1)
++    return (rawBudget - headroom).coerceAtLeast(0)
+ }
+ 
+ internal fun AssistantService.estimateTokens(text: String): Int = (text.length / 4.0).toInt().coerceAtLeast(1)
