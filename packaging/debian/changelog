@@ -1,3 +1,20 @@
+celeste-linux (0.2.3) unstable; urgency=medium
+
+  * TTS fixes ported from the Android app: numbered lists and decimals no
+    longer split after "1.", sentence splitting understands Greek, Russian,
+    accented Latin and CJK terminators, word-timestamp JSON is escaped, and
+    WAV durations scan RIFF chunks (LIST before data, size 0 or 0xFFFFFFFF).
+  * Stop clears the eSpeak generation and utterance id, so a cancelled reply
+    cannot speak late or cut off the next turn, and a long local reply is no
+    longer cut short.
+  * Gateway TTS refuses to send a request when a BASIC password or API key
+    is missing, and names the empty field instead of reporting a bare 401.
+  * wavDurationSeconds is public again, so the :platform playback seam can
+    read the duration it promises to report.
+  * Version bumped to 0.2.3.
+
+ -- Nikos <nikos@localhost>  Sat, 31 Oct 2026 14:27:33 +0200
+
 celeste-linux (0.2.2) unstable; urgency=medium
 
   * About section in Settings: version, project page and releases links,
