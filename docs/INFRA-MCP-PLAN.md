@@ -95,6 +95,12 @@ One tool: `apply_fix`. It is a separate MCP server, with its own ed25519 key, it
 forced-command helper on `jasoninn`, and no `sudo NOPASSWD`. It is configured in Celeste with trust
 **ASK**, never “always allow”.
 
+The implementing agent has root on the hosts, so provisioning the ops key, the helper and the
+`adrian-nas` log permission is an agent task, not a user prerequisite. Root is not a reason to give
+the model a root shell: the MCP surface stays semantic and the helper stays fixed. A dedicated key
+with a forced command is preferred because it bounds the blast radius; root SSH is a fallback only
+when the helper is fixed and no raw command is exposed.
+
 The helper is the privileged unit: the ops key's `authorized_keys` entry forces a fixed helper, the
 helper validates its arguments, recomputes the backup inventory, compares it with the token's
 fingerprint, and only then moves files. The MCP server itself has no general read or shell.
@@ -298,6 +304,8 @@ its callers need the same guarantee.
 
 ### 7.1 Prerequisites on the hosts
 
+The implementation agent has root on these hosts; the items below are its tasks, not user blockers.
+
 - `adrian-nas`: the service account needs read access to the configured SMB log. Add it to the group
   that owns the log (the discovery says `adm`), or configure a readable log. Until then,
   `get_file_log` returns a `log_unreadable` finding. The status tool must not fail the whole report.
@@ -402,8 +410,8 @@ test.
 
 - **Plan-key distribution.** Both servers are on CT 104 today; keep the key local. If `infra-ops`
   moves, use a secret store, not a copied file in the repository.
-- **Ops deployment.** A separate unit on CT 104 with a forced helper on `jasoninn` is the default;
-  a container-local helper is the alternative.
+- **Ops deployment.** A separate unit on CT 104 with a forced helper on `jasoninn` is the default.
+  The agent has root to provision it; root SSH is the fallback, not the preferred design.
 - **`adrian-nas` log access.** Fix the group membership or accept the `log_unreadable` finding.
 - **`keep_last`.** Choose from the preview, minimum 2; do not hardcode a number in the plan.
 - **Destination retention.** Moved files leave the job's retention scope; decide whether `hdd2tb`
