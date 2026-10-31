@@ -1,3 +1,17 @@
+celeste-linux (0.2.4) unstable; urgency=medium
+
+  * Ollama chat fixes: `think` is sent as a request field rather than an
+    options entry (Ollama ignored it), and the history budget holds back
+    an eighth of the context window, so replies are no longer cut
+    mid-sentence at the tokenizer ceiling.
+  * eSpeak teleprompter: local PCM playback publishes a playback fraction,
+    enabling the word highlight (word timings are estimated from the text).
+  * Stop and application close now cancel speech-dispatcher's current
+    utterance instead of only killing the spd-say client.
+  * Version bumped to 0.2.4.
+
+ -- Nikos <nikos@localhost>  Sat, 31 Oct 2026 17:25:54 +0200
+
 celeste-linux (0.2.3) unstable; urgency=medium
 
   * TTS fixes ported from the Android app: numbered lists and decimals no
