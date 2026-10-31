@@ -111,10 +111,11 @@ nodes' job configs must be read before proposing a space fix.
   tool-set change, or have the server advertise `listChanged=true` and send
   `notifications/tools/list_changed`.
 - **Multiple host-check servers disagree.** `:8003` (host-exec) reports all four reachable; `:8002`
-  (backup-status) reports ziptie reachable but 5800x permission-denied; a third “Secret” server in
-  the external system-check report says ziptie refused and 5800x healthy. The third server is not on
-  CT 104; get its URL before acting. Do not reboot ziptie — both CT 104 servers reach it. Use
-  `:8003` for host health and `:8002` only for backup details.
+  (backup-status) reports ziptie reachable but 5800x permission-denied because 5800x has no
+  backup-status collector or key; a third “Secret” server in the external system-check report says
+  ziptie refused and 5800x healthy. The third server is not on CT 104; get its URL before acting.
+  Do not reboot ziptie — both CT 104 servers reach it. Drop 5800x from `:8002`'s inventory; host-exec
+  covers it. Use `:8003` for host health and `:8002` only for jasoninn/ziptie backup details.
 
 ## 7. Deployment outcome (2026-10-31)
 

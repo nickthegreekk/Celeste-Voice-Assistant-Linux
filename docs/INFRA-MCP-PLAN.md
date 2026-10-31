@@ -393,9 +393,9 @@ from the read keys. No key path or value appears in a tool argument, result, err
    host-exec (`:8003`, 15 tools) and `server info` points at the separate backup-status server
    (`:8002`, 3 tools); Android calls the latter `server look up`. Do not disable `secret` — it is
    the 15-tool server under a misleading name. Do not use `server info`/`server look up` for host
-   status; it is the 3-tool backup server and may have a stale SSH target. Its `list_hosts` currently
-   reports 5800x as permission-denied while both `:8003` and the host itself are healthy; use it for
-   backup details only.
+   status; it is the 3-tool backup server. It reports 5800x as permission-denied because 5800x has
+   no backup-status collector or key; drop 5800x from that server's inventory. Host-exec `:8003`
+   covers 5800x. Use `:8002` for jasoninn/ziptie backup details only.
 
 ### Persona system prompt
 
@@ -491,6 +491,10 @@ test.
   while `:8002` says ziptie reachable and 5800x permission-denied, and `:8003` says all four
   reachable. It is not on CT 104. Get its URL and retire or fix it; **do not reboot ziptie** — both
   CT 104 servers reach it.
+- **Backup-status inventory (2026-10-31).** Drop 5800x from `:8002`. It has no backup-status
+  collector or key there, and `:8003` already covers 5800x; provisioning a duplicate would create a
+  second host report that can diverge from host-exec. Keep `:8002` for jasoninn/ziptie backup
+  details.
 - **`old.ssd` is protected.** It hosts a VM and stays as it is. Its 87.8 % usage is a manual
   capacity decision, not an automated fix.
 - **First fix.** Withdrawn: move off `old.ssd`. Choose it from phase 1 evidence; if no safe
