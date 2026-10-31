@@ -103,6 +103,12 @@ nodes' job configs must be read before proposing a space fix.
 - The ziptie vzdump warning is `EFI disk without 'ms-cert=2023k'`: a VM EFI configuration change, not
   a disk fix. The read tool suggests it but nothing executes it. If the VM is on `old.ssd`, the
   protection rule applies; decide separately whether to do it manually or build a specific tool.
+- **Tool-list cache after a server upgrade.** The server's `initialize` advertises
+  `tools.listChanged=false`, so a connected client keeps its cached list. After the 15-tool
+  deployment the Android app still showed the old 9 until the client was restarted; removing and
+  re-adding the same server definition reuses the live registry connection. Restart clients after a
+  tool-set change, or have the server advertise `listChanged=true` and send
+  `notifications/tools/list_changed`.
 
 ## 7. Deployment outcome (2026-10-31)
 
