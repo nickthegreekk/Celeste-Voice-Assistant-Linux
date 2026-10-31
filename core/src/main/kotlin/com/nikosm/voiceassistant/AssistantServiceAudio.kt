@@ -118,8 +118,13 @@ internal fun formatWordTimestampsJson(timestamps: List<Map<String, Any>>): Strin
  * - Data size of 0 or 0xFFFFFFFF returns sensible duration from remaining bytes
  * - Odd-sized chunks are padded
  * - sampleRate included in fallback bytes-per-second
+ *
+ * **Public, not `internal`, and the reason is a seam.** `PwPlayback`, seam 2's Linux
+ * implementation, asks it for [PlaybackHandle.durationMs] — and `:platform` is a different module,
+ * so Kotlin's `internal` keeps it out. The same rule as [WavFile]: a helper a seam implementation
+ * needs has to be reachable from `:platform`.
  */
-internal fun wavDurationSeconds(wavBytes: ByteArray): Double {
+fun wavDurationSeconds(wavBytes: ByteArray): Double {
     if (wavBytes.size < 12) return 0.0
     fun tag(at: Int) = String(wavBytes, at, 4, Charsets.ISO_8859_1)
     if (tag(0) != "RIFF" || tag(8) != "WAVE") return 0.0
@@ -164,24 +169,6 @@ internal fun wavDurationSeconds(wavBytes: ByteArray): Double {
         else sampleRate.toDouble() * channels.coerceAtLeast(1) * bitsPerSample.coerceAtLeast(8) / 8.0
     return if (bytesPerSec <= 0.0) 0.0 else dataSize / bytesPerSec
 }
-/**
- * Parses the duration (seconds) of a WAV file from its raw bytes by reading
- * the canonical 44-byte RIFF header: sample rate at offset 24, data-subchunk
- * size at offset 40, channels at offset 22, bits-per-sample at offset 34.
- * Duration = dataSize / (sampleRate * bytesPerSample). Falls back to the
- * header's byteRate (offset 28) when present. Returns 0.0 for anything that
- * isn't a standard WAV.
- *
- * Used to keep the accumulated word-timestamp offset on the same clock as
- * the playback durations that drive ttsPlaybackFraction. Upstream compares
- * against `MediaPlayer.duration` directly; here the same number arrives as a
- * playback handle's duration, and the reason the two must share a clock is
- * unchanged — the word positions and the progress fraction are both plotted
- * against it.
- *
- * Ported unchanged: it reads bytes and does arithmetic, and it has no platform
- * dependency to substitute.
- */
 
 // ─── Stage-2 streaming TTS: sentence-boundary splitter ─────────────────────
 // Splits accumulated LLM output into TTS-sized chunks at natural sentence
