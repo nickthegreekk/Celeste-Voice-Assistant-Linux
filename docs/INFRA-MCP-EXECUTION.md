@@ -1,7 +1,8 @@
 # Execution plan — report and suggest, over host-exec-mcp
 
 **Author:** ServerBox agent. **Updated:** 2026-10-31, revision 4 (read half deployed).
-**Status:** **deployed 2026-10-31** (reviewer-signed). 15 tools live in CT 104
+**Status:** **deployed 2026-10-31** (reviewer-signed), plus a capability fix the same evening.
+15 tools live in CT 104
 (`host_exec_server.py` `6a0d5f62…`, `hosts.json` `3f1ef48c…`), guards `0fc9297…` on all four hosts,
 115 tests green. The write half remains unbuilt by design.
 **Contract:** `docs/INFRA-MCP-PLAN.md` (owned by another agent). This file does not edit it.
@@ -109,6 +110,11 @@ nodes' job configs must be read before proposing a space fix.
   re-adding the same server definition reuses the live registry connection. Restart clients after a
   tool-set change, or have the server advertise `listChanged=true` and send
   `notifications/tools/list_changed`.
+- **Multiple host-check servers disagree.** `:8003` (host-exec) reports all four reachable; `:8002`
+  (backup-status) reports ziptie reachable but 5800x permission-denied; a third “Secret” server in
+  the external system-check report says ziptie refused and 5800x healthy. The third server is not on
+  CT 104; get its URL before acting. Do not reboot ziptie — both CT 104 servers reach it. Use
+  `:8003` for host health and `:8002` only for backup details.
 
 ## 7. Deployment outcome (2026-10-31)
 
@@ -143,3 +149,24 @@ one historical CRC error and no pending sectors), `get_file_log(adrian-nas, smb)
 
 Rollback material stays in `/root/hostexec-v2/` (`*.pre-v2` … `*.pre-v6`, `.deployed-before`).
 The scratch test directory `/root/v3check/` was deleted after the pass went green.
+
+## 8. Capability advertisement (2026-10-31, after deployment)
+
+A phone that connected before the 15-tool deployment kept serving the cached nine. The endpoint was
+fine: `tools/list` returned 15 in one page with no cursor. The cause was on the server side of the
+protocol — `FastMCP` builds its capabilities from `NotificationOptions()` defaults, so it advertised
+`tools.listChanged: false`, and a client may then cache the list indefinitely.
+
+Fixed by wrapping `mcp._mcp_server.create_initialization_options` and passing
+`NotificationOptions(tools_changed=True)`; there is no constructor argument for it in mcp 1.30.0.
+Verified live: `initialize` now returns `tools: listChanged=True`, and `tools/list` still returns 15
+in a single page. 116 tests (one new: the capability is advertised).
+
+Honest limits of this fix:
+
+- It advertises that the list *may* change; it does not push a change to an already-stale client.
+  This server's tool set changes only when the process restarts, and a restart drops every session,
+  so `notifications/tools/list_changed` has nothing to notify. The phone still needs one reconnect
+  (force-stop or reboot) to refetch; after that it is told the list can change and can refetch.
+- `serverInfo.version` currently reports `1.30.0` (the SDK's version), not this server's `VERSION`,
+  because FastMCP falls back to the package version when none is given. Cosmetic; one argument to fix.

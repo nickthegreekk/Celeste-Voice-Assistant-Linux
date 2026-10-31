@@ -393,7 +393,9 @@ from the read keys. No key path or value appears in a tool argument, result, err
    host-exec (`:8003`, 15 tools) and `server info` points at the separate backup-status server
    (`:8002`, 3 tools); Android calls the latter `server look up`. Do not disable `secret` — it is
    the 15-tool server under a misleading name. Do not use `server info`/`server look up` for host
-   status; it is the 3-tool backup server and may have a stale SSH target.
+   status; it is the 3-tool backup server and may have a stale SSH target. Its `list_hosts` currently
+   reports 5800x as permission-denied while both `:8003` and the host itself are healthy; use it for
+   backup details only.
 
 ### Persona system prompt
 
@@ -484,6 +486,11 @@ test.
   'ms-cert=2023k'`. It is a VM configuration change, not a disk fix; the read tool suggests it but
   nothing executes it. Decide whether to do it manually in an approved window or add a specific
   tool; if the VM is on `old.ssd`, the protection rule applies.
+- **Third “Secret” server (2026-10-31).** The external system-check report uses a “Secret” server
+  whose host status differs from both CT 104 servers: it says ziptie refused and 5800x healthy,
+  while `:8002` says ziptie reachable and 5800x permission-denied, and `:8003` says all four
+  reachable. It is not on CT 104. Get its URL and retire or fix it; **do not reboot ziptie** — both
+  CT 104 servers reach it.
 - **`old.ssd` is protected.** It hosts a VM and stays as it is. Its 87.8 % usage is a manual
   capacity decision, not an automated fix.
 - **First fix.** Withdrawn: move off `old.ssd`. Choose it from phase 1 evidence; if no safe
