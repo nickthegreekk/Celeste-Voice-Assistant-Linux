@@ -30,6 +30,11 @@ change it. The earlier “move the backups off `old.ssd`” first fix is withdra
 target must be read from the job/task evidence; `hdd2tb` has ~174 GB free, so space may not be the
 cause at all.
 
+The current implementation state is tracked separately in
+[`INFRA-MCP-EXECUTION.md`](INFRA-MCP-EXECUTION.md): `hostexec-v2` already has status, file-log and
+disk-health tests; the execution document lists the remaining multi-host, protected-storage and
+phase-2 gaps.
+
 ## 1. The goal
 
 A Celeste persona can answer **“systems status update”** with live data from the hosts, fetch the
