@@ -131,9 +131,25 @@ internal fun resolveCommandTimeoutSeconds(requested: Int?): Int =
     else requested.coerceIn(COMMAND_MIN_TIMEOUT_SECONDS, COMMAND_MAX_TIMEOUT_SECONDS)
 
 /**
- * Cut [text] to at most [maxBytes] of UTF-8 without splitting a character, and say whether it was
- * cut. Bytes rather than characters because the cap bounds what the *request* carries, and a string
- * of emoji counts four bytes per glyph — the same measurement [FsToolExecutor]'s caps use.
+ * The one spelling of "the middle of this output is gone".
+ *
+ * Public because `:platform`'s streaming reader lives in another module and must emit the same
+ * bytes: the reader caps while it drains, and the tool layer's second pass then sees a result that
+ * is already within the bound. Keeping one constant means the marker cannot drift between the two
+ * halves of the same feature.
+ */
+const val COMMAND_TRUNCATION_MARKER = "\n\n[... output truncated ...]\n\n"
+
+/**
+ * Cut [text] to at most [maxBytes] of UTF-8, keeping the beginning and the end, and say whether it
+ * was cut. Bytes rather than characters because the cap bounds what the *request* carries, and a
+ * string of emoji counts four bytes per glyph — the same measurement [FsToolExecutor]'s caps use.
+ *
+ * Both ends rather than the first half alone: a command's failure and its summary are usually the
+ * last thing it prints, and the setup it printed first is not a substitute for them. The marker is
+ * charged to [maxBytes], and each cut backs off a multi-byte character so the result decodes whole.
+ * A cap too small for the marker and any text keeps the beginning only — the behaviour this had
+ * before the tail was kept.
  */
 internal fun truncateCommandOutput(
     text: String,
@@ -141,10 +157,39 @@ internal fun truncateCommandOutput(
 ): Pair<String, Boolean> {
     val bytes = text.toByteArray(Charsets.UTF_8)
     if (bytes.size <= maxBytes) return text to false
-    var cut = maxBytes
-    // Back up over continuation bytes (10xxxxxx) so the last kept code point is whole.
-    while (cut > 0 && (bytes[cut].toInt() and 0xC0) == 0x80) cut--
-    return String(bytes, 0, cut, Charsets.UTF_8) to true
+    val marker = COMMAND_TRUNCATION_MARKER.toByteArray(Charsets.UTF_8)
+    if (maxBytes <= marker.size + 2) {
+        val cut = utf8CutBack(bytes, maxBytes)
+        return String(bytes, 0, cut, Charsets.UTF_8) to true
+    }
+    val budget = maxBytes - marker.size
+    val headBudget = budget / 2
+    val tailBudget = budget - headBudget
+    val headCut = utf8CutBack(bytes, headBudget)
+    val tailStart = utf8StartForward(bytes, bytes.size - tailBudget)
+    val kept = ByteArray(headCut + marker.size + (bytes.size - tailStart))
+    System.arraycopy(bytes, 0, kept, 0, headCut)
+    System.arraycopy(marker, 0, kept, headCut, marker.size)
+    System.arraycopy(bytes, tailStart, kept, headCut + marker.size, bytes.size - tailStart)
+    return String(kept, Charsets.UTF_8) to true
+}
+
+/**
+ * The end of the first [cut] bytes, moved back over continuation bytes (10xxxxxx) so a multi-byte
+ * character is never split. [cut] may equal `bytes.size`; the callers only reach here with a real
+ * cut, but the bound keeps the helper safe on its own.
+ */
+private fun utf8CutBack(bytes: ByteArray, cut: Int): Int {
+    var end = cut.coerceIn(0, bytes.size)
+    while (end > 0 && end < bytes.size && (bytes[end].toInt() and 0xC0) == 0x80) end--
+    return end
+}
+
+/** The first character boundary at or after [start], so a tail never begins mid-character. */
+private fun utf8StartForward(bytes: ByteArray, start: Int): Int {
+    var at = start.coerceIn(0, bytes.size)
+    while (at < bytes.size && (bytes[at].toInt() and 0xC0) == 0x80) at++
+    return at
 }
 
 /**

@@ -1,5 +1,6 @@
 package com.nikosm.voiceassistant.linux
 
+import com.nikosm.voiceassistant.COMMAND_TRUNCATION_MARKER
 import com.nikosm.voiceassistant.CommandRunRequest
 import java.nio.file.Path
 import kotlinx.coroutines.test.runTest
@@ -161,5 +162,28 @@ class LinuxCommandRunnerTest {
         assertTrue("the cap was reached", result.truncated)
         assertTrue("at most the cap is kept: ${result.output.length}", result.output.length <= 1024)
         assertEquals("the pipe is still drained, so the command exits normally", 0, result.exitCode)
+    }
+
+    @Test
+    fun `output past the cap keeps the end as well as the beginning`() = runTest {
+        // 80,000 bytes of setup, then a marker printed last: the failure this feature exists for is
+        // usually the line at the end, not the setup at the start.
+        val result = runner.run(
+            CommandRunRequest(
+                "i=0; while [ \$i -lt 20000 ]; do printf aaaa; i=\$((i+1)); done; printf END-MARKER",
+                directory(),
+                timeoutSeconds = 10,
+                maxOutputBytes = 1024,
+            )
+        )
+
+        assertTrue("the cap was reached", result.truncated)
+        assertTrue("the beginning is kept", result.output.startsWith("aaaa"))
+        assertTrue("the end is kept: ${result.output.takeLast(80)}", result.output.contains("END-MARKER"))
+        assertTrue("the gap is marked", result.output.contains(COMMAND_TRUNCATION_MARKER))
+        assertTrue(
+            "at most the cap is kept: ${result.output.toByteArray(Charsets.UTF_8).size}",
+            result.output.toByteArray(Charsets.UTF_8).size <= 1024,
+        )
     }
 }

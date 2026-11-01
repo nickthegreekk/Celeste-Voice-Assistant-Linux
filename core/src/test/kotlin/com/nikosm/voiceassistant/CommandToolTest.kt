@@ -56,6 +56,32 @@ class CommandToolTest {
         assertEquals(4, kept.toByteArray(Charsets.UTF_8).size)
     }
 
+    @Test
+    fun `output past the cap keeps its beginning and its end`() {
+        val text = "HEAD" + "x".repeat(200) + "TAIL"
+
+        val (kept, truncated) = truncateCommandOutput(text, maxBytes = 64)
+
+        assertTrue(truncated)
+        assertTrue("the beginning is kept: $kept", kept.startsWith("HEAD"))
+        assertTrue("the end is kept: $kept", kept.endsWith("TAIL"))
+        assertTrue("the gap is marked", kept.contains(COMMAND_TRUNCATION_MARKER))
+        assertTrue("at most the cap is kept", kept.toByteArray(Charsets.UTF_8).size <= 64)
+    }
+
+    @Test
+    fun `both cuts back off a multi-byte character`() {
+        // Twenty four-byte characters. With a 64-byte cap the head and tail budgets each land
+        // inside a character, and neither cut may leave a replacement character behind.
+        val text = "😀".repeat(20)
+
+        val (kept, truncated) = truncateCommandOutput(text, maxBytes = 64)
+
+        assertTrue(truncated)
+        assertFalse("a cut split a character: $kept", kept.contains('�'))
+        assertTrue("at most the cap is kept", kept.toByteArray(Charsets.UTF_8).size <= 64)
+    }
+
     // ------------------------------------------------------------------ terminal output
 
     @Test
