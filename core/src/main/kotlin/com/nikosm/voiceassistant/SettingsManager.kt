@@ -1178,6 +1178,8 @@ class SettingsManager(
             trustedCerts = getTrustedCertificates(),
             searxngUrl = getSearxngUrl(),
             userLocation = getUserLocation(),
+            // M18.4: the nickname is conversation content, like location, not a credential.
+            userNickname = getUserNickname(),
             ragServerUrl = getRagServerUrl(),
             ragUsername = getRagUsername(),
             ragPassword = getRagPassword(),
@@ -1322,6 +1324,7 @@ class SettingsManager(
             saveFavoriteModels(backup.favoriteModels)
             backup.searxngUrl?.let { saveSearxngUrl(it) }
             backup.userLocation?.let { saveUserLocation(it) }
+            backup.userNickname?.let { saveUserNickname(it) }
             backup.ragServerUrl?.let { saveRagServerUrl(it) }
             backup.ragUsername?.let { saveRagUsername(it) }
             backup.ragPassword?.let { saveRagPassword(it) }
@@ -2160,6 +2163,13 @@ class SettingsManager(
         return store.getString("user_location")
     }
 
+    /** M18.4: what `{{user}}` resolves to. Empty is a real value: the resolver says "user". */
+    fun saveUserNickname(nickname: String) {
+        store.edit().putString("user_nickname_v1", nickname.trim()).commit()
+    }
+
+    fun getUserNickname(): String = store.getString("user_nickname_v1").orEmpty()
+
     fun saveRagServerUrl(url: String) {
         store.edit().putString("rag_server_url", url).commit()
     }
@@ -2255,6 +2265,8 @@ data class BackupData(
     val trustedCerts: Map<String, String>,
     val searxngUrl: String? = null,
     val userLocation: String? = null,
+    /** M18.4: what the user asked Celeste to call them; defaulted for pre-M18 backups. */
+    val userNickname: String? = null,
     val ragServerUrl: String? = null,
     val ragUsername: String? = null,
     val ragPassword: String? = null,

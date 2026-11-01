@@ -223,10 +223,10 @@ internal fun settingsCategoryGroups(
 
 /**
  * The General screen's own contents, listed as they are today: Appearance, Data & Usage,
- * Location, History, Backup & Recovery. Static on purpose — this category has no counts to
- * report, and inventing any would rot the moment a section is added.
+ * Location, Identity, History, Backup & Recovery. Static on purpose — this category has no counts
+ * to report, and inventing any would rot the moment a section is added.
  */
-internal const val GENERAL_SETTINGS_SUMMARY = "Appearance, usage, location, history, backup"
+internal const val GENERAL_SETTINGS_SUMMARY = "Appearance, identity, usage, location, history, backup"
 
 /** "$count word", with the label pluralized at n > 1. */
 internal fun countedItems(count: Int, singular: String, plural: String): String =
@@ -1203,6 +1203,35 @@ Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 )
             }
         }
+    }
+
+    // M18.4: what a persona's `{{user}}` resolves to. Saved on every keystroke like "Assistant
+    // Location" below — the settings store is a key-value file and a lost keystroke is worse than
+    // a few small writes. Blank means the placeholder falls back to the literal word "user".
+    var userNickname by remember { mutableStateOf("") }
+    LaunchedEffect(Unit) {
+        userNickname = service.settingsManager.getUserNickname()
+    }
+    SettingsSectionHeader(title = "Identity", icon = Icons.Default.Person)
+    SettingsSection {
+        OutlinedTextField(
+            value = userNickname,
+            onValueChange = {
+                userNickname = it
+                service.settingsManager.saveUserNickname(it)
+            },
+            label = { Text("Your name") },
+            supportingText = {
+                Text(
+                    "Persona prompts, skills and lorebooks can use placeholders: {{user}} becomes " +
+                        "this name, alongside {{cur_date}}, {{cur_time}}, {{timezone}}, " +
+                        "{{model_name}}, {{char}} and {{location}}. An unknown placeholder is left " +
+                        "as written."
+                )
+            },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth()
+        )
     }
 
     // The window's size, remembered across launches (2026-10-17, by request). A switch rather than

@@ -355,6 +355,11 @@ internal fun AssistantService.turnContextWithContext(
         enabledBookIds = settingsManager.getPersonaLorebooks(persona.name),
         recent = recent,
     )
+    // M18.4: a skill or lorebook entry may name `{{user}}` or `{{cur_date}}` too — resolve both
+    // with the SAME values the persona prompt gets, so one turn never disagrees with itself.
+    val values = placeholderValuesFor(persona)
+    val skillText = resolvePlaceholders(skill.text, values)
+    val lorebookText = resolvePlaceholders(lorebook.block, values)
     val memory = if (base.isSingleChat && settingsManager.isPersonaMemoryEnabled(persona.name)) {
         settingsManager.getPersonaMemory(persona.name)
     } else {
@@ -367,7 +372,7 @@ internal fun AssistantService.turnContextWithContext(
         skill.matched.forEach { add(UsedContextItem("skill", it.name)) }
         addAll(lorebook.used)
     }
-    val suffix = listOf(base.systemPromptSuffix, skill.text, lorebook.block)
+    val suffix = listOf(base.systemPromptSuffix, skillText, lorebookText)
         .filter { it.isNotBlank() }
         .joinToString("\n\n")
     if (suffix.isBlank() && used.isEmpty()) return base

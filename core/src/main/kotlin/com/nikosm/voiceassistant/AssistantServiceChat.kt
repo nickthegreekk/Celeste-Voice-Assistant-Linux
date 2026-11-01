@@ -1861,7 +1861,9 @@ internal suspend fun AssistantService.performDirectOllamaChat(baseUrl: String, m
                 // M8: the tool contract, on the channel the design names — the same `suffix` skills
                 // ride in, so it is counted by resolveHistoryBudget like every other fixed part.
                 allToolContractFor(turnContext.fsToolMode, turnContext.mcpTools, turnContext.memoryEnabled, turnContext.commandEnabled)?.let { add(it) }
-            }.filter { it.isNotBlank() }.joinToString("\n\n")
+            }.filter { it.isNotBlank() }.joinToString("\n\n"),
+            // M18.4: `{{cur_date}}` and friends resolve here, never in the stored persona.
+            placeholders = placeholderValuesFor(persona),
         )
 
         // Add system prompt first
@@ -2189,7 +2191,10 @@ internal suspend fun AssistantService.buildCloudRequest(api: CloudApiSetting, pe
         suffix = buildList {
             add(turnContext.systemPromptSuffix)
             allToolContractFor(turnContext.fsToolMode, turnContext.mcpTools, turnContext.memoryEnabled, turnContext.commandEnabled)?.let { add(it) }
-        }.filter { it.isNotBlank() }.joinToString("\n\n")
+        }.filter { it.isNotBlank() }.joinToString("\n\n"),
+        // M18.4: same resolution as the direct-Ollama path — a cloud persona's prompt means the
+        // same thing about "today" and "the user".
+        placeholders = placeholderValuesFor(persona),
     )
 
     // A-attachments: the model-facing prompt includes extracted file content. The
@@ -3194,13 +3199,24 @@ internal fun composeSystemPrompt(
      * exactly the survival the feature exists for — and because it is part of the prompt,
      * `resolveHistoryBudget` counts it without a second arithmetic.
      */
-    memory: String = ""
+    memory: String = "",
+    /**
+     * M18.4: the values `{{...}}` resolve to. Null leaves the persona prompt byte-identical,
+     * which is what the tests and every caller that has no settings source get; the request
+     * builders pass [placeholderValuesFor].
+     */
+    placeholders: PlaceholderValues? = null,
 ): String {
     val contextPrefix = listOf(searchContext, ragContext).filter { it.isNotEmpty() }.joinToString("\n\n")
     val withContext = if (contextPrefix.isNotEmpty()) "$contextPrefix\n\n" else ""
     val suffixPart = if (suffix.isNotBlank()) "\n\n$suffix" else ""
     val memoryPart = if (memory.isBlank()) "" else "\n\n$memory"
-    return "$withContext" + "Current date and time: $currentDateTime\n\n${persona.systemPrompt}" +
+    val personaPrompt = if (placeholders == null) {
+        persona.systemPrompt
+    } else {
+        resolvePlaceholders(persona.systemPrompt, placeholders)
+    }
+    return "$withContext" + "Current date and time: $currentDateTime\n\n$personaPrompt" +
         memoryPart + suffixPart
 }
 

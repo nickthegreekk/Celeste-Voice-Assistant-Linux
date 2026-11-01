@@ -299,7 +299,8 @@ private suspend fun AssistantService.performScheduledSkillOllamaCall(
         currentDateTime = getCurrentDateTimeString(),
         searchContext = "",
         ragContext = "",
-        suffix = suffix
+        suffix = suffix,
+        placeholders = placeholderValuesFor(persona)
     )
     val budget = resolveHistoryBudget(
         contextWindow = persona.numCtx,

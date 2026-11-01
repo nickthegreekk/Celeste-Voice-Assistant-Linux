@@ -1701,3 +1701,38 @@ the user.
 
 → PLAN.md §10/M18; `Lorebook.kt`, `Models.kt`, `AssistantServiceContext.kt`, `SettingsManager.kt`,
 `AssistantService.kt`, `ChatComponents.kt`, `ChatMessage`
+
+## 2026-11-01 — Prompt placeholders resolve at composition time, never in the stored text
+
+LastChat's prompt-template idea is adopted as Celeste's own; no code is copied. A persona prompt
+can now name `{{cur_date}}`, `{{user}}`, `{{model_name}}` and friends, and they resolve in the
+system prompt built for one turn. The stored persona, skill and lorebook text is left untouched:
+rewriting it at save time would freeze "today" into the prompt and make an imported prompt
+non-deterministic in a way the user could not see.
+
+**Decided:** the resolver is one pure function (`resolvePlaceholders`) plus one builder of live
+values (`placeholderValuesFor`). An unknown key is preserved exactly, matching LastChat's behaviour
+and, more importantly, keeping prompts that discuss a literal `{{example}}` usable. Matching is
+case-insensitive and allows inner spaces inside the braces; the alias set is fixed, not regex-driven.
+`{{user}}` is a new nickname setting in Settings → General → Identity; blank means the literal word
+"user", so a prompt is never suddenly addressed to an empty string. The nickname is conversation
+content like location, so it is exported in the backup (defaulted for old backups) rather than
+treated as a credential.
+
+**Scope:** the three non-COPY prompt builders (direct-Ollama streaming, cloud, scheduled skill) and
+`turnContextWithContext` for skills and lorebooks share one `PlaceholderValues` per turn. The Voice
+Gateway assembles its own prompt and is not covered in v1; memory text is not resolved; rooms keep
+their COPY-file skill-only path. The spontaneous-turn call also stays unresolved: its builder is
+`AssistantServiceSpontaneous.kt`, a COPY file, and extending it would be a demotion the user has to
+approve — the same reason the room path waits. Those are stated gaps, not silent omissions; the
+room/spontaneous slice should bring placeholder resolution with it.
+
+**Rejected: resolving in the editor.** It would show the user a different prompt from the one that
+is sent and would bake today's clock into a saved skill. **Rejected: a user-defined placeholder
+table.** That is a template language with escaping rules and a parser; the fixed set covers what a
+persona prompt actually needs, and the unknown-key rule keeps the door open without committing to
+one.
+
+→ PLAN.md §10/M18.4; `PromptPlaceholders.kt`, `AssistantServiceChat.kt`,
+`AssistantServiceContext.kt`, `AssistantServiceSpontaneous.kt`, `ScheduledSkillRunner.kt`,
+`SettingsManager.kt`, `SettingsScreens.kt`, `PromptPlaceholdersTest.kt`

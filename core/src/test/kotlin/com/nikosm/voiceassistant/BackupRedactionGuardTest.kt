@@ -51,6 +51,7 @@ class BackupRedactionGuardTest {
         "favoriteModels" to "NOT_SECRET: model preferences; not credentials",
         "trustedCerts" to "NOT_SECRET: TLS trusted certificates; not credentials",
         "userLocation" to "NOT_SECRET: user location; not a credential",
+        "userNickname" to "NOT_SECRET: what the user asks to be called; not a credential",
         "personaImages" to "NOT_SECRET: artwork bytes; not credentials",
         "messageImages" to "NOT_SECRET: message artwork bytes; not credentials",
         "rooms" to "NOT_SECRET: room identities; not credentials",
@@ -120,7 +121,7 @@ class BackupRedactionGuardTest {
         val topLevelFields = setOf(
             "serverBases", "ollamaBases", "imageGenBases", "cloudApis", "customCloudApis",
             "personas", "messages", "personaMessages", "totalCost", "favoriteModels",
-            "trustedCerts", "searxngUrl", "userLocation", "ragServerUrl", "ragUsername",
+            "trustedCerts", "searxngUrl", "userLocation", "userNickname", "ragServerUrl", "ragUsername",
             "ragPassword", "personaImages", "messageImages", "rooms", "roomMessages",
             "skills", "imageWorkflows", "activeImageGenBackend", "mcpServers",
             "personaMemories", "personaMemoryEnabled", "scheduledSkills",

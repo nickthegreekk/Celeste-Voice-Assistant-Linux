@@ -2323,6 +2323,27 @@ the direct model; a DOCX yields its body text; a missing poppler, a gateway-only
 model that cannot see images produces a sentence, not a crash; nothing leaves the machine except
 to the model the user configured.
 
+**M18.4 — Prompt placeholders (implemented 2026-11-01).** A persona prompt, skill instruction or
+lorebook entry may write `{{cur_date}}`, `{{cur_time}}`, `{{cur_datetime}}`, `{{timezone}}`,
+`{{model_name}}`, `{{char}}`, `{{user}}`, `{{location}}` or `{{os}}`; each resolves at composition
+time, so a stored prompt keeps meaning "today" tomorrow. The stored text is never rewritten. The
+short aliases `{{date}}`, `{{time}}`, `{{datetime}}`, `{{model}}`, `{{persona}}` and
+`{{system_version}}` are accepted; matching is case-insensitive and tolerant of inner spaces. An
+unknown key is returned exactly as written — a prompt may discuss a literal `{{example}}` without
+the application eating it. `{{model_name}}` is the effective model with a `[Server] ` tag stripped;
+`{{user}}` is the nickname from Settings → General → Identity (new, `user_nickname_v1`) and falls
+back to the word "user"; the nickname travels in the backup as `userNickname`, defaulted so older
+backups decode. Resolution covers the direct-Ollama streaming builder, `buildCloudRequest` and the
+scheduled-skill call: all three pass one `PlaceholderValues` built from the persona, the clock and
+settings, and `turnContextWithContext` resolves skill and lorebook text with the same values. Not
+covered in v1: the Voice Gateway assembles its own prompt, memory text is not resolved, rooms keep
+their COPY-file skill-only path (so a room turn does not resolve skill placeholders until the
+deferred room slice), and the spontaneous-turn call is also a COPY file
+(`AssistantServiceSpontaneous.kt`); making it resolve would be a recorded demotion, so it is left
+byte-identical and deferred with the room slice. Acceptance: every key and alias resolves; an unknown
+key survives; null values leave a stored prompt byte-identical; the persona prompt, a skill and a
+lorebook entry in one turn agree on the nickname; the nickname round-trips through a backup.
+
 ## 11. Test strategy
 
 - **Port the 45 JVM test files (8,066 lines) in M0/M1.** They are the executable specification for
