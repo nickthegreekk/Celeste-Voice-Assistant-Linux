@@ -34,6 +34,19 @@ class CommandClaimGuardTest {
     }
 
     @Test
+    fun `a report on the command I ran is a claim`() {
+        val reply = "Here's my report on the command I ran (`dmesg`):\n\n" +
+            "**Command:** `dmesg`\n\n**Result:**\n```\n[ 0.000000] Linux version 6.1.0-...\n```"
+
+        assertTrue(claimsCommandResult(reply))
+    }
+
+    @Test
+    fun `a backticked command after I ran is a claim`() {
+        assertTrue(claimsCommandResult("I ran `dmesg` and here is what it printed."))
+    }
+
+    @Test
     fun `ordinary mentions and future intent are not claims`() {
         assertFalse(claimsCommandResult("You can run a command in the terminal."))
         assertFalse(claimsCommandResult("I can't run commands for this persona."))
@@ -42,6 +55,8 @@ class CommandClaimGuardTest {
         assertFalse(claimsCommandResult("An exit code tells you whether a program succeeded."))
         assertFalse(claimsCommandResult("The function returned the output."))
         assertFalse(claimsCommandResult("The output was not returned by that function in the example."))
+        assertFalse(claimsCommandResult("I ran into a problem with the command."))
+        assertFalse(claimsCommandResult("I ran the tests."))
     }
 
     @Test

@@ -30,6 +30,21 @@ private val COMMAND_CLAIM_PATTERNS = listOf(
         """\b(i|we)\s+(ran|executed|invoked)\s+(the|a|that|your)?\s*command\b""",
         RegexOption.IGNORE_CASE,
     ),
+    // "the command I ran", "the command we just executed" — the order the live miss used
+    Regex(
+        """\bcommand\s+(i|we)\s+(just\s+)?(ran|executed|invoked)\b""",
+        RegexOption.IGNORE_CASE,
+    ),
+    // "I ran `dmesg`", "we executed `date`"
+    Regex(
+        """\b(i|we)\s+(just\s+)?(ran|executed|invoked)\s+`[^`\n]+`""",
+        RegexOption.IGNORE_CASE,
+    ),
+    // "I ran the dmesg command", "we executed that shell command"
+    Regex(
+        """\b(i|we)\s+(just\s+)?(ran|executed|invoked)\s+(the\s+)?[a-z0-9_.-]+\s+command\b""",
+        RegexOption.IGNORE_CASE,
+    ),
     // "The tool returned …", "the tool timed out"
     Regex(
         """\bthe\s+tool\s+(ran|executed|returned|failed|timed\s+out)\b""",

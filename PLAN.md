@@ -2279,8 +2279,9 @@ the 64 KiB cap, or a decision in [docs/DECISIONS.md](docs/DECISIONS.md).
    gets one `WARN` line. No toast (it disappears before the user can read it) and no command-audit
    row (the audit records commands that ran, not claims). The detector is conservative and
    past-tense only; ordinary mentions and future intent are not flagged. Tests: the fabricated
-   100,000-line summary and the fabricated timeout are flagged; “you can run a command”, “I can't
-   run commands” and “I will run it” are not.
+   100,000-line summary, the fabricated timeout, the fabricated `dmesg` report (“the command I ran”)
+   and “I ran `dmesg`” are flagged; “you can run a command”, “I can't run commands”, “I will run it”
+   and “I ran the tests” are not.
 
 ## 11. Test strategy
 
