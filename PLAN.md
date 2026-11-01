@@ -2232,6 +2232,43 @@ This is the third measure-time crash in this milestone (the window icon, then th
 
 Memory line to add under the M8 entry: PLAN.md §10 item 6 — the Files settings screen throws at measure time (verticalScroll inside the settings LazyColumn); item 4's dead notifier is why a denied write looks like nothing happened.
 
+**M16.3 — Post-M16 follow-ups from the ServerBox review (adopted 2026-11-01).** These four changes
+came from reading `lollipopkit/flutter_server_box` (v1.0.1844, commit `200de2a`) and asking what its
+server and terminal handling does better. They are additive: none changes the approval boundary,
+the 64 KiB cap, or a decision in [docs/DECISIONS.md](docs/DECISIONS.md).
+
+1. **Keep both ends of capped output (implemented 2026-11-01).** A command that printed setup and
+   then failed at the end previously gave the model only the setup, because `LinuxCommandRunner`
+   kept the first 64 KiB and discarded the rest. The cap now keeps the first half, a marker and the
+   last half, while still draining the pipe and bounding the result to `maxOutputBytes`. The pure
+   `truncateCommandOutput` applies the same rule, backs off UTF-8 boundaries at both cuts, and
+   `COMMAND_TRUNCATION_MARKER` is the one spelling `:platform` and `:core` share. Tests: the pure
+   cap keeps the head and the tail and never splits a character; the real runner keeps a final
+   marker printed after the cap.
+
+2. **One command per model round (implemented 2026-11-01).** `commandToolContractFor` now tells the
+   model to propose one `run_command` at a time and wait for its result. A round is carried out
+   sequentially and every command asks separately, so a model that proposes several asks the user
+   to approve all of them before seeing any output. Prompt-only: the per-call confirmation remains
+   the boundary, and no execution path changed. Test: the contract carries the rule.
+
+3. **Host capabilities with reasons (planned; host-exec-mcp, not Celeste core).** `get_system_status`
+   should return a per-host `capabilities` block — systemd, `pvesm`, `journalctl`, `smartctl`, the
+   configured log allowlist — with a reason when a capability is absent (`unsupported`,
+   `not_configured`, or the ServerBox-style `not_granted` / `insecure_transport`), and a per-section
+   availability record so one missing collector never fails the report. This extends the
+   `unsupported` / `log_unreadable` findings already specified in
+   [`docs/INFRA-MCP-PLAN.md`](docs/INFRA-MCP-PLAN.md) §5 and §7.1; it changes the server, not
+   `:core`, and is tracked there. Acceptance: a host without systemd or `smartctl` gets a precise
+   capability reason, not a failed tool; one missing section still returns the rest of the status.
+
+4. **Distinguish cap truncation from an abandoned drain (planned).** `truncated` should mean only
+   "the size cap was reached". When `LinuxCommandRunner` closes the pipe because a grandchild held
+   it past the 500 ms drain grace, the result is partial for a different reason and should say so
+   (`outputIncomplete` or the equivalent), with the tool layer reporting it to the model. Acceptance:
+   a background grandchild holding stdout yields partial output marked incomplete; a plain cap hit
+   marks truncated only; neither is reported as a complete result.
+
 ## 11. Test strategy
 
 - **Port the 45 JVM test files (8,066 lines) in M0/M1.** They are the executable specification for
