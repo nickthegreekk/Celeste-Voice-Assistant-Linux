@@ -257,6 +257,9 @@ internal fun AssistantService.sendAudioToServer(file: Path, requestedPersona: Pe
         updateNotification("Thinking...")
 
         val useDeviceVoice = currentPersona.voiceMode != VoiceMode.GATEWAY
+        // M18.2: the direct-Ollama voice branch appends user+assistant at apply, outside the
+        // branch that computes the turn context; carry what it injected here for the ledger.
+        var voiceUsedContext: List<UsedContextItem> = emptyList()
 
         if (currentPersona.isCloud && isCloudModel(currentPersona.model)) {
             serviceScope.launch {
@@ -307,7 +310,8 @@ internal fun AssistantService.sendAudioToServer(file: Path, requestedPersona: Pe
                         updateNotification("Ready to help")
                         return@launch
                     }
-                    _messages.value = _messages.value + ChatMessage("user", transcribedText).stampedAt()
+                    val voiceUserMessage = ChatMessage("user", transcribedText).stampedAt()
+                    _messages.value = _messages.value + voiceUserMessage
                     saveSettings()
                     // currentTurnInHistory = true: the user turn is now the last entry in
                     // _messages, so buildCloudRequest drops exactly that entry from the
@@ -324,7 +328,9 @@ internal fun AssistantService.sendAudioToServer(file: Path, requestedPersona: Pe
                     // M8: the same fork as the direct-Ollama voice branch below and as the text path —
                     // a persona with a workspace gets the bounded tool loop on every route the app
                     // builds a request for.
-                    val voiceTurnContext = turnContextWithSkills(transcribedText, currentPersona)
+                    val voiceTurnContext = turnContextWithContext(transcribedText, currentPersona, _messages.value)
+                    voiceUsedContext = voiceTurnContext.usedContext
+                    recordUsedContext(currentPersona.name, voiceUserMessage.timestamp, voiceTurnContext.usedContext)
                     val fsWorkspace = fsWorkspaceFor(currentPersona)
                     // M9: the persona's enabled servers are resolved once, before the fork, because
                     // whether there is a tool loop at all now has two possible reasons.
@@ -439,7 +445,8 @@ internal fun AssistantService.sendAudioToServer(file: Path, requestedPersona: Pe
                          // into the text path left a hands-free "read my notes and summarise them"
                          // with no tools and no explanation, which is the one outcome this milestone
                          // exists to prevent. Same fork as the text path, same loops.
-                         val voiceTurnContext = turnContextWithSkills(transcribedText, currentPersona)
+                         val voiceTurnContext = turnContextWithContext(transcribedText, currentPersona, _messages.value)
+                         voiceUsedContext = voiceTurnContext.usedContext
                          val fsWorkspace = fsWorkspaceFor(currentPersona)
                          // M9: the same two reasons for a tool loop as the cloud voice branch.
                          val mcpTools = resolveMcpTools(currentPersona)
@@ -659,16 +666,19 @@ internal fun AssistantService.sendAudioToServer(file: Path, requestedPersona: Pe
             // one was superseded), and never clear a newer turn's published streaming text.
             val streamedIdx = takeStreamedPlaceholderIfOwned(generation)
             clearStreamingTextIfOwned(generation)
+            val voiceUserMessage = ChatMessage("user", uText as String).stampedAt()
             if (streamedIdx != null && streamedIdx < _messages.value.size) {
                 val base = _messages.value.toMutableList().also { it.removeAt(streamedIdx) }.toList()
                 _messages.value = base +
-                    ChatMessage("user", uText as String).stampedAt() +
+                    voiceUserMessage +
                     ChatMessage("assistant", rText as String, reasoning as? String, audioFilePath = audioPath, responseTimeMs = responseTimeMs).stampedAt()
             } else {
                 _messages.value = _messages.value +
-                    ChatMessage("user", uText as String).stampedAt() +
+                    voiceUserMessage +
                     ChatMessage("assistant", rText as String, reasoning as? String, audioFilePath = audioPath, responseTimeMs = responseTimeMs).stampedAt()
             }
+            // M18.2: the direct voice path's ledger entry, keyed by the message it belongs to.
+            recordUsedContext(currentPersona.name, voiceUserMessage.timestamp, voiceUsedContext)
             saveSettings()
 
             if (useDeviceVoice) {
@@ -705,9 +715,11 @@ internal fun AssistantService.sendAudioToServer(file: Path, requestedPersona: Pe
                 val base = if (streamedIdx != null && streamedIdx < _messages.value.size) {
                     _messages.value.toMutableList().also { it.removeAt(streamedIdx) }.toList()
                 } else _messages.value
+                val partialUser = ChatMessage("user", transcribedText).stampedAt()
                 _messages.value = base +
-                    ChatMessage("user", transcribedText).stampedAt() +
+                    partialUser +
                     ChatMessage("assistant", e.partialContent, e.partialThinking.ifBlank { null }).stampedAt()
+                recordUsedContext(currentPersona.name, partialUser.timestamp, voiceUsedContext)
                 saveSettings()
             } else {
                 removeBlankPlaceholderSvc(generation)
@@ -803,7 +815,7 @@ internal fun AssistantService.sendTextMessageToServer(inputText: String, request
     // suffix is a one-turn construct: it is never appended to _messages, so it cannot reach
     // the transcript or the next turn (Q2). Resolving before the launch also means a turn
     // that is superseded before it starts never produces skill text at all.
-    val turnContext = turnContextWithSkills(inputText, currentPersona, turnContext)
+    val turnContext = turnContextWithContext(inputText, currentPersona, _messages.value, turnContext)
 
     serviceScope.launch {
         // Phase 0: this turn's transcript writes (the user turn, the error bubbles, the
@@ -823,12 +835,19 @@ internal fun AssistantService.sendTextMessageToServer(inputText: String, request
         }
 
         // A9: the display/history user message shows a concise filename list
-        sink.append(ChatMessage("user",
+        val userIndex = sink.append(ChatMessage("user",
             if (attachments.isNotEmpty())
                 "$inputText\n\n(Attached: ${attachments.mapNotNull { it.fileName?.toString() }.joinToString(", ")})"
             else inputText,
             imagePath = ownedImagePath
         ))
+        // M18.2: the ledger is a side record keyed by the stamped message's timestamp, because
+        // ChatMessage lives in the COPY file Models.kt.
+        if (turnContext.isSingleChat) {
+            sink.peek(userIndex)?.let { appended ->
+                recordUsedContext(currentPersona.name, appended.timestamp, turnContext.usedContext)
+            }
+        }
         saveSettings()
 
         if (currentPersona.isImageGenerator || isImageGenerationRequest(inputText)) {
@@ -1729,6 +1748,12 @@ internal data class TurnContext(
      * result from one that only talks about commands. Empty for an ordinary turn.
      */
     val toolsUsed: Set<String> = emptySet(),
+    /**
+     * M18.2: what this turn actually injected — memory count, matched skills and activated
+     * lorebook entries. Transient turn state; the UI persists it as a side ledger keyed by the
+     * user message's timestamp because `ChatMessage` is a COPY file.
+     */
+    val usedContext: List<UsedContextItem> = emptyList(),
 ) {
     /**
      * Phase 2: true when this turn writes into the single-chat transcript, i.e. exactly

@@ -33,6 +33,7 @@ import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.AddPhotoAlternate
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.MenuBook
 import androidx.compose.material.icons.filled.Extension
 import androidx.compose.material.icons.filled.Psychology
 import androidx.compose.material.icons.filled.Folder
@@ -1202,6 +1203,13 @@ fun PersonaEditor(
                 onToggle = { skillId, enabled -> setSkillEnabled(skillId, enabled) },
                 service = service
             )
+        }
+
+        // M18.1: the other kind of injected context. A lorebook is enabled per persona through
+        // a side map, because Models.kt is a COPY file and Persona cannot grow the reference.
+        SettingsSectionHeader(title = "Lorebooks", icon = Icons.Default.MenuBook)
+        SettingsSection {
+            PersonaLorebookSection(personaName = persona.name, service = service)
         }
 
         SettingsSectionHeader("Spontaneous Messages")

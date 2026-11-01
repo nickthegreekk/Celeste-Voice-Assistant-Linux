@@ -437,6 +437,87 @@ class SkillInjectionTest {
             }
         }
     }
+
+    // ---- M18: lorebooks and the used-context ledger -----------------------------------------
+
+    private val probeBook = Lorebook(
+        id = "lore-probe-book",
+        name = "Probe Book",
+        entries = listOf(
+            LorebookEntry(
+                id = "lore-probe-entry",
+                name = "Vee",
+                content = "LOREBOOK-PROBE-MARKER",
+                activation = LorebookActivation.KEYWORDS,
+                keywords = listOf("Vee"),
+            )
+        ),
+    )
+
+    private fun installLorebook(persona: Persona) {
+        service.addLorebook(probeBook)
+        settings.savePersonaLorebooks(persona.name, listOf(probeBook.id))
+    }
+
+    @Test
+    fun `a keyword lorebook reaches the system prompt and the context ledger`() {
+        val persona = probePersona(enabledSkillIds = emptyList())
+        StubProbeServer().use { stub ->
+            registerProbeServer(stub)
+            installLibrary(emptyList(), persona)
+            installLorebook(persona)
+
+            sendTurn("Vee appears")
+            awaitRequests(stub, 1, "the lorebook turn never reached the server")
+
+            val systemPrompt = systemPromptAt(stub, 0)
+            assertTrue(
+                "the lorebook entry was missing from the system prompt:\n$systemPrompt",
+                systemPrompt.contains("LOREBOOK-PROBE-MARKER")
+            )
+            assertTrue(
+                "the block must be labelled as context, not instructions:\n$systemPrompt",
+                systemPrompt.contains("## Lorebook (user-authored context)")
+            )
+            assertTrue(
+                "the lorebook content leaked into the transcript",
+                service.messages.value.none { it.text.contains("LOREBOOK-PROBE-MARKER") },
+            )
+            val user = service.messages.value.first { it.role == "user" }
+            val used = service.usedContext.value[user.timestamp.toString()].orEmpty()
+            assertTrue(
+                "the ledger did not name the fired entry: $used",
+                used.any {
+                    it.kind == "lorebook" &&
+                        it.name == "Probe Book / Vee" &&
+                        it.detail == "keyword: Vee"
+                },
+            )
+        }
+    }
+
+    @Test
+    fun `a non matching lorebook injects nothing and records nothing`() {
+        val persona = probePersona(enabledSkillIds = emptyList())
+        StubProbeServer().use { stub ->
+            registerProbeServer(stub)
+            installLibrary(emptyList(), persona)
+            installLorebook(persona)
+
+            sendTurn(FOLLOW_UP_MESSAGE)
+            awaitRequests(stub, 1, "the non-matching lorebook turn never reached the server")
+
+            assertFalse(
+                "a non-matching turn must not inject the lorebook:\n" + systemPromptAt(stub, 0),
+                systemPromptAt(stub, 0).contains("LOREBOOK-PROBE-MARKER"),
+            )
+            val user = service.messages.value.first { it.role == "user" }
+            assertTrue(
+                "a turn with no injected context must write no ledger row",
+                service.usedContext.value[user.timestamp.toString()].orEmpty().isEmpty(),
+            )
+        }
+    }
 }
 
 /**

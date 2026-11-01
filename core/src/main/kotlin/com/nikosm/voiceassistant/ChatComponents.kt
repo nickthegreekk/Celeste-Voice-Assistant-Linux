@@ -435,7 +435,9 @@ fun ChatList(
     shouldShowSuggestions: Boolean = false,
     suggestionState: SuggestionState = SuggestionState.IDLE,
     onRequestSuggestions: () -> Unit = {},
-    onDismiss: () -> Unit = {}
+    onDismiss: () -> Unit = {},
+    /** M18.2: the context this message's turn injected, looked up by the side ledger. */
+    usedContextFor: (ChatMessage) -> List<UsedContextItem> = { emptyList() },
 ) {
     // `LocalContext.current` and the `CLIPBOARD_SERVICE` lookup are gone; the clipboard is AWT's
     // now (PLAN.md §9: "clipboard to AWT"). Resolved once per composition rather than per click,
@@ -469,6 +471,7 @@ fun ChatList(
                 val highlightRange = if (chunkedKaraoke) {
                     ttsActiveWordRange(message.text, ttsWordTimestamps, activeFraction!!, voiceDuration)
                 } else null
+                val usedContext = usedContextFor(message)
 
                 Box(
                     modifier = Modifier.fillMaxWidth(),
@@ -477,6 +480,9 @@ fun ChatList(
                     // The inner Box is sized to the bubble, so the menu anchors at the message
                     // rather than at the row's full width. (It used to anchor on the outer Box,
                     // which on a wide window put a right-aligned user's menu at the window edge.)
+                    Column(
+                        horizontalAlignment = if (isUser) Alignment.End else Alignment.Start
+                    ) {
                     Box {
                     ChatMessageBubble(
                         message = message,
@@ -574,6 +580,10 @@ fun ChatList(
                                 menuMessageIndex = null
                             }
                         )
+                    }
+                    }
+                    if (usedContext.isNotEmpty()) {
+                        UsedContextRow(usedContext)
                     }
                     }
                 }
@@ -976,6 +986,61 @@ fun SuggestedRepliesPanel(
                     }
                 }
             }
+        }
+    }
+}
+
+/**
+ * M18.2: the compact "what this turn sent" row. Names and activation reasons only — never the
+ * injected text, which can be long and is already the user's own content.
+ *
+ * It scrolls horizontally rather than wrapping: this is a label line under a bubble, not a
+ * second content area, and a long lorebook name should not push the next message down.
+ */
+@Composable
+private fun UsedContextRow(items: List<UsedContextItem>) {
+    Row(
+        modifier = Modifier
+            .padding(top = 2.dp, start = 4.dp, end = 4.dp)
+            .horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = "Context",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
+        )
+        items.take(8).forEach { item ->
+            val label = buildString {
+                append(item.kind.replaceFirstChar { it.uppercase() })
+                append(": ")
+                append(item.name)
+                if (item.detail.isNotBlank()) {
+                    append(" · ")
+                    append(item.detail)
+                }
+            }
+            Surface(
+                shape = RoundedCornerShape(8.dp),
+                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
+            ) {
+                Text(
+                    text = label,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp),
+                )
+            }
+        }
+        if (items.size > 8) {
+            Text(
+                text = "+${items.size - 8}",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
+            )
         }
     }
 }

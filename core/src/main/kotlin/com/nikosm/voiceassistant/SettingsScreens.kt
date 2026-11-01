@@ -159,6 +159,9 @@ internal val SETTINGS_CATEGORIES = listOf(
     // After Personas, not beside them: a skill only means something once the persona that
     // can enable it exists, so the order follows "what to configure" rather than the alphabet.
     SettingsCategory("Skills", Icons.Default.AutoAwesome, SettingsGroup.ASSISTANTS),
+    // M18.1: the other kind of persona context — a library of background entries a persona can
+    // switch on. Filed beside Skills because both are authored once and referenced by id.
+    SettingsCategory("Lorebooks", Icons.Default.MenuBook, SettingsGroup.ASSISTANTS),
     // Machine-level pages, filed together under System on 2026-10-18 at the user's request.
     // Audio and Health describe this machine; Filesystem and Terminal are grants to it. M2's
     // audio page still comes first because the persona editor's output picker lists the same
@@ -300,6 +303,7 @@ internal fun settingsCategorySummaries(
                 "Personas" -> personasSummary(personas)
                 "Rooms" -> roomsSummary(rooms)
                 "Skills" -> skillsSummary(skills)
+                "Lorebooks" -> LOREBOOK_SETTINGS_SUMMARY
                 "Filesystem" -> FS_SETTINGS_SUMMARY
                 "Terminal" -> COMMAND_SETTINGS_SUMMARY
                 "MCP" -> MCP_SETTINGS_SUMMARY
@@ -785,6 +789,7 @@ fun SettingsDialog(
             )
             "Audio" -> AudioSettings(service = svc)
             "Health" -> ServerHealthSettings(service = svc)
+            "Lorebooks" -> LorebookSettings(service = svc)
             "Filesystem" -> FsToolSettings(service = svc)
             "Terminal" -> CommandSettings(service = svc)
             "MCP" -> McpSettings(service = svc)

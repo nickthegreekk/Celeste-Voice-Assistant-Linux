@@ -229,13 +229,16 @@ internal fun enabledSkillsFor(persona: Persona, skills: List<Skill>): List<Skill
  * same shape for the same reason — a process-wide `android.util.Log` — and the message carries
  * skill NAMES only, which upstream notes is deliberate so it stays safe in a release build.
  */
-internal fun skillSuffixForTurn(
+/** The matched skills and the text they contribute, so the transparency ledger can name them. */
+internal data class SkillInjection(val text: String, val matched: List<Skill>)
+
+internal fun skillInjectionForTurn(
     userText: String,
     persona: Persona,
     skills: List<Skill>
-): String {
+): SkillInjection {
     val matched = matchedSkills(userText, enabledSkillsFor(persona, skills))
-    if (matched.isEmpty()) return ""
+    if (matched.isEmpty()) return SkillInjection("", emptyList())
     if (matched.size > 1) {
         // Skill NAMES only, never instruction text: this is not DEBUG-gated, so it must stay
         // safe to log in a release build.
@@ -245,8 +248,14 @@ internal fun skillSuffixForTurn(
                 "(${matched.joinToString { it.name }}); injecting all of them in library order"
         )
     }
-    return matched.joinToString("\n\n") { it.instructions.trim() }
+    return SkillInjection(matched.joinToString("\n\n") { it.instructions.trim() }, matched)
 }
+
+internal fun skillSuffixForTurn(
+    userText: String,
+    persona: Persona,
+    skills: List<Skill>
+): String = skillInjectionForTurn(userText, persona, skills).text
 
 /**
  * Whether this turn is a CONVERSATIONAL one, and therefore the only kind that may carry
@@ -325,6 +334,84 @@ internal fun TurnContext.withSkills(
             .filter { it.isNotBlank() }
             .joinToString("\n\n")
     )
+}
+
+/**
+ * M18: the one-turn injection point for text and voice — skills, lorebooks and the transparency
+ * ledger. Kept beside [turnContextWithSkills] rather than replacing it so the skill-only tests
+ * keep their exact contract; the chat and voice call sites move here.
+ */
+internal fun AssistantService.turnContextWithContext(
+    userText: String,
+    persona: Persona,
+    recent: List<ChatMessage>,
+    base: TurnContext = TurnContext.Default,
+): TurnContext {
+    if (!shouldInjectSkills(persona, userText)) return base
+    val skill = skillInjectionForTurn(userText, persona, _skills.value)
+    val lorebook = lorebookTurnFor(
+        userText = userText,
+        books = _lorebooks.value,
+        enabledBookIds = settingsManager.getPersonaLorebooks(persona.name),
+        recent = recent,
+    )
+    val memory = if (base.isSingleChat && settingsManager.isPersonaMemoryEnabled(persona.name)) {
+        settingsManager.getPersonaMemory(persona.name)
+    } else {
+        emptyList()
+    }
+    val used = buildList {
+        if (memory.isNotEmpty()) {
+            add(UsedContextItem("memory", "Long-term memory", "${memory.size} notes"))
+        }
+        skill.matched.forEach { add(UsedContextItem("skill", it.name)) }
+        addAll(lorebook.used)
+    }
+    val suffix = listOf(base.systemPromptSuffix, skill.text, lorebook.block)
+        .filter { it.isNotBlank() }
+        .joinToString("\n\n")
+    if (suffix.isBlank() && used.isEmpty()) return base
+    return base.copy(
+        systemPromptSuffix = suffix,
+        usedContext = base.usedContext + used,
+    )
+}
+
+/**
+ * The room twin of [turnContextWithContext]. Memory is excluded by the existing room rule (the
+ * notes are private to a one-to-one chat); skills and lorebooks ride the room preamble exactly as
+ * skills already did.
+ */
+internal fun TurnContext.withContext(
+    userText: String,
+    persona: Persona,
+    skills: List<Skill>,
+    books: List<Lorebook>,
+    enabledBookIds: Collection<String>,
+    recent: List<ChatMessage>,
+): TurnContext {
+    if (!shouldInjectSkills(persona, userText)) return this
+    val skill = skillInjectionForTurn(userText, persona, skills)
+    val lorebook = lorebookTurnFor(userText, books, enabledBookIds, recent)
+    val used = skill.matched.map { UsedContextItem("skill", it.name) } + lorebook.used
+    val suffix = listOf(systemPromptSuffix, skill.text, lorebook.block)
+        .filter { it.isNotBlank() }
+        .joinToString("\n\n")
+    if (suffix.isBlank() && used.isEmpty()) return this
+    return copy(
+        systemPromptSuffix = suffix,
+        usedContext = usedContext + used,
+    )
+}
+
+private fun lorebookTurnFor(
+    userText: String,
+    books: List<Lorebook>,
+    enabledBookIds: Collection<String>,
+    recent: List<ChatMessage>,
+): LorebookTurn {
+    val recentTexts = recent.takeLast(LOREBOOK_MAX_SCAN_DEPTH).map { it.text } + userText
+    return lorebookBlockForTurn(activatedLorebookEntries(books, enabledBookIds, recentTexts))
 }
 
 internal fun parseRawSuggestedReplies(rawOutput: String): List<String> {

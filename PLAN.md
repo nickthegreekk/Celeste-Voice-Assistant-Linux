@@ -2283,6 +2283,41 @@ the 64 KiB cap, or a decision in [docs/DECISIONS.md](docs/DECISIONS.md).
    and “I ran `dmesg`” are flagged; “you can run a command”, “I can't run commands”, “I will run it”
    and “I ran the tests” are not.
 
+**M18 — Persona context: lorebooks, transparency, documents (adopted 2026-11-01).** The user picked
+these ideas from LastChat; the implementation is Celeste's own
+([docs/DECISIONS.md](docs/DECISIONS.md), 2026-11-01), not copied code. LastChat is AGPL-3.0 and
+Celeste is GPL-3.0, so the data model, activation rule and UI are written here rather than lifted.
+
+**M18.1 — Lorebooks (implemented 2026-11-01).** A shared `Lorebook` library, persona references by
+id, and a small Settings editor. An entry has a name, content, enabled flag, activation
+(ALWAYS/KEYWORDS), keywords, a case-sensitivity flag and a scan depth; a book has a name and
+entries. Activation is pure: ALWAYS, or a keyword found in the current user text plus the last N
+messages. Regex and RAG activation are out of v1. Caps: 100 entries per book, 2,000 characters per
+entry, 8,000 injected characters per turn. Injection is a labelled **user-authored context** block
+after the persona/system prompt, in library and entry order; it is not an instruction channel and
+cannot displace the system prompt. Deleting a book prunes persona references. The library and the
+references travel in the backup with defaults, so old backups decode. Acceptance: a keyword fires
+only inside its window; ALWAYS always fires; disabled entry/book/persona references never fire;
+case sensitivity and scan depth hold; the block is capped; a deleted book leaves no
+enabled-but-missing row.
+
+**M18.2 — Context transparency (implemented 2026-11-01).** `ChatMessage.usedContext` (default empty)
+records what the turn actually injected: a memory count, matched skill names, and activated
+lorebook entries with their activation reason. The chat shows a compact chip row under the user
+message; it is persisted, so reopening the chat shows what was sent rather than reconstructing it
+from settings that may have changed. v1 covers single chat and voice; room transcripts do not carry
+the chips yet, because a room turn has several personas and its context belongs to the round, not
+one user bubble. Acceptance: a turn with memory/skills/lorebook shows the exact items; a turn with
+none shows no row; old messages and backups decode with an empty list.
+
+**M18.3 — PDF/DOCX and vision OCR (planned).** Attach a PDF, DOCX or image; extract PDF text with
+poppler's `pdftotext` through a `:platform` seam, parse DOCX with the JDK's ZIP + XML, and OCR
+pages through a user-configured vision model on the existing provider path. No new JVM dependency;
+caps on pages and bytes; fabricated fixtures only. Acceptance: a text PDF yields its text; a
+scanned PDF renders pages and OCRs them; a DOCX yields its body text; a missing tool or
+unconfigured vision model produces a sentence, not a crash; nothing is sent anywhere except the
+model the user configured.
+
 ## 11. Test strategy
 
 - **Port the 45 JVM test files (8,066 lines) in M0/M1.** They are the executable specification for

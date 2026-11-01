@@ -1845,6 +1845,7 @@ fun ControlBar(
                 suggestionList = emptyList()
             }
 
+            val usedContextByTimestamp = service?.usedContext?.collectAsState()?.value ?: emptyMap()
             ChatList(
                 modifier = Modifier.weight(1f),
                 messages = messages,
@@ -1865,7 +1866,10 @@ fun ControlBar(
                 shouldShowSuggestions = shouldShowSuggestions,
                 suggestionState = suggestionState,
                 onRequestSuggestions = onRequestSuggestionsAction,
-                onDismiss = onDismissAction
+                onDismiss = onDismissAction,
+                usedContextFor = { message ->
+                    usedContextByTimestamp[message.timestamp.toString()].orEmpty()
+                }
             )
 
             Spacer(modifier = Modifier.height(16.dp))

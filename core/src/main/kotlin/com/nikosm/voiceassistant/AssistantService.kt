@@ -822,6 +822,20 @@ class AssistantService(
     internal val _skills = MutableStateFlow<List<Skill>>(emptyList())
     val skills = _skills.asStateFlow()
 
+    // ---------------------------------------------------------------- Lorebooks (M18.1)
+    // The same library shape as Skills: authored once, referenced by id per persona through a
+    // side map in SettingsManager. Models.kt is a COPY file, so the reference cannot live on
+    // Persona itself.
+    internal val _lorebooks = MutableStateFlow<List<Lorebook>>(emptyList())
+    val lorebooks = _lorebooks.asStateFlow()
+
+    // ---------------------------------------------------------------- Used context (M18.2)
+    // What the current transcript's turns actually injected, keyed by the user message's
+    // timestamp as text. A side record for the same COPY-file reason; the UI reads it to render
+    // the chip row, and SettingsManager persists it per persona.
+    internal val _usedContext = MutableStateFlow<Map<String, List<UsedContextItem>>>(emptyMap())
+    val usedContext = _usedContext.asStateFlow()
+
     // ---------------------------------------------------------------- Scheduled skills
     // M15: the clock-driven half of the skill library. A [ScheduledSkill] references a skill by
     // id and a persona by name; the runner reads this flow on every poll, so an edit takes effect
@@ -1401,6 +1415,10 @@ class AssistantService(
         // no longer exists is not repaired here — enabledSkillsFor() simply drops the id, so
         // a stale reference can never inject anything or throw.
         _skills.value = settingsManager.getSkills() ?: emptyList()
+        // M18.1: the lorebook library loads beside skills, for the same reason: a persona's
+        // enabled ids are resolved against this list at turn time, and a stale id is dropped by
+        // activation rather than repaired here.
+        _lorebooks.value = settingsManager.getLorebooks() ?: emptyList()
 
         // M15: the schedules load beside the skills they point into. A schedule whose skill,
         // persona or server no longer resolves is NOT repaired here: the runner re-resolves every
@@ -1418,6 +1436,10 @@ class AssistantService(
         if (currentPersonaName == null && loadedPersonas.isNotEmpty()) {
             switchPersona(loadedPersonas[0])
         }
+        // M18.2: the per-turn context ledger belongs to the active transcript. A switch loads its
+        // own copy asynchronously below; this immediate read covers a start where the name was
+        // restored without a switch call.
+        _usedContext.value = currentPersonaName?.let { settingsManager.getPersonaUsedContext(it) } ?: emptyMap()
 
         _ollamaBaseUrls.value = settingsManager.getOllamaBases() ?: emptyList()
         // Spontaneous cloud guard, load-time (supplementary). savePersonas already prevents
@@ -1515,6 +1537,9 @@ class AssistantService(
         // ids that were never persisted, which the load path would drop as dangling and
         // silently disable every enabled skill.)
         settingsManager.saveSkills(_skills.value)
+        // M18: the lorebook library rides beside skills and before the personas, because a
+        // persona's side map references ids in this list.
+        settingsManager.saveLorebooks(_lorebooks.value)
         // M15: schedules reference skills by id, so they ride immediately after the library — the
         // same crash-consistency pair skills and personas form a few lines down. A schedule naming
         // a persona that this save has not reached yet is tolerated by the load path and by the
@@ -1543,6 +1568,8 @@ class AssistantService(
             val adopted = settingsManager.adoptRecentMessageImages(name, _messages.value)
             if (adopted !== _messages.value) _messages.value = adopted
             settingsManager.savePersonaMessages(name, adopted)
+            // M18.2: the context ledger belongs to the same transcript owner as the messages.
+            settingsManager.savePersonaUsedContext(name, _usedContext.value)
         }
         settingsManager.saveImageGenBases(_imageGenBases.value)
         settingsManager.saveActiveImageGenBackend(_activeImageGenBackend.value)
@@ -2272,6 +2299,67 @@ class AssistantService(
         saveSettings()
     }
 
+    // ---------------------------------------------------------------- Lorebooks (M18.1)
+    // The same mutate-then-saveSettings shape as Skills. The library is a flow; the per-persona
+    // enablement is a name-keyed side map in SettingsManager because Models.kt is a COPY file.
+
+    fun addLorebook(lorebook: Lorebook) {
+        _lorebooks.value = _lorebooks.value + lorebook
+        saveSettings()
+    }
+
+    /** Replace in place; the id is the reference every persona holds, so it is not editable. */
+    fun updateLorebook(index: Int, lorebook: Lorebook) {
+        val current = _lorebooks.value.toMutableList()
+        if (index !in current.indices) return
+        current[index] = lorebook.copy(id = current[index].id)
+        _lorebooks.value = current
+        saveSettings()
+    }
+
+    /** Delete a book and drop its id from every persona's side map. */
+    fun removeLorebook(lorebook: Lorebook) {
+        _lorebooks.value = _lorebooks.value - lorebook
+        _personas.value.forEach { persona ->
+            val ids = settingsManager.getPersonaLorebooks(persona.name)
+            if (lorebook.id in ids) {
+                settingsManager.savePersonaLorebooks(persona.name, ids - lorebook.id)
+            }
+        }
+        saveSettings()
+    }
+
+    fun setLorebookEnabledForPersona(personaName: String, lorebookId: String, enabled: Boolean) {
+        if (_personas.value.none { it.name == personaName }) return
+        val ids = settingsManager.getPersonaLorebooks(personaName)
+        val updated = when {
+            enabled && lorebookId !in ids -> ids + lorebookId
+            !enabled && lorebookId in ids -> ids - lorebookId
+            else -> return
+        }
+        settingsManager.savePersonaLorebooks(personaName, updated)
+    }
+
+    internal fun personaLorebooks(personaName: String): List<String> =
+        settingsManager.getPersonaLorebooks(personaName)
+
+    // ---------------------------------------------------------------- Used context (M18.2)
+
+    /**
+     * Record what one user message's turn actually injected. The key is the message timestamp,
+     * because `ChatMessage` is a COPY file and the ledger is a side record; a turn with no context
+     * writes nothing, and a room turn (whose persona is not the single-chat transcript owner) does
+     * not pollute the single-chat ledger.
+     */
+    internal fun recordUsedContext(personaName: String, timestamp: Long, items: List<UsedContextItem>) {
+        if (timestamp <= 0L || items.isEmpty()) return
+        if (personaName != (messagesOwnerName ?: currentPersonaName)) return
+        val key = timestamp.toString()
+        if (_usedContext.value[key] == items) return
+        _usedContext.value = _usedContext.value + (key to items)
+        saveSettings()
+    }
+
     /**
      * Outcome of a manual "send me a message now" request (the persona editor's button).
      *
@@ -2363,6 +2451,7 @@ class AssistantService(
                     // history saves off the deleted persona's name).
                     messagesOwnerName = null
                     _messages.value = emptyList()
+                    _usedContext.value = emptyMap()
                 }
             }
             _personas.value = current
@@ -3088,8 +3177,12 @@ class AssistantService(
             val restored = withContext(Dispatchers.IO) {
                 settingsManager.getPersonaMessages(persona.name)
             }
+            val restoredContext = withContext(Dispatchers.IO) {
+                settingsManager.getPersonaUsedContext(persona.name)
+            }
             if (swapSeq == personaHistoryLoadSeq) {
                 _messages.value = restored ?: emptyList()
+                _usedContext.value = restoredContext
                 messagesOwnerName = persona.name
             }
         }
@@ -3131,13 +3224,17 @@ class AssistantService(
         // live name + the empty list it just published, i.e. the same pair as before.
         personaHistoryLoadSeq++
         _messages.value = emptyList()
+        _usedContext.value = emptyMap()
         messagesOwnerName = null
         val clearedName = currentPersonaName
         val previousHistoryIo = historyIoJob
         historyIoJob = serviceScope.launch {
             previousHistoryIo?.join()
             withContext(Dispatchers.IO) {
-                clearedName?.let { settingsManager.savePersonaMessages(it, emptyList()) }
+                clearedName?.let {
+                    settingsManager.savePersonaMessages(it, emptyList())
+                    settingsManager.savePersonaUsedContext(it, emptyMap())
+                }
             }
         }
         saveSettings() 

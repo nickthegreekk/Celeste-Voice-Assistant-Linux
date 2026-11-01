@@ -1664,3 +1664,34 @@ preview surface would be a second UI to maintain for no decision the user did no
 
 → PLAN.md §10/M17 follow-up; `ConversationExport.kt`, `MainVoiceScreen.kt`,
 `ConversationExportTest.kt`, `ConversationExportUiTest.kt`
+
+## 2026-11-01 — Lorebooks and context transparency are Celeste's own design
+
+LastChat (AGPL-3.0) has the best local lorebook and message-context model I have read, but its
+license is not Celeste's (GPL-3.0), and its code is Android/Compose bound. **Nothing is copied.
+The idea is reimplemented in Celeste's own shapes**: a small, persona-owned library, deterministic
+activation, explicit caps, and the same transparency the memory and skill features already owe
+the user.
+
+**Decided:**
+- A lorebook is a named list of entries. v1 activates an entry when it is ALWAYS on or when one
+  of its keywords appears in the current user text or the last N messages. Regex and RAG
+  activation are deliberately out; they need a matching engine and an embedding service, and
+  neither earns its keep before the simple form is used.
+- Entries are capped (100 per book, 2,000 characters each, 8,000 injected characters per turn) and
+  are injected after the persona's system prompt as a labelled **user-authored context** block,
+  not as instructions that can override the system prompt. Imported third-party text is never
+  trusted with a tool call; the existing tool gates still apply.
+- Each persona references lorebooks by id (like skills). Deleting a book prunes the reference.
+- Context transparency travels on the user message as `usedContext`: memory count, matched skill
+  names, and activated lorebook entries. It is persisted with the message, so reopening a chat
+  shows what was sent rather than reconstructing it from settings that may have changed.
+- v1 covers single chat and voice; room transcripts do not carry the chips yet, because a room
+  turn has several personas and its context belongs to the room's round, not one user bubble.
+- PDF/DOCX/OCR is M18.3, not part of this slice: PDF text through poppler's `pdftotext` in
+  `:platform`, DOCX through the JDK's ZIP + XML, and page OCR through a user-configured vision
+  model. No new JVM dependency, and no document leaves the machine except to the model the user
+  configured.
+
+→ PLAN.md §10/M18; `Lorebook.kt`, `Models.kt`, `AssistantServiceContext.kt`, `SettingsManager.kt`,
+`AssistantService.kt`, `ChatComponents.kt`, `ChatMessage`

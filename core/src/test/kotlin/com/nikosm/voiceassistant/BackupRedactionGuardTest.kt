@@ -62,6 +62,9 @@ class BackupRedactionGuardTest {
         "personaMemories" to "NOT_LONG_TERM: conversation memory; not a credential in exportBackup",
         "personaMemoryEnabled" to "NOT_LONG_TERM: memory enablement list; not a credential in exportBackup",
         "scheduledSkills" to "NOT_SECRET: scheduled skills; not a credential",
+        "lorebooks" to "NOT_SECRET: lorebook library; user-authored context, not a credential",
+        "personaLorebooks" to "NOT_SECRET: per-persona lorebook enablement; not a credential",
+        "personaUsedContext" to "NOT_SECRET: context names and activation reasons; not credentials",
 
         /* Extra fields needed for test pass */
         "serverBases" to "NOT_SECRET: server bases; not credentials",
@@ -120,7 +123,8 @@ class BackupRedactionGuardTest {
             "trustedCerts", "searxngUrl", "userLocation", "ragServerUrl", "ragUsername",
             "ragPassword", "personaImages", "messageImages", "rooms", "roomMessages",
             "skills", "imageWorkflows", "activeImageGenBackend", "mcpServers",
-            "personaMemories", "personaMemoryEnabled", "scheduledSkills"
+            "personaMemories", "personaMemoryEnabled", "scheduledSkills",
+            "lorebooks", "personaLorebooks", "personaUsedContext"
         )
         result.addAll(topLevelFields)
 

@@ -34,6 +34,9 @@ internal val SettingsJson = Json {
     encodeDefaults = true
 }
 
+/** A long chat keeps a bounded used-context ledger; the UI only looks up messages still present. */
+internal const val USED_CONTEXT_MAX_ENTRIES = 500
+
 /**
  * The settings blob, on Linux.
  *
@@ -186,6 +189,21 @@ class SettingsManager(
          */
         const val PERSONA_MEMORY_PREFIX = "persona_memory_"
         const val PERSONA_MEMORY_ENABLED_PREFIX = "persona_memory_enabled_"
+
+        /**
+         * M18.1: the shared lorebook library and each persona's enablement. Two namespaces for the
+         * same reason skills have two: the book is authored once and referenced by id, so editing
+         * it reaches every persona without a fan-out write.
+         */
+        const val LOREBOOKS_KEY = "lorebooks_v1"
+        const val PERSONA_LOREBOOKS_PREFIX = "persona_lorebooks_"
+
+        /**
+         * M18.2: which context a turn actually injected, side-recorded per user message. The key
+         * is the message timestamp as text; `ChatMessage` lives in the COPY file `Models.kt` and
+         * may not grow the field. Empty values are never stored.
+         */
+        const val PERSONA_USED_CONTEXT_PREFIX = "persona_used_context_"
 
         /**
          * M14: notify when a reply settles while the window is not focused. Default ON — the
@@ -741,6 +759,8 @@ class SettingsManager(
         migratePersonaCommandMode(oldName, newName)
         migratePersonaMcp(oldName, newName)
         migratePersonaMemory(oldName, newName)
+        migratePersonaLorebooks(oldName, newName)
+        migratePersonaUsedContext(oldName, newName)
         migratePersonaFlag(PERSONA_CTX_EXPLICIT_PREFIX, oldName, newName)
         val data = store.getString(personaMessagesKey(oldName)) ?: return
         store.edit()
@@ -1094,6 +1114,8 @@ class SettingsManager(
         removePersonaCommandMode(personaName)
         removePersonaMcp(personaName)
         removePersonaMemory(personaName)
+        removePersonaLorebooks(personaName)
+        removePersonaUsedContext(personaName)
     }
 
     /** The one place a referenced cache/artwork file is removed. Missing is not an error. */
@@ -1166,6 +1188,16 @@ class SettingsManager(
             // Skills travel whole and unpruned: the personas below carry the ids that point
             // into this list, and the import prunes any that don't resolve.
             skills = getSkills() ?: emptyList(),
+            // M18: the lorebook library and the side maps that reference it. The maps are
+            // name-keyed like memory, so they are gathered per persona rather than stored as one
+            // blob; the import prunes ids the backup did not carry.
+            lorebooks = getLorebooks() ?: emptyList(),
+            personaLorebooks = personas
+                .associate { it.name to getPersonaLorebooks(it.name) }
+                .filterValues { it.isNotEmpty() },
+            personaUsedContext = personas
+                .associate { it.name to getPersonaUsedContext(it.name) }
+                .filterValues { it.isNotEmpty() },
             // Same contract for Image Characters: the personas below carry imageWorkflowId
             // references into this list, and the import prunes any that don't resolve.
             imageWorkflows = getImageWorkflows() ?: emptyList(),
@@ -1224,6 +1256,8 @@ class SettingsManager(
             // persona referencing a skill this backup doesn't contain must not restore an
             // enabled-but-missing skill.
             saveSkills(backup.skills)
+            // M18: the lorebook library lands before the personas for the same reason skills do.
+            saveLorebooks(backup.lorebooks)
             // Characters land alongside skills and BEFORE the personas, for the same reason:
             // each persona's imageWorkflowId is pruned against this exact list below, so a backup
             // that carried a character but a persona referencing one this backup doesn't contain
@@ -1257,6 +1291,18 @@ class SettingsManager(
                     }
                 }
             )
+            // M18: the lorebook enablement and the used-context ledger are name-keyed side maps.
+            // Restored after the personas and pruned against what this backup actually carried,
+            // exactly like the skill ids above.
+            val restoredLorebookIds = backup.lorebooks.map { it.id }.toSet()
+            backup.personaLorebooks
+                .filterKeys { it in restoredNamesForMemory }
+                .forEach { (name, ids) ->
+                    savePersonaLorebooks(name, ids.filter { it in restoredLorebookIds })
+                }
+            backup.personaUsedContext
+                .filterKeys { it in restoredNamesForMemory }
+                .forEach { (name, entries) -> savePersonaUsedContext(name, entries) }
             saveMessages(backup.messages)
             backup.personaMessages.forEach { (name, msgs) ->
                 // Restore the pictures the transcript points at, into this persona's own folder,
@@ -1346,6 +1392,8 @@ class SettingsManager(
                 PERSONA_COMMAND_MODE_PREFIX,
                 MCP_PERSONA_PREFIX,
                 PERSONA_CTX_EXPLICIT_PREFIX,
+                PERSONA_LOREBOOKS_PREFIX,
+                PERSONA_USED_CONTEXT_PREFIX,
             ).forEach { prefix ->
                 store.allKeys()
                     .filter { it.startsWith(prefix) }
@@ -1930,6 +1978,103 @@ class SettingsManager(
             .commit()
     }
 
+    // ------------------------------------------------------------------ lorebooks (2026-11-01, M18)
+
+    /**
+     * The shared lorebook library. Unreadable JSON reads as an empty list, the same rule every
+     * stored collection here follows; a blank name or content is dropped so a hand-edited file
+     * cannot inject an empty block.
+     */
+    fun saveLorebooks(lorebooks: List<Lorebook>) {
+        store.edit().putString(LOREBOOKS_KEY, json.encodeToString(lorebooks)).commit()
+    }
+
+    fun getLorebooks(): List<Lorebook>? {
+        val data = store.getString(LOREBOOKS_KEY) ?: return emptyList()
+        return runCatching { json.decodeFromString<List<Lorebook>>(data) }
+            .onFailure { logger.w(TAG, "Corrupted/unreadable JSON in $LOREBOOKS_KEY — ignoring entry, returning empty", it) }
+            .getOrDefault(emptyList())
+    }
+
+    /**
+     * The ids of the lorebooks this persona has enabled, in library order at the point of use.
+     * Blank and duplicate ids are dropped; an id that no longer resolves is simply not matched by
+     * `activatedLorebookEntries`, so a stale reference never injects anything.
+     */
+    fun getPersonaLorebooks(personaName: String): List<String> {
+        if (personaName.isBlank()) return emptyList()
+        val data = store.getString(PERSONA_LOREBOOKS_PREFIX + personaName) ?: return emptyList()
+        return runCatching { json.decodeFromString<List<String>>(data) }
+            .onFailure { logger.w(TAG, "Corrupted/unreadable JSON in ${PERSONA_LOREBOOKS_PREFIX}$personaName — none", it) }
+            .getOrDefault(emptyList())
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+            .distinct()
+    }
+
+    fun savePersonaLorebooks(personaName: String, ids: List<String>) {
+        if (personaName.isBlank()) return
+        val key = PERSONA_LOREBOOKS_PREFIX + personaName
+        val kept = ids.map { it.trim() }.filter { it.isNotEmpty() }.distinct()
+        if (kept.isEmpty()) store.edit().remove(key).commit()
+        else store.edit().putString(key, json.encodeToString(kept)).commit()
+    }
+
+    fun migratePersonaLorebooks(oldName: String, newName: String) {
+        if (oldName == newName || oldName.isBlank()) return
+        store.getString(PERSONA_LOREBOOKS_PREFIX + oldName)?.let { data ->
+            store.edit()
+                .putString(PERSONA_LOREBOOKS_PREFIX + newName, data)
+                .remove(PERSONA_LOREBOOKS_PREFIX + oldName)
+                .commit()
+        }
+    }
+
+    fun removePersonaLorebooks(personaName: String) {
+        if (personaName.isBlank()) return
+        store.edit().remove(PERSONA_LOREBOOKS_PREFIX + personaName).commit()
+    }
+
+    /**
+     * What a message in this persona's transcript actually injected, keyed by the user message's
+     * timestamp as text. Kept as a side record because `ChatMessage` is in the COPY file
+     * `Models.kt`; the ledger is pruned to the newest [USED_CONTEXT_MAX_ENTRIES] on write.
+     */
+    fun getPersonaUsedContext(personaName: String): Map<String, List<UsedContextItem>> {
+        if (personaName.isBlank()) return emptyMap()
+        val data = store.getString(PERSONA_USED_CONTEXT_PREFIX + personaName) ?: return emptyMap()
+        return runCatching { json.decodeFromString<Map<String, List<UsedContextItem>>>(data) }
+            .onFailure { logger.w(TAG, "Corrupted/unreadable JSON in ${PERSONA_USED_CONTEXT_PREFIX}$personaName — none", it) }
+            .getOrDefault(emptyMap())
+    }
+
+    fun savePersonaUsedContext(personaName: String, entries: Map<String, List<UsedContextItem>>) {
+        if (personaName.isBlank()) return
+        val key = PERSONA_USED_CONTEXT_PREFIX + personaName
+        val kept = entries.entries
+            .filter { it.value.isNotEmpty() }
+            .sortedBy { it.key.toLongOrNull() ?: Long.MIN_VALUE }
+            .takeLast(USED_CONTEXT_MAX_ENTRIES)
+            .associate { it.key to it.value }
+        if (kept.isEmpty()) store.edit().remove(key).commit()
+        else store.edit().putString(key, json.encodeToString(kept)).commit()
+    }
+
+    fun migratePersonaUsedContext(oldName: String, newName: String) {
+        if (oldName == newName || oldName.isBlank()) return
+        store.getString(PERSONA_USED_CONTEXT_PREFIX + oldName)?.let { data ->
+            store.edit()
+                .putString(PERSONA_USED_CONTEXT_PREFIX + newName, data)
+                .remove(PERSONA_USED_CONTEXT_PREFIX + oldName)
+                .commit()
+        }
+    }
+
+    fun removePersonaUsedContext(personaName: String) {
+        if (personaName.isBlank()) return
+        store.edit().remove(PERSONA_USED_CONTEXT_PREFIX + personaName).commit()
+    }
+
     // ------------------------------------------------------------------ transcript search (2026-10-17, M13)
 
     /**
@@ -2135,6 +2280,14 @@ data class BackupData(
     // ignoreUnknownKeys, a NEW backup still imports into an older build — which simply
     // ignores the field and leaves every persona with no skills).
     val skills: List<Skill> = emptyList(),
+    // M18: the shared Lorebook library and the per-persona enablement side map. Both are
+    // user-authored configuration, not permissions, so they travel whole. Defaulted, so a backup
+    // written before M18 still decodes; an older build simply ignores the fields.
+    val lorebooks: List<Lorebook> = emptyList(),
+    val personaLorebooks: Map<String, List<String>> = emptyMap(),
+    // M18.2: the per-message context ledger, keyed by persona name then message timestamp. It is
+    // conversation content, like the transcript, so it travels with the backup.
+    val personaUsedContext: Map<String, Map<String, List<UsedContextItem>>> = emptyMap(),
     // The shared Image Characters library (ComfyUI workflows) travels with the backup like skills
     // do, so a restored install keeps its characters AND the personas' imageWorkflowId references
     // that point at them. Defaulted, so a backup written before Characters existed still decodes
