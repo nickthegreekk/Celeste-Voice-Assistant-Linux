@@ -230,6 +230,7 @@ class CommandToolTest {
         assertTrue("the input rule names credentials", contract.contains("credentials"))
         assertTrue(contract.contains("stdin"))
         assertTrue("the terminal rule is stated", contract.contains("tty: true"))
+        assertTrue("one command at a time is stated", contract.contains("one command at a time"))
     }
 
     @Test
