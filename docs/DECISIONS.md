@@ -1736,3 +1736,54 @@ one.
 → PLAN.md §10/M18.4; `PromptPlaceholders.kt`, `AssistantServiceChat.kt`,
 `AssistantServiceContext.kt`, `AssistantServiceSpontaneous.kt`, `ScheduledSkillRunner.kt`,
 `SettingsManager.kt`, `SettingsScreens.kt`, `PromptPlaceholdersTest.kt`
+
+## 2026-11-01 — Screen vision, without desktop control
+
+The comparison against LastChat's peers listed screen vision and UI automation together (both
+need Android's AccessibilityService there). On Linux they are not the same risk: **looking is a
+read, controlling is a write.** This slice implements only the read. The model can ask for one
+screenshot through `look_at_screen`; it cannot click, type or move focus, and no AT-SPI/xdotool
+surface is added. That is the same line the project already draws between reading a file and
+running a command: the permission to look is granted to a tool whose blast radius is one
+description.
+
+**Decided:**
+- **Off by default, Ask first is the only enabled state, and every capture asks.** There is no
+  session trust and no "always allow", unlike the command gate's exact-command grant: a command
+  is the same command tomorrow, while a screen is whatever the user is doing at the next capture.
+  The dialog names the persona and the model's question, says that every window is captured, and
+  dismissal denies.
+- **The whole screen, not a window picker.** A region or window picker is a second UI and a
+  second consent question ("which window?"), and the user's request is about what they see, not
+  about a compositor surface. The dialog says "entire screen" so the cost is visible before the
+  capture.
+- **Direct Ollama only.** The four cloud image-request shapes are a second implementation and the
+  vision model this machine runs is direct Ollama, exactly the M18.3 decision. A cloud or
+  gateway-only persona is not offered the tool; offering one that always fails would teach the
+  model to narrate failures.
+- **The image never persists.** It is captured into memory, base64'd into one request, and the
+  tool result carries only the vision model's description. The audit records the question, the
+  outcome and the byte size — never the image or the description, because either can contain
+  whatever was on screen.
+- **The vision call is inside the tool.** A text tool result cannot carry an image, and adding
+  image messages to every provider's tool dialect is the second implementation deferred above. The
+  chat model asks; the application makes the separate vision request; the chat model receives the
+  framed text.
+- **Screen text is data.** The description is framed and escaped like command output, and the
+  vision prompt says the same: an instruction rendered in a window is something the screenshot
+  shows, not something the application said.
+
+**Rejected: UI automation (AT-SPI/xdotool).** It needs a much larger permission surface, behaves
+differently on X11 and Wayland, and turns a prompt-injected screen into a way to press buttons.
+Revisit only if a concrete task cannot be done through `run_command` and an explicit confirmation.
+**Rejected: a cloud vision path in v1.** It is a second set of request shapes for a model class
+this machine does not use; the seam's target resolver is where it would enter later.
+
+**Scope, stated:** single-chat text and voice turns only. Rooms carry their tool-less path from a
+COPY file, as lorebooks and prompt placeholders already do; the deferred room slice should carry
+all three. Scheduled and spontaneous turns make no tool calls at all.
+
+→ PLAN.md §10/M19; `ScreenCapture.kt`, `ScreenTools.kt`, `ScreenAudit.kt`, `ScreenScreens.kt`,
+`DocumentOcr.kt` (`resolveVisionTarget`/`visionPng`), `AssistantServiceChat.kt`,
+`AssistantServiceFsTools.kt`, `AssistantService.kt`, `SettingsManager.kt`, `SettingsScreens.kt`,
+`PersonaEditor.kt`, `MainVoiceScreen.kt`, `platform/.../LinuxScreenCapture.kt`

@@ -25,6 +25,7 @@ import com.nikosm.voiceassistant.linux.LinuxAppEnv
 import com.nikosm.voiceassistant.linux.LinuxCommandRunner
 import com.nikosm.voiceassistant.linux.LinuxDocumentTools
 import com.nikosm.voiceassistant.linux.LinuxMcpTransportFactory
+import com.nikosm.voiceassistant.linux.LinuxScreenCapture
 import com.nikosm.voiceassistant.linux.ProcessAudioCapture
 import com.nikosm.voiceassistant.linux.LinuxAudioDevices
 import com.nikosm.voiceassistant.linux.PwPlayback
@@ -181,6 +182,9 @@ fun main(args: Array<String>) {
         // M18.3: poppler's three readers live in :platform; the seam keeps :core free of paths
         // and processes. A missing poppler is a sentence in the attachment, not a crash.
         documentTools = LinuxDocumentTools(appEnv.cacheDir, appEnv.logger),
+        // M19: one PNG of the whole screen through whichever capture tool the desktop has. The
+        // seam keeps :core free of process launching, and the tool is off in settings by default.
+        screenCapture = LinuxScreenCapture(appEnv.cacheDir, appEnv.logger),
     )
     service.start()
 

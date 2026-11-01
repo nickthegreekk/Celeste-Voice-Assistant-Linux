@@ -390,6 +390,8 @@ fun MainScreen(
     var pendingMcpApproval by remember { mutableStateOf<McpApprovalRequest?>(null) }
     // M16: the terminal command waiting for the user's yes.
     var pendingCommand by remember { mutableStateOf<CommandApprovalRequest?>(null) }
+    // M19: the screen capture waiting for the user's yes.
+    var pendingScreen by remember { mutableStateOf<ScreenApprovalRequest?>(null) }
     // M11: the session model overrides and the headline picker's visibility.
     var sessionModels by remember { mutableStateOf(emptyMap<String, String>()) }
     var showSessionModelPicker by remember { mutableStateOf(false) }
@@ -451,6 +453,7 @@ fun MainScreen(
             launch { service.fsWriteGate.pending.collect { pendingFsWrite = it } }
             launch { service.mcpApprovalGate.pending.collect { pendingMcpApproval = it } }
             launch { service.commandGate.pending.collect { pendingCommand = it } }
+            launch { service.screenGate.pending.collect { pendingScreen = it } }
             launch { service.sessionModelOverrides.collect { sessionModels = it } }
             launch { service.transientMessage.collect { transientMessage = it } }
             launch { service.rooms.collect { rooms = it } }
@@ -1316,6 +1319,13 @@ fun MainScreen(
     pendingCommand?.let { request ->
         CommandApprovalDialog(request = request) { allow, trustForSession ->
             service?.commandGate?.answer(request.id, allow, trustForSession)
+        }
+    }
+
+    // M19: and the same for a screenshot, which sees every window on the display.
+    pendingScreen?.let { request ->
+        ScreenApprovalDialog(request = request) { allow ->
+            service?.screenGate?.answer(request.id, allow)
         }
     }
 

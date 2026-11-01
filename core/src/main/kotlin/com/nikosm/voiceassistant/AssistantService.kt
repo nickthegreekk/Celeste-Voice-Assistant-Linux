@@ -228,6 +228,12 @@ class AssistantService(
      * DOCX parsing is pure JDK code in `:core` and needs no seam.
      */
     internal val documentTools: DocumentTools = DocumentTools.NONE,
+    /**
+     * M19: the screen-capture seam. Defaulted to [ScreenCapture.NONE], which returns null — a test
+     * that never configures screen vision cannot photograph the machine it runs on, and the tool
+     * is off in settings by default as well.
+     */
+    internal val screenCapture: ScreenCapture = ScreenCapture.NONE,
 ) {
 
     /**
@@ -571,6 +577,7 @@ class AssistantService(
         fsWriteGate.denyPending()
         mcpApprovalGate.denyPending()
         commandGate.denyPending()
+        screenGate.denyPending()
         return ++chatRequestSeq
     }
     internal fun isChatRequestCurrent(seq: Long): Boolean = seq == chatRequestSeq
@@ -2743,6 +2750,12 @@ class AssistantService(
      * only, and one exact command per grant — see [CommandApprovalGate].
      */
     internal val commandGate = CommandApprovalGate()
+
+    /**
+     * M19: the confirmation a screen capture needs, and the state the dialog reads. Session only,
+     * and unlike a command **no grant survives even the turn** — a screen changes between captures.
+     */
+    internal val screenGate = ScreenApprovalGate()
     private var backupPasswordDeferred: CompletableDeferred<String?>? = null
     private val _backupPasswordRequested = MutableStateFlow(false)
     val backupPasswordRequested = _backupPasswordRequested.asStateFlow()

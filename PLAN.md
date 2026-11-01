@@ -2344,6 +2344,29 @@ byte-identical and deferred with the room slice. Acceptance: every key and alias
 key survives; null values leave a stored prompt byte-identical; the persona prompt, a skill and a
 lorebook entry in one turn agree on the nickname; the nickname round-trips through a backup.
 
+**M19 — Screen vision (implemented 2026-11-01).** The model may ask to look at the user's screen
+through a `look_at_screen` tool. It is **off by default**, has a global policy and a per-persona
+override (Global / Off / Ask first), and **every capture asks**: there is no session trust, because
+a screen is whatever the user is doing at the next capture. The dialog names the persona and the
+model's question, and dismissal denies. The capture is the whole screen (every window, not only
+the one meant), taken only after approval, through a `ScreenCapture` seam implemented in
+`:platform` (`import`, `grim`, `xfce4-screenshooter`, `gnome-screenshot` or `scrot`, argv only,
+never a shell; 15 s timeout, 8 MiB cap, temp directory deleted). The PNG is sent to the persona's
+**direct Ollama** vision model, the same path M18.3's OCR uses, and only its textual description —
+framed as data and capped at 8,000 characters — reaches the chat model; the image is never added
+to the transcript, written to disk, or put in the audit. Cloud and gateway-only personas are not
+offered the tool rather than offered one that always fails. The audit is
+`screen-capture-audit.jsonl` in the state directory: the question, the outcome and the capture
+size, never the image or description. A failed capture, a missing tool, an oversized PNG and a
+vision model that returns nothing are sentences the model can report, not crashes. **Rooms are
+not covered in v1**: the room turn path is a COPY file and carries no tool loop, so the deferred
+room slice that brings lorebooks and placeholders there should carry this too.
+Acceptance: OFF offers no declaration and enters no loop; ASK offers the tool only with a direct
+Ollama vision target; a refusal and a timeout capture nothing and record which they were; an
+approved call captures once, describes with the same question the user approved, frames the
+description and audits it; the per-turn result budget still holds; a corrupt stored policy decodes
+to OFF; the policy never travels in a backup; a rename carries it and a delete drops it.
+
 ## 11. Test strategy
 
 - **Port the 45 JVM test files (8,066 lines) in M0/M1.** They are the executable specification for

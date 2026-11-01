@@ -169,6 +169,8 @@ internal class ToolRouter(
     private val remember: (suspend (FsToolCall) -> FsToolResult)? = null,
     /** M16: the terminal tool, or null when commands are off or have no workspace. */
     private val commands: ToolCallExecutor? = null,
+    /** M19: the screen tool, or null when the persona is off or has no direct vision target. */
+    private val screen: ToolCallExecutor? = null,
 ) : ToolCallExecutor {
 
     override suspend fun execute(call: FsToolCall): FsToolResult {
@@ -187,6 +189,16 @@ internal class ToolRouter(
                     "There is no tool named '${call.name}'.", ok = false,
                 )
             return commands.execute(call)
+        }
+        // M19: the same fixed-name dispatch, and the same refusal when the persona has no vision
+        // target — the model invented a tool this turn did not offer.
+        if (call.name == TOOL_LOOK_AT_SCREEN) {
+            val screen = screen
+                ?: return FsToolResult(
+                    call.id, call.name,
+                    "There is no tool named '${call.name}'.", ok = false,
+                )
+            return screen.execute(call)
         }
         val tool = mcpTools[call.name]
         if (tool != null) {
@@ -433,6 +445,22 @@ private fun AssistantService.toolExecutorFor(
             },
             audit = ::auditCommand,
         )
+    },
+    // M19: one executor for the whole turn, like commands. The vision call is made here, inside
+    // the tool, because an image cannot ride in a text tool result — the chat model receives the
+    // description and never the screenshot.
+    screen = if (screenVisionAvailableFor(persona)) {
+        ScreenToolExecutor(
+            personaName = persona.name,
+            capture = { screenCapture.capture() },
+            approve = { question -> requestScreenApproval(persona.name, question) },
+            describe = { png, question ->
+                visionPng(png, persona, screenVisionPrompt(question), SCREEN_MAX_DESCRIPTION_CHARS, numPredict = 2048)
+            },
+            audit = ::auditScreenCapture,
+        )
+    } else {
+        null
     },
 )
 

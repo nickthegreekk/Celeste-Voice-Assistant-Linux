@@ -157,6 +157,12 @@ class SettingsManager(
          */
         const val PERSONA_COMMAND_MODE_PREFIX = "persona_command_mode_"
 
+        /**
+         * M19: a persona's screen-vision override. One key, like the command policy and for the
+         * same reason — a screen has no folder or device of its own.
+         */
+        const val PERSONA_SCREEN_MODE_PREFIX = "persona_screen_mode_"
+
         /** 2026-10-18: the user changed this persona's Context Window Size; see its accessors. */
         const val PERSONA_CTX_EXPLICIT_PREFIX = "persona_ctx_explicit_"
 
@@ -757,6 +763,7 @@ class SettingsManager(
         migratePersonaOutputDevice(oldName, newName)
         migratePersonaFs(oldName, newName)
         migratePersonaCommandMode(oldName, newName)
+        migratePersonaScreenMode(oldName, newName)
         migratePersonaMcp(oldName, newName)
         migratePersonaMemory(oldName, newName)
         migratePersonaLorebooks(oldName, newName)
@@ -1112,6 +1119,7 @@ class SettingsManager(
         store.edit().remove(PERSONA_CTX_EXPLICIT_PREFIX + personaName).commit()
         removePersonaFs(personaName)
         removePersonaCommandMode(personaName)
+        removePersonaScreenMode(personaName)
         removePersonaMcp(personaName)
         removePersonaMemory(personaName)
         removePersonaLorebooks(personaName)
@@ -1393,6 +1401,7 @@ class SettingsManager(
                 PERSONA_FS_MODE_PREFIX,
                 PERSONA_FS_WORKSPACE_PREFIX,
                 PERSONA_COMMAND_MODE_PREFIX,
+                PERSONA_SCREEN_MODE_PREFIX,
                 MCP_PERSONA_PREFIX,
                 PERSONA_CTX_EXPLICIT_PREFIX,
                 PERSONA_LOREBOOKS_PREFIX,
@@ -1790,6 +1799,47 @@ class SettingsManager(
     fun removePersonaCommandMode(personaName: String) {
         if (personaName.isBlank()) return
         store.edit().remove(PERSONA_COMMAND_MODE_PREFIX + personaName).commit()
+    }
+
+    // ------------------------------------------------------------------ Screen vision (M19)
+
+    internal fun saveScreenMode(mode: ScreenToolMode) {
+        store.edit().putString("screen_mode", mode.name).commit()
+    }
+
+    internal fun getScreenMode(): ScreenToolMode = ScreenToolMode.fromName(store.getString("screen_mode"))
+
+    /**
+     * Null removes the key, which means "follow the global". A value this build cannot read
+     * resolves to OFF, the same one-way rule as the command override: a corrupt byte can only
+     * narrow what the screen tool may do.
+     */
+    internal fun savePersonaScreenMode(personaName: String, mode: ScreenToolMode?) {
+        if (personaName.isBlank()) return
+        val key = PERSONA_SCREEN_MODE_PREFIX + personaName
+        if (mode == null) store.edit().remove(key).commit()
+        else store.edit().putString(key, mode.name).commit()
+    }
+
+    internal fun getPersonaScreenMode(personaName: String): ScreenToolMode? =
+        store.getString(PERSONA_SCREEN_MODE_PREFIX + personaName)
+            ?.takeIf { it.isNotBlank() }
+            ?.let(ScreenToolMode::fromName)
+
+    /** The rename half: one key, the same synchronous contract as the command pair. */
+    fun migratePersonaScreenMode(oldName: String, newName: String) {
+        if (oldName == newName || oldName.isBlank()) return
+        val mode = getPersonaScreenMode(oldName) ?: return
+        store.edit()
+            .putString(PERSONA_SCREEN_MODE_PREFIX + newName, mode.name)
+            .remove(PERSONA_SCREEN_MODE_PREFIX + oldName)
+            .commit()
+    }
+
+    /** The delete half: a grant left behind would be inherited by a future persona of that name. */
+    fun removePersonaScreenMode(personaName: String) {
+        if (personaName.isBlank()) return
+        store.edit().remove(PERSONA_SCREEN_MODE_PREFIX + personaName).commit()
     }
 
     /** The roots the write gate does not ask about, as absolute paths. Unreadable JSON reads as none. */

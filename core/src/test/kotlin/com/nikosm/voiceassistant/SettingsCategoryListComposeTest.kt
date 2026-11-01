@@ -119,15 +119,16 @@ class SettingsCategoryListComposeTest {
 
     /**
      * Retargeted 2026-10-18 (recorded in docs/TEST-MAP.md): the registry gained a System section
-     * holding Audio, Health, Filesystem and Terminal, and MCP moved to Connections. The registry
-     * is the single source of the screen's shape, so asserting it directly is what makes the move
-     * a checked fact rather than a comment.
+     * holding Audio, Health, Filesystem and Terminal, and MCP moved to Connections. Retargeted
+     * again 2026-11-01 for M19's Screen page, which is the same kind of machine-level grant as
+     * Terminal. The registry is the single source of the screen's shape, so asserting it directly
+     * is what makes the move a checked fact rather than a comment.
      */
     @Test
     fun systemHoldsTheMachinePagesAndMcpSitsWithConnections() {
         val groups = settingsCategoryGroups().associate { it.caption to it.categories.map { c -> c.title } }
 
-        assertEquals(listOf("Audio", "Health", "Filesystem", "Terminal"), groups["System"])
+        assertEquals(listOf("Audio", "Health", "Filesystem", "Terminal", "Screen"), groups["System"])
         assertTrue(groups["Connections"]!!.contains("MCP"))
         assertTrue(
             groups["Connections"]!!.none { it == "Audio" || it == "Health" }

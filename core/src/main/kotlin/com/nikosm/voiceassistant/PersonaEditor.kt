@@ -43,6 +43,7 @@ import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material.icons.filled.Terminal
+import androidx.compose.material.icons.filled.Monitor
 import androidx.compose.material.icons.filled.NotificationsActive
 import androidx.compose.material.icons.filled.Translate
 import androidx.compose.material.icons.filled.Tune
@@ -421,6 +422,9 @@ fun PersonaEditor(
     var personaFsWorkspace by remember(persona) { mutableStateOf(service.settingsManager.getPersonaFsWorkspace(persona.name)) }
     // M16: this persona's terminal policy. Null is "follow the global", like the filesystem pair.
     var personaCommandMode by remember(persona) { mutableStateOf(service.settingsManager.getPersonaCommandMode(persona.name)) }
+    // M19: the screen grant, resolved beside its sibling because both answer "what may this
+    // persona do" — never serialized on the persona, so it lives in the settings store.
+    var personaScreenMode by remember(persona) { mutableStateOf(service.settingsManager.getPersonaScreenMode(persona.name)) }
     var outputDevices by remember { mutableStateOf<List<AudioDevice>?>(null) }
     LaunchedEffect(Unit) {
         outputDevices = withContext(Dispatchers.IO) { service.audioDevices.outputs() }.orEmpty()
@@ -1179,6 +1183,20 @@ fun PersonaEditor(
                     // Keyed by the editor's LIVE name, like the filesystem pair above: the
                     // autosave's rename migration runs off the same local state.
                     service.setPersonaCommandModeSetting(name, chosen)
+                },
+                service = service,
+            )
+        }
+
+        // M19: the screen grant, beside Terminal — the same question ("what may this persona
+        // reach"), a different sense. Every capture still asks, whatever this is set to.
+        SettingsSectionHeader(title = "Screen", icon = Icons.Default.Monitor)
+        SettingsSection {
+            PersonaScreenSection(
+                personaMode = personaScreenMode,
+                onModeChange = { chosen ->
+                    personaScreenMode = chosen
+                    service.setPersonaScreenModeSetting(name, chosen)
                 },
                 service = service,
             )

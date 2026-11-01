@@ -163,7 +163,7 @@ internal val SETTINGS_CATEGORIES = listOf(
     // switch on. Filed beside Skills because both are authored once and referenced by id.
     SettingsCategory("Lorebooks", Icons.Default.MenuBook, SettingsGroup.ASSISTANTS),
     // Machine-level pages, filed together under System on 2026-10-18 at the user's request.
-    // Audio and Health describe this machine; Filesystem and Terminal are grants to it. M2's
+    // Audio and Health describe this machine; Filesystem, Terminal and Screen are grants to it. M2's
     // audio page still comes first because the persona editor's output picker lists the same
     // devices, and a user who has not chosen a microphone here meets that list cold.
     SettingsCategory("Audio", Icons.Default.Mic, SettingsGroup.SYSTEM),
@@ -173,7 +173,10 @@ internal val SETTINGS_CATEGORIES = listOf(
     // M8/M16. Filesystem first because Terminal's working directory is that folder, and the
     // two are different grants: files are contained by a path, a shell is not.
     SettingsCategory("Filesystem", Icons.Default.Folder, SettingsGroup.SYSTEM),
-    SettingsCategory("Terminal", Icons.Default.Terminal, SettingsGroup.SYSTEM)
+    SettingsCategory("Terminal", Icons.Default.Terminal, SettingsGroup.SYSTEM),
+    // M19: the other screen-facing grant. It sits beside Terminal because it is equally a
+    // permission to reach beyond the conversation, not a description of the machine.
+    SettingsCategory("Screen", Icons.Default.Monitor, SettingsGroup.SYSTEM)
 )
 
 /**
@@ -306,6 +309,7 @@ internal fun settingsCategorySummaries(
                 "Lorebooks" -> LOREBOOK_SETTINGS_SUMMARY
                 "Filesystem" -> FS_SETTINGS_SUMMARY
                 "Terminal" -> COMMAND_SETTINGS_SUMMARY
+                "Screen" -> SCREEN_SETTINGS_SUMMARY
                 "MCP" -> MCP_SETTINGS_SUMMARY
                 else -> ""
             }
@@ -792,6 +796,7 @@ fun SettingsDialog(
             "Lorebooks" -> LorebookSettings(service = svc)
             "Filesystem" -> FsToolSettings(service = svc)
             "Terminal" -> CommandSettings(service = svc)
+            "Screen" -> ScreenSettings(service = svc)
             "MCP" -> McpSettings(service = svc)
             "Servers" -> ServerSettings(
                 service = svc,

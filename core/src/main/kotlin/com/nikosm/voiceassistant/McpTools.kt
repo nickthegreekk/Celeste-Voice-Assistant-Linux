@@ -70,9 +70,12 @@ internal fun allToolsJsonFor(
     mcpTools: List<McpTool>,
     memoryEnabled: Boolean = false,
     commandsEnabled: Boolean = false,
+    /** M19: offers `look_at_screen`; off for every turn whose persona has no direct vision target. */
+    screenEnabled: Boolean = false,
 ): org.json.JSONArray? {
     val specs = fsToolSpecs(fsMode) + mcpToolSpecs(mcpTools) +
-        (if (commandsEnabled) listOf(commandToolSpec()) else emptyList())
+        (if (commandsEnabled) listOf(commandToolSpec()) else emptyList()) +
+        (if (screenEnabled) listOf(screenToolSpec()) else emptyList())
     return toolsJsonFor(provider, if (memoryEnabled) specs + memoryToolSpec() else specs)
 }
 
@@ -82,12 +85,14 @@ internal fun allToolContractFor(
     mcpTools: List<McpTool>,
     memoryEnabled: Boolean = false,
     commandsEnabled: Boolean = false,
+    screenEnabled: Boolean = false,
 ): String? =
     listOfNotNull(
         fsToolContractFor(fsMode),
         mcpToolContractFor(mcpTools),
         memoryContractFor(memoryEnabled),
         commandToolContractFor(commandsEnabled),
+        screenToolContractFor(screenEnabled),
     )
         .joinToString("\n\n")
         .ifBlank { null }
@@ -99,7 +104,9 @@ internal fun toolDeclarationsText(
     mcpTools: List<McpTool>,
     memoryEnabled: Boolean = false,
     commandsEnabled: Boolean = false,
-): String = allToolsJsonFor(provider, fsMode, mcpTools, memoryEnabled, commandsEnabled)?.toString().orEmpty()
+    screenEnabled: Boolean = false,
+): String = allToolsJsonFor(provider, fsMode, mcpTools, memoryEnabled, commandsEnabled, screenEnabled)
+    ?.toString().orEmpty()
 
 /** A tool call's arguments as JSON, or an empty object when the model sent something unusable. */
 internal fun toolArgumentsOf(call: FsToolCall): JSONObject =
