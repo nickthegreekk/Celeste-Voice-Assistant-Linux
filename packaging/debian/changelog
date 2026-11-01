@@ -1,3 +1,23 @@
+celeste-linux (0.2.6) unstable; urgency=medium
+
+  * Persona context: lorebooks (a shared library of always/keyword-activated
+    entries), a visible per-message context row (memory, skills, lorebook
+    entries), PDF and DOCX attachments, and OCR of scanned pages through the
+    persona's direct Ollama vision model.
+  * Prompt placeholders: `{{cur_date}}`, `{{user}}`, `{{model_name}}` and
+    friends resolve when a request is composed, never in the stored prompt.
+    Settings -> General -> Identity sets the nickname `{{user}}` resolves to.
+  * Screen vision: a new `look_at_screen` tool, off by default, with a global
+    and per-persona policy. Every capture asks first, sends the whole screen
+    only to the persona's Ollama vision model, and keeps the image out of the
+    transcript and the audit.
+  * Terminal: command output keeps both ends when capped, the tool contract
+    asks for one command per round, and a reply that claims a command result
+    without a tool call is flagged.
+  * Version bumped to 0.2.6.
+
+ -- Nikos <nikos@localhost>  Sun, 01 Nov 2026 14:00:00 +0200
+
 celeste-linux (0.2.5) unstable; urgency=medium
 
   * Gateway transcription refuses a missing BASIC password or API key before
