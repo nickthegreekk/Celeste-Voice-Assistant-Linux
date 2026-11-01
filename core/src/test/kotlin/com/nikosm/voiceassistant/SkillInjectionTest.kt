@@ -11,6 +11,7 @@ import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.concurrent.thread
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.setMain
@@ -518,6 +519,23 @@ class SkillInjectionTest {
             )
         }
     }
+
+    @Test
+    fun `vision OCR posts the image and returns the model text`() {
+        StubProbeServer(answer = "OCR-PROBE-TEXT").use { stub ->
+            registerProbeServer(stub)
+            val persona = probePersona(enabledSkillIds = emptyList())
+
+            val text = runBlocking { service.ocrPng(byteArrayOf(0x89.toByte(), 0x50, 0x4E, 0x47), persona) }
+
+            assertEquals("OCR-PROBE-TEXT", text)
+            assertEquals(1, stub.chatRequestCount.get())
+            val body = stub.bodies.single()
+            assertTrue("the OCR request carried no image: $body", body.contains("\"images\""))
+            assertTrue("the OCR prompt was not sent: $body", body.contains("OCR engine"))
+            assertTrue("the OCR request must not stream: $body", body.contains("\"stream\":false"))
+        }
+    }
 }
 
 /**
@@ -603,13 +621,24 @@ private class StubProbeServer(
 
         chatRequestCount.incrementAndGet()
         bodies += body.toString()
-        val response = (
-            "{\"model\":\"skill-injection-probe-model\",\"created_at\":\"2026-01-01T00:00:00Z\"," +
-                "\"message\":{\"role\":\"assistant\",\"content\":\"$answer\"},\"done\":false}\n" +
-                "{\"model\":\"skill-injection-probe-model\",\"created_at\":\"2026-01-01T00:00:01Z\"," +
-                "\"message\":{\"role\":\"assistant\",\"content\":\"\"},\"done\":true," +
-                "\"done_reason\":\"stop\",\"prompt_eval_count\":9,\"eval_count\":4}\n"
-            ).toByteArray()
+        // M18.3: the OCR call is non-streaming; the chat probes stream. One stub, two faithful
+        // response shapes — a non-streaming caller cannot parse a two-line NDJSON body.
+        val streaming = !body.toString().contains("\"stream\":false")
+        val response = if (streaming) {
+            (
+                "{\"model\":\"skill-injection-probe-model\",\"created_at\":\"2026-01-01T00:00:00Z\"," +
+                    "\"message\":{\"role\":\"assistant\",\"content\":\"$answer\"},\"done\":false}\n" +
+                    "{\"model\":\"skill-injection-probe-model\",\"created_at\":\"2026-01-01T00:00:01Z\"," +
+                    "\"message\":{\"role\":\"assistant\",\"content\":\"\"},\"done\":true," +
+                    "\"done_reason\":\"stop\",\"prompt_eval_count\":9,\"eval_count\":4}\n"
+                ).toByteArray()
+        } else {
+            (
+                "{\"model\":\"skill-injection-probe-model\",\"created_at\":\"2026-01-01T00:00:00Z\"," +
+                    "\"message\":{\"role\":\"assistant\",\"content\":\"$answer\"},\"done\":true," +
+                    "\"done_reason\":\"stop\",\"prompt_eval_count\":9,\"eval_count\":4}\n"
+                ).toByteArray()
+        }
         output.write(
             (
                 "HTTP/1.1 200 OK\r\n" +

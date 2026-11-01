@@ -2310,13 +2310,16 @@ the chips yet, because a room turn has several personas and its context belongs 
 one user bubble. Acceptance: a turn with memory/skills/lorebook shows the exact items; a turn with
 none shows no row; old messages and backups decode with an empty list.
 
-**M18.3 — PDF/DOCX and vision OCR (planned).** Attach a PDF, DOCX or image; extract PDF text with
-poppler's `pdftotext` through a `:platform` seam, parse DOCX with the JDK's ZIP + XML, and OCR
-pages through a user-configured vision model on the existing provider path. No new JVM dependency;
-caps on pages and bytes; fabricated fixtures only. Acceptance: a text PDF yields its text; a
-scanned PDF renders pages and OCRs them; a DOCX yields its body text; a missing tool or
-unconfigured vision model produces a sentence, not a crash; nothing is sent anywhere except the
-model the user configured.
+**M18.3 — PDF/DOCX and vision OCR (implemented 2026-11-01).** Attach a PDF or DOCX; text PDFs go
+through poppler's `pdftotext` in a `:platform` seam, DOCX is parsed with the JDK's ZIP + XML, and
+a page with almost no extractable text is rendered with `pdftoppm` and sent to the persona's
+**direct Ollama** vision model. Cloud OCR is not in v1: the four provider image shapes are a
+second implementation, and the vision model this machine runs is direct Ollama. No new JVM
+dependency; caps: 100 pages, 10 OCR pages per document, 150 dpi, 200k characters, 25 MB file.
+Fabricated fixtures only. Acceptance: a text PDF yields its text; a scanned page is OCR'd through
+the direct model; a DOCX yields its body text; a missing poppler, a gateway-only persona or a
+model that cannot see images produces a sentence, not a crash; nothing leaves the machine except
+to the model the user configured.
 
 ## 11. Test strategy
 

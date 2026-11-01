@@ -109,13 +109,27 @@ internal fun isPlainTextFileName(fileName: String): Boolean {
 internal fun AssistantService.isPlainTextAttachment(source: Path): Boolean =
     isPlainTextFileName(source.fileName?.toString() ?: return false)
 
-// Reads an attachment as strict UTF-8 text, capped at MAX_ATTACHMENT_BYTES. Fails
-// cleanly (with a clear message) for unsupported types, oversized files, or non-UTF-8
-// content, rather than sending garbage bytes to the model.
-internal suspend fun AssistantService.readAttachmentText(source: Path): String = withContext(Dispatchers.IO) {
+// Reads an attachment as text, capped at MAX_ATTACHMENT_BYTES. Plain text is strict UTF-8;
+// PDFs go through poppler and, for scanned pages, the persona's vision model; DOCX is parsed
+// with the JDK's ZIP + XML readers. Fails cleanly (with a clear message) for unsupported types,
+// oversized files, non-UTF-8 text, or a document the platform tools cannot read.
+internal suspend fun AssistantService.readAttachmentText(source: Path, persona: Persona? = null): String = withContext(Dispatchers.IO) {
+    val extension = (source.fileName?.toString() ?: "").substringAfterLast('.', "").lowercase()
+    if (extension == "pdf" || extension == "docx") {
+        val size = runCatching { Files.size(source) }.getOrDefault(0L)
+        if (size > MAX_ATTACHMENT_BYTES) {
+            throw AttachmentException("Attachment exceeds the $ATTACHMENT_MB MB size limit.")
+        }
+        return@withContext try {
+            if (extension == "pdf") extractPdfText(source, persona) else docxText(source)
+        } catch (e: DocumentException) {
+            throw AttachmentException(e.message ?: "Could not read the document.")
+        }
+    }
     if (!isPlainTextAttachment(source)) {
         throw AttachmentException(
-            "'$source' is not a supported plain-text file. Only text files (.txt, .md, .json, .yaml, code, etc.) can be attached."
+            "'$source' is not a supported attachment. Attach a text file (.txt, .md, .json, .yaml, " +
+                "code, etc.), a PDF, or a DOCX."
         )
     }
     // The streaming loop with its running total is upstream's, kept as it is: the cap has to be
@@ -164,7 +178,7 @@ private fun isValidUtf8(bytes: ByteArray): Boolean {
 
 // Builds the "--- Attached file: X ---" sections for every attachment, throwing
 // AttachmentException on the first unreadable / unsupported / oversized file.
-private suspend fun AssistantService.buildAttachmentSections(attachments: List<Path>): String {
+private suspend fun AssistantService.buildAttachmentSections(attachments: List<Path>, persona: Persona?): String {
     return withContext(Dispatchers.IO) {
         buildString {
             attachments.forEachIndexed { index, source ->
@@ -172,7 +186,7 @@ private suspend fun AssistantService.buildAttachmentSections(attachments: List<P
                 // is the same thing without the encoding. Both fall back to a positional placeholder
                 // because this string goes into the prompt and must always be something.
                 val name = source.fileName?.toString() ?: "file_$index"
-                val content = readAttachmentText(source)
+                val content = readAttachmentText(source, persona)
                 append("--- Attached file: $name ---\n")
                 append(content)
                 append("\n--- End of $name ---\n\n")
@@ -183,10 +197,11 @@ private suspend fun AssistantService.buildAttachmentSections(attachments: List<P
 
 // Returns the prompt text fed to the model: the user question plus injected attachment
 // content. This is the single mechanism that delivers extracted file text to all
-// backends. Empty attachments just pass the original text through.
-private suspend fun AssistantService.buildModelPrompt(text: String, attachments: List<Path>): String {
+// backends. Empty attachments just pass the original text through. The persona is used only
+// for a scanned PDF's vision OCR; text and DOCX need none.
+private suspend fun AssistantService.buildModelPrompt(text: String, attachments: List<Path>, persona: Persona?): String {
     if (attachments.isEmpty()) return text
-    return "$text\n\n${buildAttachmentSections(attachments)}"
+    return "$text\n\n${buildAttachmentSections(attachments, persona)}"
 }
 
 // A5: a user-initiated stop (Stop button -> currentCall.cancel()) surfaces as an
@@ -1000,7 +1015,7 @@ internal fun AssistantService.sendTextMessageToServer(inputText: String, request
                 }
 
                 val currentDateTime = getCurrentDateTimeString()
-                val modelText = buildModelPrompt(inputText, attachments)
+                val modelText = buildModelPrompt(inputText, attachments, currentPersona)
                 val requestBuilder = MultipartBody.Builder().setType(MultipartBody.FORM).apply {
                     addFormDataPart("text", "Current date and time: $currentDateTime\n\nQuestion: $modelText")
                     addFormDataPart("model", actualModel)
@@ -1811,7 +1826,7 @@ internal suspend fun AssistantService.performDirectOllamaChat(baseUrl: String, m
 
     // A-attachments: the model-facing prompt includes extracted file content. The
     // original `text` is still used for search/news below.
-    val modelText = buildModelPrompt(text, attachments)
+    val modelText = buildModelPrompt(text, attachments, persona)
 
     val msgsArray = org.json.JSONArray()
     if (persona.isTranslator) {
@@ -2179,7 +2194,7 @@ internal suspend fun AssistantService.buildCloudRequest(api: CloudApiSetting, pe
 
     // A-attachments: the model-facing prompt includes extracted file content. The
     // original `text` is still used for search/news above.
-    val modelText = buildModelPrompt(text, attachments)
+    val modelText = buildModelPrompt(text, attachments, persona)
 
     // Budget-aware history selection
     // A cloud persona's "Context Window Size" is not Ollama's num_ctx: the provider owns the

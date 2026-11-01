@@ -1688,10 +1688,13 @@ the user.
   shows what was sent rather than reconstructing it from settings that may have changed.
 - v1 covers single chat and voice; room transcripts do not carry the chips yet, because a room
   turn has several personas and its context belongs to the room's round, not one user bubble.
-- PDF/DOCX/OCR is M18.3, not part of this slice: PDF text through poppler's `pdftotext` in
-  `:platform`, DOCX through the JDK's ZIP + XML, and page OCR through a user-configured vision
-  model. No new JVM dependency, and no document leaves the machine except to the model the user
-  configured.
+- M18.3 is implemented in this slice: PDF text through poppler's `pdftotext` in `:platform`,
+  DOCX through the JDK's ZIP + XML, and page OCR through the persona's **direct Ollama** vision
+  model. Cloud OCR is deliberately out of v1 — the four provider image-request shapes are a
+  second implementation, and the vision model this machine runs is direct Ollama. A gateway-only
+  persona, a model that cannot see images, or a missing poppler yields a note in the attachment,
+  never a failed turn. No new JVM dependency, and no document leaves the machine except to the
+  model the user configured.
 
 → PLAN.md §10/M18; `Lorebook.kt`, `Models.kt`, `AssistantServiceContext.kt`, `SettingsManager.kt`,
 `AssistantService.kt`, `ChatComponents.kt`, `ChatMessage`

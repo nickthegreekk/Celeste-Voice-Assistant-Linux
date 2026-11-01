@@ -222,6 +222,12 @@ class AssistantService(
      * off by default in settings, so reaching the refusal at all means the wiring is wrong.
      */
     internal val commandRunner: CommandRunner = CommandRunner.NONE,
+    /**
+     * M18.3: PDF text and page rendering. Defaulted to [DocumentTools.NONE] for the same rule as
+     * the other platform seams: an ordinary turn, or a test, cannot spawn poppler by accident.
+     * DOCX parsing is pure JDK code in `:core` and needs no seam.
+     */
+    internal val documentTools: DocumentTools = DocumentTools.NONE,
 ) {
 
     /**

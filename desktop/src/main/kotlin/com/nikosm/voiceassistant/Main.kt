@@ -23,6 +23,7 @@ import com.nikosm.voiceassistant.linux.ImageIoCodec
 import com.nikosm.voiceassistant.linux.JsonSettingsStore
 import com.nikosm.voiceassistant.linux.LinuxAppEnv
 import com.nikosm.voiceassistant.linux.LinuxCommandRunner
+import com.nikosm.voiceassistant.linux.LinuxDocumentTools
 import com.nikosm.voiceassistant.linux.LinuxMcpTransportFactory
 import com.nikosm.voiceassistant.linux.ProcessAudioCapture
 import com.nikosm.voiceassistant.linux.LinuxAudioDevices
@@ -177,6 +178,9 @@ fun main(args: Array<String>) {
         // M16: the terminal tool's one implementation, and the only place in the application a
         // command is started. Commands are off by default; this makes them possible.
         commandRunner = LinuxCommandRunner(appEnv.logger),
+        // M18.3: poppler's three readers live in :platform; the seam keeps :core free of paths
+        // and processes. A missing poppler is a sentence in the attachment, not a crash.
+        documentTools = LinuxDocumentTools(appEnv.cacheDir, appEnv.logger),
     )
     service.start()
 
