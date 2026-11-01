@@ -2296,9 +2296,11 @@ messages. Regex and RAG activation are out of v1. Caps: 100 entries per book, 2,
 entry, 8,000 injected characters per turn. Injection is a labelled **user-authored context** block
 after the persona/system prompt, in library and entry order; it is not an instruction channel and
 cannot displace the system prompt. Deleting a book prunes persona references. The library and the
-references travel in the backup with defaults, so old backups decode. Acceptance: a keyword fires
-only inside its window; ALWAYS always fires; disabled entry/book/persona references never fire;
-case sensitivity and scan depth hold; the block is capped; a deleted book leaves no
+references travel in the backup with defaults, so old backups decode. **Rooms keep their existing
+skill-only injection in v1**: `AssistantServiceRoomTurns.kt` is a COPY file, so the room call site
+cannot grow the lorebook path; a room slice needs a non-COPY extension and is deferred. Acceptance:
+a keyword fires only inside its window; ALWAYS always fires; disabled entry/book/persona references
+never fire; case sensitivity and scan depth hold; the block is capped; a deleted book leaves no
 enabled-but-missing row.
 
 **M18.2 — Context transparency (implemented 2026-11-01).** `ChatMessage.usedContext` (default empty)

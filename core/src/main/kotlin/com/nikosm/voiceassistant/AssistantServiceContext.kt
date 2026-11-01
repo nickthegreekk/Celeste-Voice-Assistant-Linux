@@ -377,33 +377,6 @@ internal fun AssistantService.turnContextWithContext(
     )
 }
 
-/**
- * The room twin of [turnContextWithContext]. Memory is excluded by the existing room rule (the
- * notes are private to a one-to-one chat); skills and lorebooks ride the room preamble exactly as
- * skills already did.
- */
-internal fun TurnContext.withContext(
-    userText: String,
-    persona: Persona,
-    skills: List<Skill>,
-    books: List<Lorebook>,
-    enabledBookIds: Collection<String>,
-    recent: List<ChatMessage>,
-): TurnContext {
-    if (!shouldInjectSkills(persona, userText)) return this
-    val skill = skillInjectionForTurn(userText, persona, skills)
-    val lorebook = lorebookTurnFor(userText, books, enabledBookIds, recent)
-    val used = skill.matched.map { UsedContextItem("skill", it.name) } + lorebook.used
-    val suffix = listOf(systemPromptSuffix, skill.text, lorebook.block)
-        .filter { it.isNotBlank() }
-        .joinToString("\n\n")
-    if (suffix.isBlank() && used.isEmpty()) return this
-    return copy(
-        systemPromptSuffix = suffix,
-        usedContext = usedContext + used,
-    )
-}
-
 private fun lorebookTurnFor(
     userText: String,
     books: List<Lorebook>,

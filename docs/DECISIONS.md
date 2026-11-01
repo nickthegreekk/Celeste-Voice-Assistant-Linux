@@ -1688,6 +1688,9 @@ the user.
   shows what was sent rather than reconstructing it from settings that may have changed.
 - v1 covers single chat and voice; room transcripts do not carry the chips yet, because a room
   turn has several personas and its context belongs to the room's round, not one user bubble.
+  Room turns also keep their existing skill-only injection: `AssistantServiceRoomTurns.kt` is a
+  COPY file, so the room call site cannot grow the lorebook path. That file stays byte-identical;
+  a room slice needs a non-COPY extension and is deferred.
 - M18.3 is implemented in this slice: PDF text through poppler's `pdftotext` in `:platform`,
   DOCX through the JDK's ZIP + XML, and page OCR through the persona's **direct Ollama** vision
   model. Cloud OCR is deliberately out of v1 — the four provider image-request shapes are a

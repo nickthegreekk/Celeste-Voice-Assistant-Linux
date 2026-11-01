@@ -347,16 +347,7 @@ internal suspend fun AssistantService.runRoomTurn(
         systemPromptSuffix = roomSystemPromptSuffix(room, persona),
         sink = RoomTurnSink(this, room.id, persona.name)
     ).let { base ->
-        latestUserTurnText(transcript)?.let {
-            base.withContext(
-                userText = it,
-                persona = persona,
-                skills = _skills.value,
-                books = _lorebooks.value,
-                enabledBookIds = settingsManager.getPersonaLorebooks(persona.name),
-                recent = base.history.orEmpty(),
-            )
-        } ?: base
+        latestUserTurnText(transcript)?.let { base.withSkills(it, persona, _skills.value) } ?: base
     }
     val startTime = System.currentTimeMillis()
 
