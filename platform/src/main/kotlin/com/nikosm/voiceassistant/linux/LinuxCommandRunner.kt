@@ -25,6 +25,9 @@ import java.util.concurrent.TimeUnit
  *  - **output capped while still draining** — the pipe must keep flowing or the child blocks on a
  *    full buffer. The cap keeps the beginning and the end; the middle is discarded and `truncated`
  *    says so, because a command's failure and its summary are usually the last thing it prints;
+ *  - **an abandoned drain is named** — after the process exits, the reader gets 500 ms to see EOF;
+ *    if a background grandchild still holds the pipe, the stream is closed and `outputIncomplete`
+ *    says the output is partial for that reason, not that the cap was hit;
  *  - **the process tree killed on timeout** — `npm run dev` starts children, and killing only the
  *    shell leaves them running with the application's file descriptors and a port still bound;
  *  - **an optional pseudo-terminal** through util-linux's `script` (M16.2), which is in the base
@@ -83,6 +86,10 @@ class LinuxCommandRunner(
             // past the shell's exit. Give the reader a moment to see EOF; if it does not, close the
             // stream — the reader treats the resulting IOException as the end of the output.
             val drained = withTimeoutOrNull(500) { reader.await() }
+            // The command exited but the pipe did not reach EOF: a background grandchild still
+            // holds it. Closing the stream is what ends the read, and the result says the output
+            // is partial for a reason other than the size cap.
+            val outputIncomplete = drained == null
             val (bytes, truncated) = drained ?: run {
                 runCatching { process.inputStream.close() }
                 reader.await()
@@ -98,6 +105,7 @@ class LinuxCommandRunner(
                 output = String(bytes, Charsets.UTF_8),
                 timedOut = !finished,
                 truncated = truncated,
+                outputIncomplete = outputIncomplete,
             )
         } finally {
             // Cancellation (Stop, a superseded turn) throws out of waitFor/await; the command must

@@ -36,6 +36,7 @@ class LinuxCommandRunnerTest {
         assertEquals("hello", result.output)
         assertFalse(result.timedOut)
         assertFalse(result.truncated)
+        assertFalse(result.outputIncomplete)
     }
 
     @Test
@@ -185,5 +186,31 @@ class LinuxCommandRunnerTest {
             "at most the cap is kept: ${result.output.toByteArray(Charsets.UTF_8).size}",
             result.output.toByteArray(Charsets.UTF_8).size <= 1024,
         )
+    }
+
+    @Test
+    fun `a background process holding the pipe makes the output incomplete`() = runTest {
+        val dir = directory()
+        try {
+            // The shell exits after writing the pid; `exec` makes that pid the `sleep` itself, so
+            // the background child stays addressable for teardown. It still holds the pipe as its
+            // stdout, so the reader sees no EOF and the 500 ms drain grace is abandoned.
+            val result = runner.run(
+                CommandRunRequest("exec sleep 5 & echo \$! > child.pid", dir, timeoutSeconds = 10)
+            )
+
+            assertFalse("the command itself finished", result.timedOut)
+            assertFalse("the size cap was not reached", result.truncated)
+            assertTrue("the output ended before the command's did", result.outputIncomplete)
+        } finally {
+            runCatching {
+                val pid = dir.resolve("child.pid").toFile().readText().trim().toLong()
+                val child = ProcessHandle.of(pid)
+                if (child.isPresent) {
+                    child.get().descendants().forEach { it.destroyForcibly() }
+                    child.get().destroyForcibly()
+                }
+            }
+        }
     }
 }

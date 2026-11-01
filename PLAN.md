@@ -2262,12 +2262,13 @@ the 64 KiB cap, or a decision in [docs/DECISIONS.md](docs/DECISIONS.md).
    `:core`, and is tracked there. Acceptance: a host without systemd or `smartctl` gets a precise
    capability reason, not a failed tool; one missing section still returns the rest of the status.
 
-4. **Distinguish cap truncation from an abandoned drain (planned).** `truncated` should mean only
-   "the size cap was reached". When `LinuxCommandRunner` closes the pipe because a grandchild held
-   it past the 500 ms drain grace, the result is partial for a different reason and should say so
-   (`outputIncomplete` or the equivalent), with the tool layer reporting it to the model. Acceptance:
-   a background grandchild holding stdout yields partial output marked incomplete; a plain cap hit
-   marks truncated only; neither is reported as a complete result.
+4. **Distinguish cap truncation from an abandoned drain (implemented 2026-11-01).** `truncated`
+   means only "the size cap was reached". When `LinuxCommandRunner` closes the pipe because a
+   grandchild held it past the 500 ms drain grace, `CommandRunResult.outputIncomplete` is set, the
+   tool tells the model the output ended early, and `command-audit.jsonl` records the distinction
+   alongside `truncated`. Tests: a background process holding stdout yields partial output marked
+   incomplete, not truncated; a plain cap hit marks truncated only; neither is reported as a
+   complete result.
 
 ## 11. Test strategy
 

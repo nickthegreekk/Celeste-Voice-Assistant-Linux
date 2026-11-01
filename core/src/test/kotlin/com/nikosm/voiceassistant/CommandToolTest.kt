@@ -203,6 +203,17 @@ class CommandToolTest {
         assertTrue(text.contains("truncated at the size cap"))
     }
 
+    @Test
+    fun `an incomplete drain is announced separately from the cap`() {
+        val text = formatCommandResultText(
+            CommandRunResult(0, "partial", outputIncomplete = true),
+            timeoutSeconds = 60,
+        )
+
+        assertTrue(text.contains("ended early"))
+        assertFalse(text.contains("truncated at the size cap"))
+    }
+
     // ------------------------------------------------------------------ declaration and contract
 
     @Test

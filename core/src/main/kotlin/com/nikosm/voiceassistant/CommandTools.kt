@@ -322,6 +322,7 @@ internal class CommandToolExecutor(
             output = cappedOutput,
             timedOut = run.timedOut,
             truncated = run.truncated || cappedHere,
+            outputIncomplete = run.outputIncomplete,
         )
         val formatted = formatCommandResultText(finalRun, timeoutSeconds)
         spent += formatted.toByteArray(Charsets.UTF_8).size
@@ -337,6 +338,7 @@ internal class CommandToolExecutor(
                 exitCode = finalRun.exitCode,
                 timedOut = finalRun.timedOut,
                 truncated = finalRun.truncated,
+                outputIncomplete = finalRun.outputIncomplete,
                 durationMs = System.currentTimeMillis() - started,
                 result = when {
                     finalRun.timedOut -> "timeout"

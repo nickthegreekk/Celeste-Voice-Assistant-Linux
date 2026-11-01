@@ -89,12 +89,17 @@ class CommandRunRequest(
  * What one command produced. [exitCode] is null only when the process could not report one (it was
  * killed on timeout, or the start failed); [truncated] says output was cut at the cap rather than
  * that the command failed.
+ *
+ * [outputIncomplete] is a different admission: the command exited, but its pipe stayed open — a
+ * background grandchild still held it — so the reader closed the stream before the output ended. A
+ * result can be both truncated and incomplete; neither means the command failed.
  */
 class CommandRunResult(
     val exitCode: Int?,
     val output: String,
     val timedOut: Boolean = false,
     val truncated: Boolean = false,
+    val outputIncomplete: Boolean = false,
 )
 
 /**
@@ -256,7 +261,12 @@ internal fun formatCommandResultText(result: CommandRunResult, timeoutSeconds: I
         "Output:\n${frameCommandOutput(result.output)}"
     }
     val truncated = if (result.truncated) "\nThe output was truncated at the size cap." else ""
-    return "$head\n$body$truncated"
+    val incomplete = if (result.outputIncomplete) {
+        "\nThe output ended early: a background process still held the pipe after the command exited."
+    } else {
+        ""
+    }
+    return "$head\n$body$truncated$incomplete"
 }
 
 // ---------------------------------------------------------------- the declaration

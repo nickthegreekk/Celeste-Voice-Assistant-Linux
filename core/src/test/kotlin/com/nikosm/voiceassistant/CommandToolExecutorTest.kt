@@ -153,6 +153,19 @@ class CommandToolExecutorTest {
     }
 
     @Test
+    fun `an incomplete drain is reported and audited as incomplete, not truncated`() = runTest {
+        val runner = FakeRunner { CommandRunResult(0, "partial", outputIncomplete = true) }
+        val audits = mutableListOf<CommandAuditEntry>()
+
+        val result = executor(runner, audits = audits).execute(call())
+
+        assertTrue(result.text.contains("ended early"))
+        assertFalse(result.text.contains("truncated at the size cap"))
+        assertTrue(audits.single().outputIncomplete)
+        assertFalse(audits.single().truncated)
+    }
+
+    @Test
     fun `one turn may not keep running commands past its byte budget`() = runTest {
         val runner = FakeRunner { CommandRunResult(0, "x".repeat(COMMAND_OUTPUT_CAP_BYTES / 2)) }
         val audits = mutableListOf<CommandAuditEntry>()

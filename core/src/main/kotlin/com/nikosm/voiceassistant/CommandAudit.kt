@@ -37,6 +37,8 @@ internal data class CommandAuditEntry(
     val exitCode: Int?,
     val timedOut: Boolean,
     val truncated: Boolean,
+    /** The process exited but a background grandchild kept the pipe open; the output is partial. */
+    val outputIncomplete: Boolean = false,
     val durationMs: Long,
     /** `ok`, `error`, `denied`, `timeout`. */
     val result: String,
@@ -53,6 +55,7 @@ internal data class CommandAuditEntry(
         .put("exit", exitCode ?: JSONObject.NULL)
         .put("timedOut", timedOut)
         .put("truncated", truncated)
+        .put("outputIncomplete", outputIncomplete)
         .put("durationMs", durationMs)
         .put("result", result)
         .put("confirmed", confirmed)
@@ -69,6 +72,7 @@ internal data class CommandAuditEntry(
                 exitCode = json.opt("exit")?.takeIf { it != JSONObject.NULL }?.toString()?.toIntOrNull(),
                 timedOut = json.optBoolean("timedOut"),
                 truncated = json.optBoolean("truncated"),
+                outputIncomplete = json.optBoolean("outputIncomplete"),
                 durationMs = json.optLong("durationMs"),
                 result = json.optString("result"),
                 confirmed = json.optString("confirmed"),
