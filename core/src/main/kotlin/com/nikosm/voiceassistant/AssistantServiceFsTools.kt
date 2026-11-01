@@ -229,7 +229,6 @@ internal suspend fun AssistantService.performOllamaChatWithTools(
     var context = turnContext
     var rounds = 0
     var callsMade = 0
-    val touched = LinkedHashSet<String>()
     val executor = toolExecutorFor(workspace, excluded, persona, mcpTools, memoryEnabled, commandWorkspace)
 
     while (true) {
@@ -246,9 +245,10 @@ internal suspend fun AssistantService.performOllamaChatWithTools(
             turnContext = context,
             toolSink = { captured = it },
         )
-        val message = captured ?: return withToolSummary(outcome, callsMade)
+        val message = captured ?: return withToolSummary(outcome, callsMade, context)
         val body = JSONObject().put("message", message)
-        val calls = fsToolCallsFrom(FsToolProvider.OLLAMA, body) ?: return withToolSummary(outcome, callsMade)
+        val calls = fsToolCallsFrom(FsToolProvider.OLLAMA, body)
+            ?: return withToolSummary(outcome, callsMade, context)
 
         // The turn may already be over by the time its answer arrived — Stop, a persona switch, a
         // newer message — and a call that arrived after that must not be carried out. Checked before
@@ -257,7 +257,7 @@ internal suspend fun AssistantService.performOllamaChatWithTools(
 
         fsToolRoundRefusal(rounds, callsMade, calls.size)?.let { refusal ->
             notifyUser(refusal)
-            return withToolSummary(outcome, callsMade)
+            return withToolSummary(outcome, callsMade, context)
         }
 
         val turn = fsRunToolRound(
@@ -265,11 +265,13 @@ internal suspend fun AssistantService.performOllamaChatWithTools(
             provider = FsToolProvider.OLLAMA,
             body = body,
             calls = calls,
-            onCall = { touched += it.name },
         )
         rounds++
         callsMade += calls.size
-        context = context.copy(toolTurns = context.toolTurns + turn)
+        context = context.copy(
+            toolTurns = context.toolTurns + turn,
+            toolsUsed = context.toolsUsed + calls.map { it.name },
+        )
     }
 }
 
@@ -350,7 +352,10 @@ internal suspend fun AssistantService.performCloudChatWithTools(
                 val turn = fsRunToolRound(executor, toolProvider, body, calls)
                 rounds++
                 callsMade += calls.size
-                context = context.copy(toolTurns = context.toolTurns + turn)
+                context = context.copy(
+                    toolTurns = context.toolTurns + turn,
+                    toolsUsed = context.toolsUsed + calls.map { it.name },
+                )
             }
         } finally {
             endThinkingIfOwned(generation)
@@ -445,16 +450,25 @@ private class FsToolAdapter(private val executor: FsToolExecutor) : ToolCallExec
  * sentence**: the reply says what was done, in the same shape as any other answer — so it is also
  * spoken, which is what a hands-free user gets instead of silence. Any non-blank answer is left
  * exactly as the model wrote it.
+ *
+ * M16.3: after the summary, the claim guard appends its note when the model reported a command
+ * result without a `run_command` call in this turn. The note rides with the reply so it is stored
+ * and spoken with it, rather than shown in a toast that disappears before it can be read.
  */
-private fun withToolSummary(
+private fun AssistantService.withToolSummary(
     outcome: Triple<String, String?, ByteArray?>,
     callsMade: Int,
-): Triple<String, String?, ByteArray?> =
-    if (outcome.first.isBlank() && callsMade > 0) {
+    turnContext: TurnContext,
+): Triple<String, String?, ByteArray?> {
+    val summarized = if (outcome.first.isBlank() && callsMade > 0) {
         Triple(fsToolSummarySentence(callsMade), outcome.second, outcome.third)
     } else {
         outcome
     }
+    val note = commandClaimNote(summarized.first, turnContext) ?: return summarized
+    logger.w("Commands", "reply claimed a command result without a run_command call")
+    return Triple(summarized.first + note, summarized.second, summarized.third)
+}
 
 /**
  * The sentence a turn with no prose answers with — **one string, because two loops say it.** A user

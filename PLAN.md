@@ -2232,7 +2232,7 @@ This is the third measure-time crash in this milestone (the window icon, then th
 
 Memory line to add under the M8 entry: PLAN.md §10 item 6 — the Files settings screen throws at measure time (verticalScroll inside the settings LazyColumn); item 4's dead notifier is why a denied write looks like nothing happened.
 
-**M16.3 — Post-M16 follow-ups from the ServerBox review (adopted 2026-11-01).** These four changes
+**M16.3 — Post-M16 follow-ups from the ServerBox review (adopted 2026-11-01).** These five changes
 came from reading `lollipopkit/flutter_server_box` (v1.0.1844, commit `200de2a`) and asking what its
 server and terminal handling does better. They are additive: none changes the approval boundary,
 the 64 KiB cap, or a decision in [docs/DECISIONS.md](docs/DECISIONS.md).
@@ -2269,6 +2269,18 @@ the 64 KiB cap, or a decision in [docs/DECISIONS.md](docs/DECISIONS.md).
    alongside `truncated`. Tests: a background process holding stdout yields partial output marked
    incomplete, not truncated; a plain cap hit marks truncated only; neither is reported as a
    complete result.
+
+5. **Flag a claimed command result when no call was made (implemented 2026-11-01).** A model that
+   narrates a result it never obtained is the M8/M9 failure the prompt contract names, and a reply
+   can fabricate one even after that contract. `TurnContext.toolsUsed` records the names of the
+   tools a turn actually called; when `run_command` was offered and is absent, a reply that claims
+   a command ran gets a persistent chat note — “No command ran. No command tool call was made in
+   this turn, so any command output above is the model's text, not an app result” — and the app log
+   gets one `WARN` line. No toast (it disappears before the user can read it) and no command-audit
+   row (the audit records commands that ran, not claims). The detector is conservative and
+   past-tense only; ordinary mentions and future intent are not flagged. Tests: the fabricated
+   100,000-line summary and the fabricated timeout are flagged; “you can run a command”, “I can't
+   run commands” and “I will run it” are not.
 
 ## 11. Test strategy
 

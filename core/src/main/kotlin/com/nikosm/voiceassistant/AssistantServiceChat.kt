@@ -1630,15 +1630,29 @@ internal fun AssistantService.performCloudChat(text: String, persona: Persona, u
  * The blank case is not hypothetical: a model that has just been handed a file listing frequently
  * answers with nothing at all, and an empty bubble tells the user nothing about what happened — while
  * a sentence is also *spoken*, which is what a hands-free user gets instead of silence.
+ *
+ * M16.3: the claim guard runs after the summary, appending its note to both the chat text and the
+ * cleaned TTS text when this turn offered commands but never called `run_command`, and the reply
+ * still reports a command result. One `WARN` line in the app log is the diagnostic half.
  */
-private fun withCloudToolSummary(
+private fun AssistantService.withCloudToolSummary(
     reply: Triple<String, String?, String?>,
     turnContext: TurnContext,
 ): Triple<String, String?, String?> {
     val calls = turnContext.toolTurns.sumOf { it.calls }
-    if (reply.first.isNotBlank() || calls == 0) return reply
-    val sentence = fsToolSummarySentence(calls)
-    return Triple(sentence, reply.second, sentence)
+    val summarized = if (reply.first.isBlank() && calls > 0) {
+        val sentence = fsToolSummarySentence(calls)
+        Triple(sentence, reply.second, sentence)
+    } else {
+        reply
+    }
+    val note = commandClaimNote(summarized.first, turnContext) ?: return summarized
+    logger.w("Commands", "reply claimed a command result without a run_command call")
+    return Triple(
+        summarized.first + note,
+        summarized.second,
+        summarized.third?.let { it + note },
+    )
 }
 
 /**
@@ -1709,6 +1723,12 @@ internal data class TurnContext(
      * a path and the context is copied into requests.
      */
     val commandEnabled: Boolean = false,
+    /**
+     * M16.3: the names of every tool this turn actually called, across all rounds. Local turn
+     * state, never serialized: the claim guard reads it to tell a reply that reports a command
+     * result from one that only talks about commands. Empty for an ordinary turn.
+     */
+    val toolsUsed: Set<String> = emptySet(),
 ) {
     /**
      * Phase 2: true when this turn writes into the single-chat transcript, i.e. exactly
