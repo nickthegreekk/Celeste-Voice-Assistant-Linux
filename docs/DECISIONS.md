@@ -1862,3 +1862,22 @@ the name list does not).
 
 → PLAN.md §10/M20 follow-up; `AssistantServiceChat.kt`, `AssistantServiceSpontaneous.kt` (COPY, synced),
 `ScheduledSkillRunner.kt`, `ThinkingFlagPlacementTest.kt`, `core/src/main/resources/upstream-commit.txt`
+
+## 2026-11-02 — The Live HUD is the warm hologram, on a frame budget
+
+The first Live HUD used a planet-sized orb with concentric rings. The user's live run called it "more like a spinning
+wheel than a futuristic AI" and supplied the amber JARVIS reactor reference. The visual is now a neural lattice — 160
+Fibonacci points and their short chords — inside faint broken rings, with radial spokes, small data glyphs, an equator
+line, warm particles and a horizontal voice waveform. The palette is one warm amber/gold set, not the persona colour;
+Celestial keeps persona tints.
+
+**Decided: fixed-rate animation.** 30 fps focused, 10 fps unfocused, frozen while minimised, and a `delay`-based loop
+rather than `withFrameNanos`. A full-screen canvas that redraws at compositor speed can pin a CPU core; a background HUD
+should not compete with the foreground app. Rejected: display-rate animation (a lattice and a waveform gain nothing from
+it), and pausing on focus alone (a HUD on a second monitor should stay alive; 10 fps is the compromise).
+
+Rejected for the theme: keeping the concentric rings as the subject (the user's exact complaint), a cool cyan palette
+(the reference is warm), and a persona-tinted core (the Live HUD is one cinematic material; the persona still names and
+speaks the conversation).
+
+→ PLAN.md §10/M20; `LiveHud.kt`, `Main.kt` (`liveHudFocused`), `LiveHudTest.kt`, `LiveHudRenderTest.kt`

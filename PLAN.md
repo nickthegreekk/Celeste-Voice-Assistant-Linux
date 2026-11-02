@@ -2375,11 +2375,19 @@ which has been inert since M2 (`LinuxAudioDevices.earpiece()` returns null by de
 2026-10-16 record flagged the visible affordance for the user, and the user has now asked for it to
 be replaced). The window opens windowed and toggles true fullscreen through Compose's
 `WindowPlacement.Fullscreen` (F11 or the on-screen control; Esc leaves fullscreen). Its body is a
-Compose canvas — an arc-reactor core with counter-rotating segmented rings, a tick ring, a
-radial waveform ring and a particle field — driven by the assistant's state:
-IDLE breathes slowly, LISTENING is driven by `micAmplitude`, THINKING runs a scanning arc, and
-SPEAKING is driven by the assistant's own voice with the existing karaoke highlight. The chrome is
-mono and thin: persona, state, model, token usage, clock, corner brackets, vignette.
+Compose canvas — a warm amber holographic core: a rotating neural lattice inside broken hologram
+rings, with radial energy spokes, small data glyphs, an equator line, warm particles and a
+horizontal voice waveform — driven by the assistant's state. IDLE is banked embers, LISTENING
+brightens with `micAmplitude`, THINKING runs a scan and faster rotation, and SPEAKING takes the
+gold and the assistant's own voice with the existing karaoke highlight. The Live HUD deliberately
+uses one warm palette (the user's JARVIS reactor reference) rather than persona tints; the
+Celestial screen keeps the persona's colour. The frame loop is fixed-rate: 30 fps focused,
+10 fps unfocused and frozen while minimised, so a full-screen HUD cannot render at compositor
+speed in the background. The chrome is mono and thin: persona, state, model, token usage, clock,
+corner brackets, vignette.
+[Visual revision, 2026-11-02: the first pass's concentric rings read as a spinning wheel rather
+than an AI. The user supplied the amber JARVIS reactor reference, and the core became the
+holographic lattice above; the shared state/level plumbing was unchanged.]
 **The output-side measurement is in-process.** A new `AudioEnvelope` turns signed 16-bit PCM into a
 50 ms RMS curve; the service publishes `speechAmplitude` from the local engine's `SpeechSamples`,
 from each Gateway chunk's WAV, and from a replayed file — no player tap, no new seam, no network.
@@ -2388,10 +2396,11 @@ that route and says nothing it did not measure. The amplitude is cleared on ever
 stop, and is gated by the TTS generation so a superseded callback cannot blank a newer turn.
 Acceptance: the Phone mode item is gone and Live HUD opens the window; the window toggles
 fullscreen and back with Esc/F11; the core reacts to mic and output separately; a stopped or
-finished turn leaves no held frame; system TTS still animates on its fallback cadence; the main and
-Live windows agree on focus for reply notifications; the Celestial UI is byte-identical in
-behaviour; `AudioEnvelopeTest` covers the tone mappings and malformed WAVs and
-`SpeechAmplitudeTest` covers the local/replay/stop wiring. The window is also reachable from
+finished turn leaves no held frame; system TTS still animates on its fallback cadence; the HUD
+holds its 30 fps focused / 10 fps unfocused budget and freezes while minimised; the four state
+accents are warm and distinct; the main and Live windows agree on focus for reply notifications;
+the Celestial UI is byte-identical in behaviour; `AudioEnvelopeTest` covers the tone mappings and
+malformed WAVs and `SpeechAmplitudeTest` covers the local/replay/stop wiring. The window is also reachable from
 View → Live HUD (Ctrl+Shift+L) and from `--live` at launch, so a desktop shortcut or hotkey can
 open it directly; `--live --listen` is the already-listening pair. **Scope, stated:** the Live HUD
 shows the single-chat persona surface; rooms keep their own screen in v1, the same deferred room

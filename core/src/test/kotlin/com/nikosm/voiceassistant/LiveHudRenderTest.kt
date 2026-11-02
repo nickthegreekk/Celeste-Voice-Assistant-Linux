@@ -1,6 +1,5 @@
 package com.nikosm.voiceassistant
 
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asSkiaBitmap
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.captureToImage
@@ -13,12 +12,12 @@ import org.junit.Test
 /**
  * A smoke test that the Live HUD actually paints.
  *
- * The body owns an infinite frame loop, so the usual `waitForIdle` never settles. Driving the
- * test clock by hand instead — `autoAdvance = false` and one explicit advance — renders a real
- * frame without waiting for an animation that never ends. The assertion is deliberately not an
- * image comparison: a canvas this layered would make every palette tweak a fixture rewrite. What
- * it catches is the failure that matters here — a composition that throws, paints nothing, or
- * paints a single flat colour because a draw call was lost.
+ * The body owns a fixed-rate loop that never ends, so the usual `waitForIdle` never settles.
+ * Driving the test clock by hand instead — `autoAdvance = false` and one explicit advance —
+ * renders a real frame without waiting for an animation that never ends. The assertion is
+ * deliberately not an image comparison: a canvas this layered would make every palette tweak a
+ * fixture rewrite. What it catches is the failure that matters here — a composition that throws,
+ * paints nothing, or paints a single flat colour because a draw call was lost.
  */
 @OptIn(ExperimentalTestApi::class)
 class LiveHudRenderTest {
@@ -31,7 +30,6 @@ class LiveHudRenderTest {
                 LiveHudBody(
                     state = AssistantState.SPEAKING,
                     personaName = "Render Probe",
-                    personaColor = Color(0xFF4ADE80),
                     usage = UsageInfo(totalTokens = 1_240),
                     messages = listOf(
                         ChatMessage("user", "A fabricated question."),

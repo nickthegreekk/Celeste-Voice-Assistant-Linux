@@ -1,6 +1,5 @@
 package com.nikosm.voiceassistant
 
-import androidx.compose.ui.graphics.Color
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
@@ -9,22 +8,24 @@ import org.junit.Test
 /**
  * The Live HUD's decisions, separated from its drawing.
  *
- * The drawing itself is exercised by [LiveHudRenderTest], which drives the test clock by hand
- * because the body owns an infinite frame loop. This class covers what the loop decides: the
- * state colours, the two measurements, the fallback cadence and the level smoothing.
+ * The drawing itself is exercised by [LiveHudRenderTest]; this class covers what the frame loop
+ * decides: the warm state colours, the two measurements, the fallback cadence and the level
+ * smoothing.
  */
 class LiveHudTest {
 
-    private val persona = Color(0xFF4ADE80)
-
     @Test
-    fun `each state has its own signal colour and speaking keeps the persona's`() {
-        val idle = liveHudAccent(AssistantState.IDLE, persona)
-        val listening = liveHudAccent(AssistantState.LISTENING, persona)
-        val thinking = liveHudAccent(AssistantState.THINKING, persona)
-        val speaking = liveHudAccent(AssistantState.SPEAKING, persona)
+    fun `each state has its own warm signal colour`() {
+        val idle = liveHudAccent(AssistantState.IDLE)
+        val listening = liveHudAccent(AssistantState.LISTENING)
+        val thinking = liveHudAccent(AssistantState.THINKING)
+        val speaking = liveHudAccent(AssistantState.SPEAKING)
 
-        assertEquals("SPEAKING is the persona's own colour", persona, speaking)
+        // The reference image is the amber reactor, not a cool interface: every signal must be
+        // warm, and no two states may collapse to the same colour.
+        listOf(idle, listening, thinking, speaking).forEach { colour ->
+            assertTrue("${colour.value.toString(16)} is not warm", colour.red >= colour.green && colour.green >= colour.blue)
+        }
         assertNotEquals(idle, listening)
         assertNotEquals(listening, thinking)
         assertNotEquals(thinking, speaking)

@@ -612,15 +612,24 @@ fun main(args: Array<String>) {
                     }
                 },
             ) {
+                // M20: the HUD's own frame budget. A focused window animates at 30 fps and an
+                // unfocused one at 10; minimising freezes it. The focus flag is also part of the
+                // reply-notification set, so it is reported to the service in the same listener.
+                var liveHudFocused by remember { mutableStateOf(window.isFocused) }
                 DisposableEffect(window) {
                     val listener = object : java.awt.event.WindowAdapter() {
-                        override fun windowGainedFocus(e: java.awt.event.WindowEvent?) =
+                        override fun windowGainedFocus(e: java.awt.event.WindowEvent?) {
+                            liveHudFocused = true
                             reportWindowFocus("live", true)
+                        }
 
-                        override fun windowLostFocus(e: java.awt.event.WindowEvent?) =
+                        override fun windowLostFocus(e: java.awt.event.WindowEvent?) {
+                            liveHudFocused = false
                             reportWindowFocus("live", false)
+                        }
                     }
                     window.addWindowListener(listener)
+                    liveHudFocused = window.isFocused
                     reportWindowFocus("live", window.isFocused)
                     onDispose {
                         window.removeWindowListener(listener)
@@ -639,6 +648,8 @@ fun main(args: Array<String>) {
                     LiveHudContent(
                         service = service,
                         isFullscreen = liveHudWindowState.placement == WindowPlacement.Fullscreen,
+                        isFocused = liveHudFocused,
+                        isMinimized = liveHudWindowState.isMinimized,
                         onToggleFullscreen = { toggleLiveFullscreen() },
                         onClose = { liveHudOpen = false },
                     )

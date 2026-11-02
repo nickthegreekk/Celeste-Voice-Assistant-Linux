@@ -34,7 +34,6 @@ import androidx.compose.material.icons.filled.Hearing
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MicOff
 import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -46,7 +45,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -54,7 +52,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -70,8 +68,10 @@ import androidx.compose.ui.unit.sp
 import java.time.LocalTime
 import java.time.format.DateTimeFormatter
 import kotlin.math.PI
+import kotlin.math.cos
 import kotlin.math.roundToInt
 import kotlin.math.sin
+import kotlin.math.sqrt
 import kotlinx.coroutines.delay
 
 /**
@@ -108,6 +108,8 @@ import kotlinx.coroutines.delay
 fun LiveHudContent(
     service: AssistantService,
     isFullscreen: Boolean,
+    isFocused: Boolean,
+    isMinimized: Boolean,
     onToggleFullscreen: () -> Unit,
     onClose: () -> Unit,
 ) {
@@ -127,7 +129,6 @@ fun LiveHudContent(
     LiveHudBody(
         state = state,
         personaName = persona?.name ?: "Celeste",
-        personaColor = persona?.themeColor ?: MaterialTheme.colorScheme.primary,
         usage = usage,
         messages = messages,
         voiceDuration = voiceDuration,
@@ -139,6 +140,8 @@ fun LiveHudContent(
         silenced = silenced,
         handsFree = handsFree,
         isFullscreen = isFullscreen,
+        isFocused = isFocused,
+        isMinimized = isMinimized,
         onMicClick = {
             when (state) {
                 AssistantState.IDLE -> service.startRecording()
@@ -163,7 +166,6 @@ fun LiveHudContent(
 internal fun LiveHudBody(
     state: AssistantState,
     personaName: String,
-    personaColor: Color,
     usage: UsageInfo,
     messages: List<ChatMessage>,
     voiceDuration: Int,
@@ -175,6 +177,8 @@ internal fun LiveHudBody(
     silenced: Boolean,
     handsFree: Boolean,
     isFullscreen: Boolean,
+    isFocused: Boolean = true,
+    isMinimized: Boolean = false,
     onMicClick: () -> Unit,
     onStopClick: () -> Unit,
     onMuteToggle: () -> Unit,
@@ -193,24 +197,36 @@ internal fun LiveHudBody(
     val latestState by rememberUpdatedState(state)
     val latestMic by rememberUpdatedState(micAmplitude)
     val latestSpeech by rememberUpdatedState(speechAmplitude)
+    val latestFocused by rememberUpdatedState(isFocused)
+    val latestMinimized by rememberUpdatedState(isMinimized)
 
+    // A fixed-rate loop rather than `withFrameNanos`. Continuous frame-clock updates make a
+    // full-screen canvas render as fast as the compositor accepts; the lattice and waveform do
+    // not need display-rate updates, and a background HUD should not compete with the foreground
+    // app. 30 fps focused and 10 fps unfocused is deliberately below the compositor's rate.
+    // Minimised means no time and no draws at all.
     LaunchedEffect(Unit) {
-        var last = withFrameNanos { it }
+        var lastNanos = System.nanoTime()
         while (true) {
-            withFrameNanos { now ->
-                val dt = ((now - last) / 1_000_000_000.0).coerceIn(0.0, 0.1)
-                last = now
-                time.floatValue += dt.toFloat()
-                val target = liveHudLevel(latestState, latestMic, latestSpeech, time.floatValue.toDouble())
-                val smoothed = meter.next(target, dt.toFloat())
-                level.floatValue = smoothed
-                history.push(smoothed)
+            if (latestMinimized) {
+                lastNanos = System.nanoTime()
+                delay(250)
+                continue
             }
+            delay(if (latestFocused) 33L else 100L)
+            val now = System.nanoTime()
+            val dt = ((now - lastNanos) / 1_000_000_000.0).coerceIn(0.0, 0.1)
+            lastNanos = now
+            time.floatValue += dt.toFloat()
+            val target = liveHudLevel(latestState, latestMic, latestSpeech, time.floatValue.toDouble())
+            val smoothed = meter.next(target, dt.toFloat())
+            level.floatValue = smoothed
+            history.push(smoothed)
         }
     }
 
     val accent by animateColorAsState(
-        targetValue = liveHudAccent(state, personaColor),
+        targetValue = liveHudAccent(state),
         animationSpec = tween(durationMillis = 650),
         label = "live-hud-accent",
     )
@@ -218,19 +234,16 @@ internal fun LiveHudBody(
     BoxWithConstraints(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFF02040A))
+            .background(Color(0xFF0A0402))
             .testTag("live_hud")
     ) {
         val compact = maxWidth < 900.dp || maxHeight < 640.dp
-        val coreSize = (minOf(maxWidth, maxHeight) * (if (compact) 0.56f else 0.64f))
-            .coerceIn(180.dp, 760.dp)
+        val coreSize = (minOf(maxWidth, maxHeight) * (if (compact) 0.58f else 0.66f))
+            .coerceIn(180.dp, 780.dp)
         val outerPadding = if (compact) 18.dp else 30.dp
 
         LiveBackdrop(
-            personaColor = personaColor,
             accent = accent,
-            time = time,
-            level = level,
             modifier = Modifier.fillMaxSize(),
         )
 
@@ -279,7 +292,6 @@ internal fun LiveHudBody(
             LiveTranscript(
                 state = state,
                 accent = accent,
-                personaColor = personaColor,
                 messages = messages,
                 voiceDuration = voiceDuration,
                 ttsPlaybackFraction = ttsPlaybackFraction,
@@ -313,21 +325,18 @@ internal fun LiveHudBody(
 // ─────────────────────────────────────────────────────────────── state and level math
 
 /**
- * The colour the core and chrome take in [state].
+ * The warm hologram palette, per state.
  *
- * SPEAKING is the one state that must keep the persona's own colour: a reply in a persona's voice
- * should look like that persona. The other states are fixed HUD signals — cyan for listening,
- * amber for computing, slate for standby — so a user can tell what the assistant is doing without
- * reading the label.
+ * The reference the user chose is the amber JARVIS reactor, not a cool cyan interface. The Live
+ * HUD is therefore deliberately **not** persona-tinted: it is one warm material whose temperature
+ * changes with what the assistant is doing. The Celestial screen keeps the persona's colour; this
+ * window is the fixed cinematic theme.
  */
-internal fun liveHudAccent(state: AssistantState, personaColor: Color): Color = when (state) {
-    // Sky rather than the slate this started as: a grey core at rest read as switched off in the
-    // first live screenshot, which is the opposite of the "alive but waiting" the HUD is for.
-    // The persona still tints the starfield, and SPEAKING hands the core back to it.
-    AssistantState.IDLE -> Color(0xFF38BDF8)
-    AssistantState.LISTENING -> Color(0xFF22D3EE)
-    AssistantState.THINKING -> Color(0xFFF59E0B)
-    AssistantState.SPEAKING -> personaColor
+internal fun liveHudAccent(state: AssistantState): Color = when (state) {
+    AssistantState.IDLE -> Color(0xFFB45309)      // banked embers
+    AssistantState.LISTENING -> Color(0xFFF59E0B) // amber, listening
+    AssistantState.THINKING -> Color(0xFFFB923C)  // orange, computing
+    AssistantState.SPEAKING -> Color(0xFFFFC46B)  // gold, transmitting
 }
 
 internal fun liveHudStateLabel(state: AssistantState): String = when (state) {
@@ -460,7 +469,7 @@ private fun LiveTopBar(
                 fontFamily = FontFamily.Monospace,
                 fontSize = if (compact) 8.sp else 9.sp,
                 letterSpacing = 2.sp,
-                color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.55f),
+                color = HUD_GOLD.copy(alpha = 0.55f),
             )
         }
 
@@ -471,14 +480,14 @@ private fun LiveTopBar(
                     fontFamily = FontFamily.Monospace,
                     fontSize = if (compact) 10.sp else 12.sp,
                     letterSpacing = 2.sp,
-                    color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.75f),
+                    color = HUD_GOLD.copy(alpha = 0.75f),
                 )
                 Text(
                     text = if (usage.totalTokens > 0) "TOK ${usage.totalTokens}" else "STANDBY",
                     fontFamily = FontFamily.Monospace,
                     fontSize = 8.sp,
                     letterSpacing = 1.5.sp,
-                    color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.35f),
+                    color = HUD_GOLD.copy(alpha = 0.35f),
                 )
             }
             Spacer(Modifier.width(if (compact) 10.dp else 18.dp))
@@ -493,7 +502,7 @@ private fun LiveTopBar(
             LiveIconButton(
                 icon = Icons.Default.Close,
                 description = "Close Live HUD",
-                tint = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.65f),
+                tint = HUD_GOLD.copy(alpha = 0.65f),
                 size = if (compact) 38.dp else 44.dp,
                 onClick = onClose,
             )
@@ -637,7 +646,6 @@ private fun LivePrimaryButton(
 private fun LiveTranscript(
     state: AssistantState,
     accent: Color,
-    personaColor: Color,
     messages: List<ChatMessage>,
     voiceDuration: Int,
     ttsPlaybackFraction: Float?,
@@ -682,7 +690,7 @@ private fun LiveTranscript(
                 fontFamily = FontFamily.Monospace,
                 fontSize = if (compact) 8.sp else 9.sp,
                 letterSpacing = 1.5.sp,
-                color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.30f),
+                color = HUD_GOLD.copy(alpha = 0.32f),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 textAlign = TextAlign.Center,
@@ -704,9 +712,9 @@ private fun LiveTranscript(
                     fontSize = if (compact) 13.sp else 16.sp,
                     lineHeight = if (compact) 19.sp else 24.sp,
                     color = if (state == AssistantState.IDLE) {
-                        MaterialTheme.colorScheme.onBackground.copy(alpha = 0.55f)
+                        HUD_HOT.copy(alpha = 0.50f)
                     } else {
-                        MaterialTheme.colorScheme.onBackground.copy(alpha = 0.95f)
+                        HUD_HOT.copy(alpha = 0.95f)
                     },
                     textAlign = TextAlign.Center,
                     modifier = Modifier.fillMaxWidth(),
@@ -716,7 +724,7 @@ private fun LiveTranscript(
                     fontFamily = FontFamily.Monospace,
                     fontSize = if (compact) 13.sp else 15.sp,
                     letterSpacing = 3.sp,
-                    color = personaColor.copy(alpha = 0.7f),
+                    color = accent.copy(alpha = 0.7f),
                     modifier = Modifier.fillMaxWidth(),
                     textAlign = TextAlign.Center,
                 )
@@ -734,7 +742,7 @@ private fun LiveTranscript(
                     fontFamily = FontFamily.Monospace,
                     fontSize = if (compact) 11.sp else 13.sp,
                     letterSpacing = 3.sp,
-                    color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.28f),
+                    color = HUD_GOLD.copy(alpha = 0.28f),
                     modifier = Modifier.fillMaxWidth(),
                     textAlign = TextAlign.Center,
                 )
@@ -747,41 +755,53 @@ private fun LiveTranscript(
 
 @Composable
 private fun LiveBackdrop(
-    personaColor: Color,
     accent: Color,
-    time: State<Float>,
-    level: State<Float>,
     modifier: Modifier,
 ) {
     val stars = remember {
         val rng = kotlin.random.Random(20)
-        List(160) { Triple(rng.nextFloat(), rng.nextFloat(), rng.nextFloat()) }
+        List(120) { Triple(rng.nextFloat(), rng.nextFloat(), rng.nextFloat()) }
     }
     Canvas(modifier = modifier) {
-        val t = time.value
-        val lvl = level.value
-        drawRect(Brush.verticalGradient(listOf(Color(0xFF07111F), Color(0xFF01030A))))
+        // Static on purpose. The first version twinkled every star and read the level on every
+        // frame, which made this full-screen layer a per-frame redraw of the whole window. The
+        // backdrop is scenery; the neural core is the thing that moves.
+        drawRect(Brush.verticalGradient(listOf(Color(0xFF220D05), Color(0xFF070201))))
         drawRect(
             Brush.radialGradient(
-                colors = listOf(
-                    personaColor.copy(alpha = 0.12f + 0.05f * lvl),
-                    Color.Transparent,
-                ),
+                colors = listOf(Color(0xFFFF6A00).copy(alpha = 0.20f), Color.Transparent),
                 center = center,
-                radius = size.minDimension * 0.75f,
+                radius = size.minDimension * 0.80f,
             )
         )
+        // A few large, almost invisible warm clouds: the reference's background is hazy rather
+        // than a clean black field. Static, so they cost one draw each time the accent changes.
+        listOf(
+            Triple(0.24f, 0.30f, 0.30f),
+            Triple(0.76f, 0.62f, 0.34f),
+            Triple(0.62f, 0.20f, 0.22f),
+            Triple(0.14f, 0.74f, 0.26f),
+        ).forEach { (x, y, fraction) ->
+            val cloudR = size.minDimension * fraction
+            val centre = Offset(x * size.width, y * size.height)
+            drawCircle(
+                brush = Brush.radialGradient(
+                    colors = listOf(Color(0xFFFF7A1A).copy(alpha = 0.05f), Color.Transparent),
+                    center = centre,
+                    radius = cloudR,
+                ),
+                radius = cloudR,
+                center = centre,
+            )
+        }
 
         stars.forEach { (x, y, phase) ->
-            val twinkle = 0.15f + 0.45f * (
-                0.5f + 0.5f * sin((phase * 10f + t * 0.6f) * 2f * PI.toFloat())
-                )
-            val reaction = (lvl * 0.35f)
+            val twinkle = 0.10f + 0.36f * (0.5f + 0.5f * sin(phase * 10f))
             drawCircle(
                 color = if (phase > 0.86f) {
-                    personaColor.copy(alpha = (twinkle + reaction).coerceAtMost(1f))
+                    Color(0xFFFFD9A0).copy(alpha = twinkle)
                 } else {
-                    Color.White.copy(alpha = (twinkle + reaction).coerceAtMost(1f))
+                    Color.White.copy(alpha = twinkle * 0.7f)
                 },
                 radius = if (phase > 0.93f) 2.0f else 1.2f,
                 center = Offset(x * size.width, y * size.height),
@@ -794,7 +814,7 @@ private fun LiveBackdrop(
         for (i in 0..24) {
             val y = size.height * (0.66f + i * 0.014f)
             drawLine(
-                color = accent.copy(alpha = 0.035f),
+                color = accent.copy(alpha = 0.045f),
                 start = Offset(0f, y),
                 end = Offset(size.width, y),
                 strokeWidth = 1f,
@@ -803,7 +823,7 @@ private fun LiveBackdrop(
         for (i in 1..12) {
             val x = size.width * i / 13f
             drawLine(
-                color = accent.copy(alpha = 0.022f),
+                color = accent.copy(alpha = 0.028f),
                 start = Offset(x, size.height * 0.66f),
                 end = Offset(x, size.height),
                 strokeWidth = 1f,
@@ -831,6 +851,13 @@ private fun LiveCore(
     onTap: () -> Unit,
     modifier: Modifier,
 ) {
+    // One geometry for the life of the window: 160 points on a Fibonacci sphere and the short
+    // chords between them. Built once because the cost is O(n²) and the shape never changes; the
+    // motion comes from rotating and projecting it, not from rebuilding it. 160 is the density
+    // the reference image needs: enough lines to read as a solid hologram at a glance, still a
+    // single draw call per edge at 30 fps.
+    val geometry = remember { NeuralGeometry.build(160) }
+
     Box(
         modifier = modifier
             .clickable(onClick = onTap)
@@ -842,163 +869,373 @@ private fun LiveCore(
             val lvl = level.value
             val c = center
             val outerR = size.minDimension / 2f - 6f
-            val speaking = state == AssistantState.SPEAKING
-            val listening = state == AssistantState.LISTENING
+            val sphereR = outerR * 0.52f * (1f + 0.06f * lvl)
+            val lineWidth = maxOf(1f, outerR * if (compact) 0.004f else 0.003f)
             val thinking = state == AssistantState.THINKING
 
-            val outerSpeed = when (state) {
-                AssistantState.IDLE -> 4f
-                AssistantState.LISTENING -> 16f
-                AssistantState.THINKING -> 55f
-                AssistantState.SPEAKING -> 22f
-            } + lvl * 24f
-            val innerSpeed = outerSpeed * 0.55f
-
-            // Ambient glow first, so every ring sits inside it.
-            val glowR = outerR * (1.05f + 0.08f * lvl)
+            // A soft aura behind the lattice, not a solid planet.
+            val auraR = sphereR * 2.1f
             drawCircle(
                 brush = Brush.radialGradient(
                     colors = listOf(
-                        accent.copy(alpha = 0.22f + 0.22f * lvl),
-                        accent.copy(alpha = 0.08f),
+                        accent.copy(alpha = 0.10f + 0.16f * lvl),
+                        accent.copy(alpha = 0.035f),
                         Color.Transparent,
                     ),
                     center = c,
-                    radius = glowR,
+                    radius = auraR,
                 ),
-                radius = glowR,
+                radius = auraR,
                 center = c,
             )
 
-            // Outer segmented orbit.
-            rotate(t * outerSpeed) {
-                for (i in 0..2) {
-                    drawArc(
-                        color = accent.copy(alpha = 0.32f),
-                        startAngle = i * 120f,
-                        sweepAngle = 86f,
-                        useCenter = false,
-                        topLeft = Offset(c.x - outerR, c.y - outerR),
-                        size = Size(outerR * 2f, outerR * 2f),
-                        style = Stroke(width = 2f),
-                    )
-                }
-                drawCircle(
-                    color = accent.copy(alpha = 0.16f),
-                    radius = outerR,
-                    center = c,
-                    style = Stroke(
-                        width = 1f,
-                        pathEffect = PathEffect.dashPathEffect(floatArrayOf(3f, 12f)),
+            // The lattice is embedded in a soft translucent sphere, so it reads as a volume
+            // rather than a hollow wire cage. This is the reference's warm inner bloom.
+            val bloomR = sphereR * 1.20f
+            drawCircle(
+                brush = Brush.radialGradient(
+                    colors = listOf(
+                        HUD_GOLD.copy(alpha = 0.10f + 0.09f * lvl),
+                        accent.copy(alpha = 0.04f),
+                        Color.Transparent,
                     ),
-                )
-            }
+                    center = c,
+                    radius = bloomR,
+                ),
+                radius = bloomR,
+                center = c,
+            )
 
-            // Tick ring, counter-rotating, every sixth tick long.
-            rotate(-t * innerSpeed) {
-                for (i in 0 until 72) {
-                    val long = i % 6 == 0
-                    rotate(i * 5f) {
-                        val start = Offset(c.x, c.y - outerR * 0.90f)
-                        drawLine(
-                            color = accent.copy(alpha = if (long) 0.55f else 0.22f),
-                            start = start,
-                            end = Offset(start.x, start.y - if (long) 10f else 4f),
-                            strokeWidth = if (long) 2f else 1f,
-                        )
+            // ── hologram rings and glyphs ───────────────────────────────────────────────────
+            // The reference has concentric rings, but they are framing rather than the subject:
+            // thin, broken and almost static. Keeping them faint is what stops the core reading
+            // as a spinning wheel; the lattice, spokes and particles carry the motion.
+            val ringRadii = floatArrayOf(0.98f, 0.84f, 0.66f)
+            ringRadii.forEachIndexed { ringIndex, fraction ->
+                val ringR = outerR * fraction
+                drawCircle(
+                    color = accent.copy(alpha = 0.10f + ringIndex * 0.015f),
+                    radius = ringR,
+                    center = c,
+                    style = Stroke(width = lineWidth * 0.7f),
+                )
+                val ringSpin = if (ringIndex % 2 == 0) 1.4f else -1.1f
+                rotate(t * ringSpin) {
+                    for (i in 0 until 48) {
+                        if (i % 3 != 0) continue
+                        rotate(i * (360f / 48f) + ringIndex * 7f) {
+                            val tick = if (i % 6 == 0) outerR * 0.022f else outerR * 0.010f
+                            drawLine(
+                                color = accent.copy(alpha = 0.16f + 0.10f * lvl),
+                                start = Offset(c.x, c.y - ringR),
+                                end = Offset(c.x, c.y - ringR - tick),
+                                strokeWidth = lineWidth * 0.7f,
+                            )
+                        }
+                    }
+                    for (i in 0 until 12) {
+                        rotate(i * 30f + ringIndex * 15f) {
+                            drawRect(
+                                color = if (i % 3 == 0) {
+                                    HUD_GOLD.copy(alpha = 0.28f)
+                                } else {
+                                    accent.copy(alpha = 0.14f)
+                                },
+                                topLeft = Offset(
+                                    c.x - outerR * 0.012f,
+                                    c.y - ringR - outerR * 0.006f,
+                                ),
+                                size = Size(outerR * 0.024f, outerR * 0.012f),
+                            )
+                        }
                     }
                 }
             }
 
-            drawCircle(
-                color = accent.copy(alpha = 0.18f),
-                radius = outerR * 0.62f,
-                center = c,
-                style = Stroke(
-                    width = 1f,
-                    pathEffect = PathEffect.dashPathEffect(floatArrayOf(8f, 16f)),
-                ),
-            )
-
-            // Travelling waveform: one bar per history sample, rotated so the newest edges lead.
-            val segments = 96
-            val baseR = outerR * 0.78f
-            for (i in 0 until segments) {
-                val v = history.at(i)
-                val angle = (i.toFloat() / segments) * 360f + t * (10f + lvl * 46f)
+            // Radial energy spokes: the bright streaks in the reference are what make the core
+            // read as powered rather than merely drawn.
+            val spokes = if (compact) 28 else 40
+            for (k in 0 until spokes) {
+                val angle = (k.toFloat() / spokes) * 360f + t * 5f
                 rotate(angle) {
                     drawLine(
-                        color = accent.copy(alpha = 0.16f + 0.68f * v),
-                        start = Offset(c.x, c.y - baseR),
-                        end = Offset(c.x, c.y - baseR - (4f + v * outerR * 0.16f)),
-                        strokeWidth = if (compact) 2f else 2.5f,
+                        color = HUD_GOLD.copy(alpha = 0.035f + 0.08f * lvl),
+                        start = Offset(c.x + outerR * 0.10f, c.y),
+                        end = Offset(c.x + outerR * (0.60f + 0.04f * sin(k * 1.7f)), c.y),
+                        strokeWidth = lineWidth * 0.6f,
                     )
                 }
             }
 
-            if (thinking) {
-                rotate(t * 90f) {
-                    drawArc(
-                        color = accent.copy(alpha = 0.75f),
-                        startAngle = 0f,
-                        sweepAngle = 42f,
-                        useCenter = false,
-                        topLeft = Offset(c.x - outerR * 0.94f, c.y - outerR * 0.94f),
-                        size = Size(outerR * 1.88f, outerR * 1.88f),
-                        style = Stroke(width = 3f),
-                    )
-                }
+            // ── neural lattice ──────────────────────────────────────────────────────────────
+            // Rotate on Y, tilt on X, project with a gentle perspective. A point's depth drives
+            // its size and brightness, which is what makes the sphere read as a volume rather
+            // than as a rotating ring.
+            val spin = when (state) {
+                AssistantState.IDLE -> 0.18f
+                AssistantState.LISTENING -> 0.34f
+                AssistantState.THINKING -> 0.85f
+                AssistantState.SPEAKING -> 0.48f
+            } + lvl * 0.55f
+            val rotY = t * spin
+            val rotX = sin(t * 0.17f) * 0.30f
+            val cosY = cos(rotY)
+            val sinY = sin(rotY)
+            val cosX = cos(rotX)
+            val sinX = sin(rotX)
+
+            val projected = geometry.points.mapIndexed { index, p ->
+                val x1 = p.x * cosY + p.z * sinY
+                val z1 = -p.x * sinY + p.z * cosY
+                val y2 = p.y * cosX - z1 * sinX
+                val z2 = p.y * sinX + z1 * cosX
+                // Audio makes the lattice breathe irregularly rather than scale as one rigid ball.
+                val displacement = 1f + lvl * 0.09f * sin(t * 2.4f + index * 0.73f)
+                val px = x1 * sphereR * displacement
+                val py = y2 * sphereR * displacement
+                val perspective = 2.6f / (2.6f + z2)
+                ProjectedSpherePoint(
+                    position = Offset(c.x + px * perspective, c.y + py * perspective),
+                    // z2 = -1 is nearest the viewer; z2 = +1 is furthest.
+                    depth = ((-z2) + 1f) / 2f,
+                )
             }
 
-            if (speaking) {
-                for (p in 0..2) {
-                    val phase = ((t * 0.7f + p / 3f) % 1f)
+            geometry.edges.forEach { (a, b) ->
+                val pa = projected[a]
+                val pb = projected[b]
+                val depth = (pa.depth + pb.depth) / 2f
+                drawLine(
+                    color = accent.copy(alpha = 0.025f + 0.20f * depth + 0.08f * lvl),
+                    start = pa.position,
+                    end = pb.position,
+                    strokeWidth = lineWidth * (0.65f + depth * 0.7f),
+                )
+            }
+
+            // Pulses travelling along a stable subset of the edges: the "signals" in the lattice.
+            // They are the one element that reads as computation rather than decoration.
+            val edgeCount = geometry.edges.size
+            if (edgeCount > 0) {
+                val pulseCount = if (compact) 16 else 26
+                for (k in 0 until pulseCount) {
+                    val (a, b) = geometry.edges[(k * 37 + 11) % edgeCount]
+                    val pa = projected[a]
+                    val pb = projected[b]
+                    val speed = 0.16f + (k % 5) * 0.045f + lvl * 0.55f
+                    val u = ((t * speed + k * 0.618f) % 1f)
+                    val x = pa.position.x + (pb.position.x - pa.position.x) * u
+                    val y = pa.position.y + (pb.position.y - pa.position.y) * u
                     drawCircle(
-                        color = accent.copy(alpha = (1f - phase) * 0.28f * (0.4f + lvl)),
-                        radius = outerR * (0.35f + phase * 0.60f),
-                        center = c,
-                        style = Stroke(width = 2f),
+                        color = accent.copy(alpha = (0.24f + 0.55f * (pa.depth + pb.depth) / 2f) * (0.5f + lvl)),
+                        radius = maxOf(1.2f, outerR * 0.005f),
+                        center = Offset(x, y),
                     )
                 }
             }
 
-            // Central orb: a lit sphere, not a flat disc — the offset highlight is what makes it
-            // read as volume at a glance.
-            val breathe = 1f + 0.015f * sin(t * (if (listening) 3.2f else 1.6f))
-            val orbR = outerR * 0.30f * (breathe + lvl * 0.10f)
+            projected.forEachIndexed { index, p ->
+                val wave = if (thinking) {
+                    0.55f + 0.45f * sin(t * 4.2f - index * 0.35f)
+                } else 1f
+                val nodeR = maxOf(1f, outerR * 0.0042f * (0.55f + p.depth * 1.35f))
+                drawCircle(
+                    color = HUD_HOT.copy(alpha = (0.16f + 0.62f * p.depth) * wave),
+                    radius = nodeR,
+                    center = p.position,
+                )
+                if (p.depth > 0.68f) {
+                    drawCircle(
+                        color = accent.copy(alpha = 0.20f * p.depth * wave),
+                        radius = nodeR * 2.6f,
+                        center = p.position,
+                    )
+                }
+            }
+
+            // ── warm particles ──────────────────────────────────────────────────────────────
+            // Slow embers orbiting the lattice. Their brightness follows the level so the whole
+            // field leans toward the voice without moving as a rigid wheel.
+            val particles = if (compact) 36 else 64
+            for (k in 0 until particles) {
+                val base = k * 2.399963f
+                val direction = if (k % 2 == 0) 1f else -1f
+                val angle = base + t * (0.10f + (k % 7) * 0.02f) * direction
+                val radius = outerR * (0.58f + 0.34f * ((k % 11) / 11f))
+                val wobble = 1f + 0.02f * sin(t * 1.3f + k)
+                val x = c.x + cos(angle) * radius * wobble
+                val y = c.y + sin(angle) * radius * wobble * 0.92f
+                val bright = 0.14f + 0.42f * lvl + 0.10f * (0.5f + 0.5f * sin(t * 2.1f + k))
+                drawCircle(
+                    color = if (k % 5 == 0) {
+                        HUD_HOT.copy(alpha = bright)
+                    } else {
+                        HUD_GOLD.copy(alpha = bright * 0.8f)
+                    },
+                    radius = maxOf(1f, outerR * if (k % 9 == 0) 0.007f else 0.004f),
+                    center = Offset(x, y),
+                )
+            }
+
+            // ── filaments ───────────────────────────────────────────────────────────────────
+            // A handful of energy tendrils leave the singularity and end on the lattice. Their
+            // control points drift on different periods, so they never line up into a spoke.
+            val filamentCount = if (compact) 7 else 10
+            for (k in 0 until filamentCount) {
+                val idx = (k * 17 + 5) % projected.size
+                val target = projected[idx]
+                val mid = Offset(
+                    (c.x + target.position.x) / 2f + sin(t * 1.7f + k) * sphereR * 0.16f,
+                    (c.y + target.position.y) / 2f + cos(t * 1.3f + k * 0.7f) * sphereR * 0.16f,
+                )
+                val path = Path().apply {
+                    moveTo(c.x, c.y)
+                    quadraticTo(mid.x, mid.y, target.position.x, target.position.y)
+                }
+                drawPath(
+                    path = path,
+                    color = HUD_GOLD.copy(alpha = 0.08f + 0.26f * lvl + 0.06f * (0.5f + 0.5f * sin(t + k))),
+                    style = Stroke(width = lineWidth * (0.8f + lvl * 1.4f)),
+                )
+            }
+
+            // ── scan plane ──────────────────────────────────────────────────────────────────
+            // A thin horizontal sweep through the lattice. Faint at rest, brighter while the
+            // assistant is thinking, which gives COMPUTING a direction without another spinner.
+            val scanY = c.y + sin(t * 0.45f) * sphereR * 0.85f
+            val scanHalf = sqrt(
+                (sphereR * sphereR - (scanY - c.y) * (scanY - c.y)).coerceAtLeast(0f)
+            ) * 0.92f
+            val scanAlpha = when (state) {
+                AssistantState.THINKING -> 0.30f
+                AssistantState.LISTENING -> 0.16f
+                AssistantState.SPEAKING -> 0.10f
+                AssistantState.IDLE -> 0.06f
+            }
+            drawLine(
+                color = accent.copy(alpha = scanAlpha),
+                start = Offset(c.x - scanHalf, scanY),
+                end = Offset(c.x + scanHalf, scanY),
+                strokeWidth = lineWidth,
+            )
+            drawLine(
+                color = accent.copy(alpha = scanAlpha * 0.28f),
+                start = Offset(c.x - scanHalf, scanY - outerR * 0.012f),
+                end = Offset(c.x + scanHalf, scanY - outerR * 0.012f),
+                strokeWidth = lineWidth * 3f,
+            )
+
+            // ── equator ─────────────────────────────────────────────────────────────────────
+            // The bright horizontal line across the reactor is the strongest single signature in
+            // the reference image. It is drawn over the lattice, under the core.
+            val equatorHalf = outerR * 1.02f
+            drawLine(
+                color = HUD_GOLD.copy(alpha = 0.05f + 0.07f * lvl),
+                start = Offset(c.x - equatorHalf, c.y),
+                end = Offset(c.x + equatorHalf, c.y),
+                strokeWidth = lineWidth * 9f,
+            )
+            drawLine(
+                color = HUD_HOT.copy(alpha = 0.30f + 0.24f * lvl),
+                start = Offset(c.x - equatorHalf, c.y),
+                end = Offset(c.x + equatorHalf, c.y),
+                strokeWidth = lineWidth * 0.8f,
+            )
+            drawCircle(
+                color = HUD_HOT.copy(alpha = 0.70f),
+                radius = lineWidth * 1.8f,
+                center = Offset(c.x - equatorHalf, c.y),
+            )
+            drawCircle(
+                color = HUD_HOT.copy(alpha = 0.70f),
+                radius = lineWidth * 1.8f,
+                center = Offset(c.x + equatorHalf, c.y),
+            )
+
+            // ── singularity ─────────────────────────────────────────────────────────────────
+            // The one solid form: a small intense core, not the old planet-sized orb.
+            val beat = 1f + 0.16f * lvl + 0.025f * sin(t * 3.1f)
+            val coreR = outerR * 0.075f * beat
             drawCircle(
                 brush = Brush.radialGradient(
                     colors = listOf(
-                        lerpColor(accent, Color.White, 0.72f),
-                        accent,
-                        darken(accent, 0.35f),
+                        HUD_HOT.copy(alpha = 0.95f),
+                        HUD_GOLD.copy(alpha = 0.82f),
+                        accent.copy(alpha = 0.14f),
+                        Color.Transparent,
                     ),
-                    center = Offset(c.x - orbR * 0.30f, c.y - orbR * 0.36f),
-                    radius = orbR * 1.5f,
+                    center = c,
+                    radius = coreR * 6.5f,
                 ),
-                radius = orbR,
+                radius = coreR * 6.5f,
                 center = c,
             )
-            drawCircle(
-                color = Color.White.copy(alpha = 0.50f),
-                radius = orbR * 0.12f,
-                center = Offset(c.x - orbR * 0.32f, c.y - orbR * 0.36f),
-            )
-            drawCircle(
-                color = accent.copy(alpha = 0.55f),
-                radius = orbR * 1.18f,
-                center = c,
-                style = Stroke(width = 1.5f),
+            drawCircle(color = HUD_HOT.copy(alpha = 0.92f), radius = coreR * 0.55f, center = c)
+
+            // A slow hexagonal aperture around the core, part of the interface rather than a ring.
+            val apertureR = coreR * 2.3f
+            val aperture = Path()
+            for (i in 0..6) {
+                val angle = t * 0.35f + i * (PI.toFloat() * 2f / 6f)
+                val x = c.x + cos(angle) * apertureR
+                val y = c.y + sin(angle) * apertureR
+                if (i == 0) aperture.moveTo(x, y) else aperture.lineTo(x, y)
+            }
+            drawPath(
+                path = aperture,
+                color = HUD_GOLD.copy(alpha = 0.30f + 0.20f * lvl),
+                style = Stroke(width = lineWidth),
             )
 
-            // Cardinal alignment ticks.
-            listOf(0f, 90f, 180f, 270f).forEach { deg ->
+            // Four small brackets at the diagonal corners, the HUD's frame rather than an orbit.
+            val inset = outerR * 0.035f
+            val bracket = outerR * 0.10f
+            val cornerColor = accent.copy(alpha = 0.20f)
+            fun bracketAt(x: Float, y: Float, dx: Float, dy: Float) {
+                drawLine(cornerColor, Offset(x, y), Offset(x + dx, y), lineWidth)
+                drawLine(cornerColor, Offset(x, y), Offset(x, y + dy), lineWidth)
+            }
+            bracketAt(inset, inset, bracket, bracket)
+            bracketAt(size.width - inset, inset, -bracket, bracket)
+            bracketAt(inset, size.height - inset, bracket, -bracket)
+            bracketAt(size.width - inset, size.height - inset, -bracket, -bracket)
+
+            // ── voice waveform ──────────────────────────────────────────────────────────────
+            // The old version put the level history on a circular ring, which is what made the
+            // whole thing read as a spinning wheel. A horizontal trace is the form a voice
+            // visualiser is actually recognised by, and it leaves the lattice to be the "AI".
+            if (state != AssistantState.THINKING) {
+                val samples = 64
+                val waveY = size.height * 0.88f
+                val halfWidth = sphereR * 1.15f
+                val path = Path()
+                for (i in 0 until samples) {
+                    // Two history frames per sample: the 128-frame buffer covers the trace.
+                    val v = history.at(i * 2)
+                    val x = c.x - halfWidth + (i / (samples - 1f)) * halfWidth * 2f
+                    val y = waveY - v * sphereR * 0.15f
+                    if (i == 0) path.moveTo(x, y) else path.lineTo(x, y)
+                }
+                drawPath(
+                    path = path,
+                    color = HUD_GOLD.copy(alpha = 0.10f),
+                    style = Stroke(width = lineWidth * 4f),
+                )
+                drawPath(
+                    path = path,
+                    color = HUD_GOLD.copy(alpha = 0.58f),
+                    style = Stroke(width = lineWidth * 1.2f),
+                )
+            }
+
+            // Sparse alignment ticks, four groups only. A full ring of 72 was the wheel.
+            listOf(45f, 135f, 225f, 315f).forEach { deg ->
                 rotate(deg) {
                     drawLine(
-                        color = accent.copy(alpha = 0.35f),
-                        start = Offset(c.x, c.y - outerR - 8f),
-                        end = Offset(c.x, c.y - outerR - 16f),
-                        strokeWidth = 2f,
+                        color = accent.copy(alpha = 0.24f),
+                        start = Offset(c.x, c.y - outerR * 0.96f),
+                        end = Offset(c.x, c.y - outerR * 0.96f - outerR * 0.035f),
+                        strokeWidth = lineWidth,
                     )
                 }
             }
@@ -1021,27 +1258,66 @@ private fun LiveCore(
                     fontFamily = FontFamily.Monospace,
                     fontSize = 7.sp,
                     letterSpacing = 2.sp,
-                    color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.28f),
+                    color = HUD_GOLD.copy(alpha = 0.28f),
                 )
             }
         }
     }
 }
 
+/** One point on the unit sphere, before rotation and projection. */
+private data class SpherePoint(val x: Float, val y: Float, val z: Float)
+
+/** A projected lattice point and its 0..1 depth (1 = nearest the viewer). */
+private data class ProjectedSpherePoint(val position: Offset, val depth: Float)
+
+/**
+ * The Fibonacci-sphere lattice: an even distribution of points and the short chords between them.
+ *
+ * Built once per window. The edges are the expensive half and never change; only their projected
+ * endpoints do. Distances are compared squared, and the threshold is a chord of ~0.57 units — about
+ * ten neighbours per point, which is dense enough to read as a mesh and sparse enough to stay
+ * under a thousand lines at 30 fps.
+ */
+private class NeuralGeometry(
+    val points: List<SpherePoint>,
+    val edges: List<Pair<Int, Int>>,
+) {
+    companion object {
+        fun build(count: Int): NeuralGeometry {
+            require(count >= 8) { "a lattice needs at least 8 points" }
+            val golden = PI * (3.0 - sqrt(5.0))
+            val points = List(count) { i ->
+                val y = 1.0 - (i / (count - 1.0)) * 2.0
+                val radius = sqrt((1.0 - y * y).coerceAtLeast(0.0))
+                val theta = golden * i
+                SpherePoint(
+                    x = (cos(theta) * radius).toFloat(),
+                    y = y.toFloat(),
+                    z = (sin(theta) * radius).toFloat(),
+                )
+            }
+            val threshold = 0.34f
+            val edges = ArrayList<Pair<Int, Int>>()
+            for (i in points.indices) {
+                for (j in i + 1 until points.size) {
+                    val dx = points[i].x - points[j].x
+                    val dy = points[i].y - points[j].y
+                    val dz = points[i].z - points[j].z
+                    if (dx * dx + dy * dy + dz * dz < threshold) edges += i to j
+                }
+            }
+            return NeuralGeometry(points, edges)
+        }
+    }
+}
+
 // ─────────────────────────────────────────────────────────────── small helpers
 
+/** The hot centre of the reactor: white-gold, used sparingly. */
+private val HUD_HOT = Color(0xFFFFF3D6)
+
+/** The warm metal the rings, glyphs and filaments are drawn in. */
+private val HUD_GOLD = Color(0xFFFFC46B)
+
 private val HUD_TIME: DateTimeFormatter = DateTimeFormatter.ofPattern("HH:mm")
-
-private fun lerpColor(a: Color, b: Color, t: Float): Color = Color(
-    red = a.red + (b.red - a.red) * t,
-    green = a.green + (b.green - a.green) * t,
-    blue = a.blue + (b.blue - a.blue) * t,
-    alpha = a.alpha + (b.alpha - a.alpha) * t,
-)
-
-private fun darken(color: Color, factor: Float): Color = Color(
-    red = color.red * factor,
-    green = color.green * factor,
-    blue = color.blue * factor,
-    alpha = color.alpha,
-)
