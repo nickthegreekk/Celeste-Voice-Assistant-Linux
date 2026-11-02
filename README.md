@@ -57,8 +57,8 @@ counterpart, and a PipeWire `module-echo-cancel` sink is the right place for it 
 ## Install
 
 Packages are built from this tree (see [Build from source](#build-from-source)). The current
-release is **0.2.2** — what changed, the package hashes and the known limitations are in
-[docs/RELEASE-0.2.2.md](docs/RELEASE-0.2.2.md) — and published packages appear on the
+release is **0.2.7** — what changed, the package hashes and the known limitations are in
+[docs/RELEASE-0.2.7.md](docs/RELEASE-0.2.7.md) — and published packages appear on the
 [Releases](https://github.com/nickthegreekk/Celeste-Voice-Assistant-Linux/releases) page.
 
 ```sh

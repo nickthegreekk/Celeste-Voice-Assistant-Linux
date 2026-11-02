@@ -1,3 +1,18 @@
+celeste-linux (0.2.7) unstable; urgency=medium
+
+  * Live HUD: a second, full-screen-capable window with an audio-reactive
+    arc-reactor core, karaoke transcript and voice controls. Open it from the
+    header menu (replacing the inert Phone mode item), View -> Live HUD, or
+    --live at launch; F11 toggles fullscreen.
+  * Thinking restored: Ollama's request flag now follows the model's actual
+    capability. The live catalog's `thinking` capability and the QwQ/Ornith
+    names are honoured, so a thinking model is no longer sent think:false.
+  * The m1 COPY files were synced to upstream 99155cf; the pin moved and
+    tools/sync-from-android.sh --check reports no drift.
+  * Version bumped to 0.2.7.
+
+ -- Nikos <nikos@localhost>  Mon, 02 Nov 2026 18:30:00 +0200
+
 celeste-linux (0.2.6) unstable; urgency=medium
 
   * Persona context: lorebooks (a shared library of always/keyword-activated
