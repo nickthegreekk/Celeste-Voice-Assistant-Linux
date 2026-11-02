@@ -2397,6 +2397,17 @@ open it directly; `--live --listen` is the already-listening pair. **Scope, stat
 shows the single-chat persona surface; rooms keep their own screen in v1, the same deferred room
 slice that carries tools, lorebooks and prompt placeholders there.
 
+**M20 follow-up, 2026-11-02 — thinking is requested for models that can think (0.2.7).** The
+2026-10-31 placement fix moved `think` to the request root, but the port's DeepSeek-only name list
+then sent `think:false` to Ornith and QwQ and suppressed reasoning — reported live as "thinking was
+missing on the last few builds". `isThinkingModel(serverUrl, model)` now checks the live Ollama
+catalog's `thinking` capability as well as the name (QwQ and Ornith added), and the chat,
+spontaneous and scheduled-skill builders use it; the persona's own toggle still wins. The m1 COPY
+group was synced to upstream `99155cf`, which made `AssistantServiceSpontaneous.kt` byte-identical
+again, pulled the Welcome screen's documentation-IP change and moved the pin; `--check` reports no
+drift. `ThinkingFlagPlacementTest` covers name-known, catalog-known, unknown and toggle-off, plus
+the top-level placement.
+
 ## 11. Test strategy
 
 - **Port the 45 JVM test files (8,066 lines) in M0/M1.** They are the executable specification for

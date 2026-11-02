@@ -1840,7 +1840,9 @@ internal suspend fun AssistantService.performDirectOllamaChat(baseUrl: String, m
     // options-level flag is ignored). In `options` it silently left a thinking-capable model
     // such as ornith-1.5:9b in its default thinking mode, where the hidden reasoning consumes
     // `num_predict` and the turn can end with an empty message.content — a blank reply.
-    json.put("think", persona.enableThinking && isKnownThinkingModel(model))
+    // The capability is the catalog's `thinking` flag when the models screen fetched it, not
+    // just the name heuristic: a model this build has never heard of can still think.
+    json.put("think", persona.enableThinking && isThinkingModel(resolvedBackend, model))
 
     // A-attachments: the model-facing prompt includes extracted file content. The
     // original `text` is still used for search/news below.
@@ -1972,7 +1974,7 @@ internal suspend fun AssistantService.performDirectOllamaChat(baseUrl: String, m
     options.put("num_ctx", persona.numCtx)
     // Debug-only: per-request reasoning trace (fires once per direct-Ollama completion).
     // Kept gated — useful with the thinking-aware read-timeout multiplier in getDynamicClient.
-    if (appEnv.debugLogging) android.util.Log.d("AssistantService", "DEBUG: persona.name=${persona.name} enableThinking=${persona.enableThinking} isKnownThinking=${isKnownThinkingModel(model)}")
+    if (appEnv.debugLogging) android.util.Log.d("AssistantService", "DEBUG: persona.name=${persona.name} enableThinking=${persona.enableThinking} isThinking=${isThinkingModel(resolvedBackend, model)}")
     options.put("num_predict", persona.maxTokens)
 
     json.put("options", options)
@@ -2462,15 +2464,46 @@ internal fun AssistantService.parseCloudResponse(api: CloudApiSetting, persona: 
     return Triple(text, reasoning, UsageInfo(pTokens, cTokens, pTokens + cTokens, cost))
 }
 
-internal fun AssistantService.isKnownThinkingModel(modelName: String): Boolean {
+internal fun AssistantService.isKnownThinkingModel(modelName: String): Boolean =
+    isKnownThinkingModelName(modelName)
+
+/** The pure name half of [isKnownThinkingModel]; the receiver only kept call sites short. */
+internal fun isKnownThinkingModelName(modelName: String): Boolean {
     val name = modelName.lowercase()
     // "v4-pro": DeepSeek's R1 line is being delisted (completes 2026-10-10 per
     // DeepSeek's announcement) and V4-Pro's built-in Thinking mode is the official
     // R1 replacement. Deliberately NOT matched: the flash/vision variants
     // (deepseek-v4-flash, deepseek-v4-flash-vision-exp) — they are the fast/
     // non-reasoning tier and Ollama rejects think:true for them.
+    // "qwq" and "ornith" arrived upstream after this port's pin: without them the
+    // top-level think:false added on 2026-10-31 actually suppressed reasoning on
+    // those models, which is the regression this line closes.
     return name.contains("deepseek-r1") || name.contains("deepseek-reasoner") || name.contains("-r1") ||
-        name.contains("v4-pro")
+        name.contains("v4-pro") || name.contains("qwq") || name.contains("ornith")
+}
+
+/**
+ * Thinking capability for a model on [serverUrl]: the name heuristic above, or the live
+ * Ollama catalog's `thinking` capability when the model picker has fetched it.
+ *
+ * The name list alone silently sent `think: false` to valid reasoning models it did not
+ * know (QwQ, Ornith), disabling reasoning even when the user enabled Thinking. The catalog
+ * is keyed by the server URL; a model whose capabilities were never fetched (`null`) is
+ * still handled by the name fallback.
+ *
+ * This is upstream's own fix, ported with it: the models screen already stores
+ * [ModelCapability.THINKING] from `/api/show`, so a model whose name is not in any list
+ * still gets the flag when the server said it can think.
+ */
+internal fun AssistantService.isThinkingModel(serverUrl: String, modelName: String): Boolean {
+    if (isKnownThinkingModel(modelName)) return true
+    val key = serverUrl.trimEnd('/')
+    val loaded = _modelCatalog.value.entries
+        .firstOrNull { it.key.trimEnd('/') == key }?.value as? ModelCatalogState.Loaded
+        ?: return false
+    return loaded.entries.any {
+        it.name == modelName && it.capabilities?.contains(ModelCapability.THINKING) == true
+    }
 }
 
 // L6: the OpenRouter pricing table is keyed by the provider's own model ids

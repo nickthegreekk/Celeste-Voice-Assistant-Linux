@@ -21,12 +21,18 @@ import org.junit.Before
 import org.junit.Test
 
 /**
- * Ollama reads `think` from the request, not from `options`.
+ * Ollama reads `think` from the request, not from `options`, and the VALUE must follow the
+ * model's actual capability.
  *
  * Measured on Ollama 0.40: `options.think=false` is ignored. A thinking-capable model such as
  * `ornith-1.5:9b` then stays in its default thinking mode, where hidden reasoning consumes
  * `num_predict` — with a 4096-token budget a normal turn can end with an empty `message.content`,
  * which the app stores as a blank assistant bubble.
+ *
+ * The first fix moved the flag to the top level but kept a DeepSeek-only name list, so Ornith
+ * received an explicit `think: false` and stopped thinking — the regression these tests now
+ * cover. The capability is decided by [AssistantService.isThinkingModel]: a known name, or the
+ * live Ollama catalog's `thinking` capability, still gated by the persona's own toggle.
  *
  * The stub captures the exact request body, so this pins the wire shape rather than the code
  * path: `think` must be a top-level field, and `options` must not carry it at all.
@@ -74,10 +80,60 @@ class ThinkingFlagPlacementTest {
         assertRequestFlag(model = "deepseek-r1:8b", thinking = true, expectedTopLevel = true)
     }
 
-    private fun TestScope.assertRequestFlag(model: String, thinking: Boolean, expectedTopLevel: Boolean) {
+    @Test
+    fun `ornith is a thinking model by name`() = runTest {
+        assertRequestFlag(model = "ornith-1.5:9b", thinking = true, expectedTopLevel = true)
+    }
+
+    @Test
+    fun `a catalog thinking capability enables think for an unknown name`() = runTest {
+        assertRequestFlag(
+            model = "custom-thinker:7b",
+            thinking = true,
+            expectedTopLevel = true,
+            catalogCapabilities = setOf(ModelCapability.COMPLETION, ModelCapability.THINKING),
+        )
+    }
+
+    @Test
+    fun `the persona toggle still wins over a catalog capability`() = runTest {
+        assertRequestFlag(
+            model = "custom-thinker:7b",
+            thinking = false,
+            expectedTopLevel = false,
+            catalogCapabilities = setOf(ModelCapability.COMPLETION, ModelCapability.THINKING),
+        )
+    }
+
+    private fun TestScope.assertRequestFlag(
+        model: String,
+        thinking: Boolean,
+        expectedTopLevel: Boolean,
+        catalogCapabilities: Set<ModelCapability>? = null,
+    ) {
         SteppedNdjsonServer().use { server ->
             val service = newService()
             service._ollamaBaseUrls.value = listOf(ServerConfig(PROBE_SERVER, server.url))
+            if (catalogCapabilities != null) {
+                // The capability the models screen would have fetched from /api/show. Keyed by
+                // the server URL, which is the same key isThinkingModel looks up.
+                service._modelCatalog.value = mapOf(
+                    server.url.trimEnd('/') to ModelCatalogState.Loaded(
+                        entries = listOf(
+                            ModelEntry(
+                                name = model,
+                                capabilities = catalogCapabilities,
+                                parameterSize = null,
+                                quantization = null,
+                                contextLength = null,
+                                sizeBytes = null,
+                            )
+                        ),
+                        showStates = emptyMap(),
+                        fetchedAtMillis = 0L,
+                    )
+                )
+            }
             val persona = Persona(
                 name = PROBE_PERSONA,
                 themeColor = Color(0xFF4ADE80),

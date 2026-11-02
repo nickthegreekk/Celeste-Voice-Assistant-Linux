@@ -1837,3 +1837,28 @@ never reported focus).
 No new dependency, no COPY file touched, no network call added. → PLAN.md §10/M20;
 `AudioEnvelope.kt`, `LiveHud.kt`, `AssistantService.kt`, `AssistantServiceAudio.kt`,
 `MainVoiceScreen.kt`, `Main.kt`, `AudioEnvelopeTest.kt`, `SpeechAmplitudeTest.kt`
+
+## 2026-11-02 — Thinking is requested when the model can think, not only when its name says so
+
+The 2026-10-31 placement fix moved `think` to the request root because Ollama 0.40 ignores `options.think`. That made
+the value matter: the port's name list still knew only DeepSeek, so `ornith-1.5:9b` and QwQ received an explicit
+`think:false` and stopped reasoning — the regression the user reported ("thinking was missing on the last few builds").
+
+**Decided: port upstream's `isThinkingModel(serverUrl, model)`.** It is true when the name heuristic matches (now
+including `qwq` and `ornith`) OR when the live Ollama catalog has fetched `ModelCapability.THINKING` for that model on
+that server. The streaming chat request, the spontaneous call and the scheduled-skill call all use it; the persona's
+own `enableThinking` still gates the flag, so the toggle wins. The name-only function remains for the timeout multiplier
+and for callers that have no server URL.
+
+**Decided: sync the m1 COPY group to upstream HEAD `99155cf`.** `AssistantServiceSpontaneous.kt` was the file carrying
+the pre-existing COPY drift (its `think` line had been moved locally without a verdict change); upstream had already
+made the same placement plus the capability fix. The sync makes it byte-identical again, pulls the Welcome screen's
+documentation-IP change, and moves the pin. `--check` now reports no drift. `ThinkingFlagPlacementTest` covers the value
+decision (name-known, catalog-known, unknown, toggle-off) as well as the placement.
+
+Rejected: keeping the flag in `options` (ignored by Ollama 0.40); sending `think:true` to every model (the fast/vision
+tiers reject it, per the same code comment); a hardcoded list alone (the catalog is the only source that knows a model
+the name list does not).
+
+→ PLAN.md §10/M20 follow-up; `AssistantServiceChat.kt`, `AssistantServiceSpontaneous.kt` (COPY, synced),
+`ScheduledSkillRunner.kt`, `ThinkingFlagPlacementTest.kt`, `core/src/main/resources/upstream-commit.txt`

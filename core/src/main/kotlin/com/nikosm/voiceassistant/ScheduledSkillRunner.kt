@@ -330,7 +330,7 @@ private suspend fun AssistantService.performScheduledSkillOllamaCall(
     val json = JSONObject()
         .put("model", model)
         .put("stream", false)
-        .put("think", persona.enableThinking && isKnownThinkingModel(model))
+        .put("think", persona.enableThinking && isThinkingModel(resolvedBackend, model))
         .put("messages", messages)
         .put("options", options)
 
