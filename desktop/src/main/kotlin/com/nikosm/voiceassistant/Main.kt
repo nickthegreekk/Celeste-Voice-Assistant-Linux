@@ -10,6 +10,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.painter.BitmapPainter
 import androidx.compose.ui.graphics.painter.Painter
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.res.loadImageBitmap
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
@@ -96,6 +100,10 @@ private fun openInBrowser(url: String, logger: AppLogger) {
  * window opens with it — D1 keeps the service and the UI in one process, and `--headless` is the
  * separate question of running without one — and the bound key is documented per desktop in
  * `docs/DEVICES.md`.
+ *
+ * `--live` opens the Live HUD window at launch — the same window View → Live HUD and the main
+ * header's menu open, for a desktop shortcut or hotkey that wants the immersive view directly.
+ * `--live --listen` is the hands-free pair: the HUD comes up already listening.
  *
  * `--selftest` is the milestone's acceptance criterion and the shape M6's packaging smoke test
  * reuses (PLAN.md §11 runs `celeste-linux --selftest` against an installed artefact). It prints
@@ -316,6 +324,9 @@ fun main(args: Array<String>) {
             val index = list.indexOf("--persona")
             list.getOrNull(index + 1)?.takeIf { index >= 0 && it.isNotBlank() }
         }
+        // M20: open the Live HUD at launch. A presence flag, like `--headless`; `--live --listen`
+        // is the pair a desktop shortcut uses for an already-listening immersive view.
+        val liveAtLaunch = args.any { it == "--live" }
         if (sharedRequest != null) {
             appEnv.logger.i("Main", "sharing into the composer: ${sharedRequest::class.simpleName}")
         }
@@ -356,10 +367,29 @@ fun main(args: Array<String>) {
         // touching the conversation. D1 is untouched: one process, many Compose windows.
         var settingsOpen by remember { mutableStateOf(false) }
         var aboutOpen by remember { mutableStateOf(false) }
+        var liveHudOpen by remember { mutableStateOf(liveAtLaunch) }
         var settingsPersonaRequest by remember { mutableStateOf<String?>(null) }
         var searchRequest by remember { mutableStateOf(0L) }
         val settingsWindowState = rememberWindowState(width = 980.dp, height = 760.dp)
         val aboutWindowState = rememberWindowState(width = 460.dp, height = 340.dp)
+        // Hoisted like the other window states so closing and reopening the Live HUD keeps the
+        // placement the user last chose (fullscreen survives a close/reopen within the session).
+        // 1100x700 rather than 1280x800: the first live run on the 2x-scale 2560x1440 desktop
+        // turned 1280x800 dp into a window larger than the screen, so the WM clamped it and the
+        // "windowed" mode was fullscreen by accident. This size fits at both scales.
+        val liveHudWindowState = rememberWindowState(width = 1100.dp, height = 700.dp)
+
+        // M20: reply notifications are a property of "no Celeste window is focused", not of the
+        // main window alone. Two windows can be focused in sequence, and the HUD's lost-focus
+        // event currently arrives after the main window's gained-focus one; a single Boolean
+        // would therefore enable notifications while the user is watching the HUD. The set is
+        // the truth and the service gets its emptiness.
+        var focusedWindowIds by remember { mutableStateOf(emptySet<String>()) }
+        fun reportWindowFocus(id: String, focused: Boolean) {
+            val next = if (focused) focusedWindowIds + id else focusedWindowIds - id
+            focusedWindowIds = next
+            service.setWindowFocused(next.isNotEmpty())
+        }
 
         // M17: the desktop's own UI font, resolved once through fontconfig. Skiko's default is
         // not the system UI font, and that difference is the largest single "ported" tell after
@@ -384,15 +414,19 @@ fun main(args: Array<String>) {
             // M14: tell the service when the window has focus, so a reply that settles while it
             // does not can notify. AWT focus (not a Compose local) because losing focus to another
             // application — the case this feature is for — is exactly what the listener reports;
-            // regaining it also clears any standing notification.
+            // regaining it also clears any standing notification. M20: the answer is aggregated
+            // with the Live HUD's focus, so watching the HUD does not count as being away.
             DisposableEffect(window) {
                 val listener = object : java.awt.event.WindowAdapter() {
-                    override fun windowGainedFocus(e: java.awt.event.WindowEvent?) = service.setWindowFocused(true)
-                    override fun windowLostFocus(e: java.awt.event.WindowEvent?) = service.setWindowFocused(false)
+                    override fun windowGainedFocus(e: java.awt.event.WindowEvent?) = reportWindowFocus("main", true)
+                    override fun windowLostFocus(e: java.awt.event.WindowEvent?) = reportWindowFocus("main", false)
                 }
                 window.addWindowListener(listener)
-                service.setWindowFocused(window.isFocused)
-                onDispose { window.removeWindowListener(listener) }
+                reportWindowFocus("main", window.isFocused)
+                onDispose {
+                    window.removeWindowListener(listener)
+                    reportWindowFocus("main", false)
+                }
             }
 
             // The application's own dark/light choice, not the desktop's: Compose's
@@ -450,6 +484,7 @@ fun main(args: Array<String>) {
                     window.jMenuBar = applicationMenuBar(
                         onSearch = { searchRequest++ },
                         onToggleDarkTheme = { service.setDarkTheme(!service.darkTheme.value) },
+                        onLiveHud = { liveHudOpen = true },
                         onSettings = {
                             settingsPersonaRequest = null
                             settingsOpen = true
@@ -473,6 +508,7 @@ fun main(args: Array<String>) {
                         settingsOpen = true
                     },
                     openSearchRequest = searchRequest,
+                    onOpenLiveHud = { liveHudOpen = true },
                 )
             }
         }
@@ -529,6 +565,82 @@ fun main(args: Array<String>) {
                         version = APP_VERSION,
                         upstreamCommit = upstreamPin(),
                         onOpenUrl = { url -> openInBrowser(url, appEnv.logger) },
+                    )
+                }
+            }
+        }
+
+        // M20: the Live HUD. A window of its own rather than a fullscreen restyle of the chat, so
+        // the main window stays usable and the HUD can sit on another monitor. The body lives in
+        // :core (`LiveHudContent`) because it reads the service's flows; the window shell, the
+        // fullscreen keys and the focus aggregation are desktop concerns and stay here.
+        if (liveHudOpen) {
+            fun toggleLiveFullscreen() {
+                liveHudWindowState.placement =
+                    if (liveHudWindowState.placement == WindowPlacement.Fullscreen) {
+                        WindowPlacement.Floating
+                    } else {
+                        WindowPlacement.Fullscreen
+                    }
+            }
+
+            Window(
+                onCloseRequest = { liveHudOpen = false },
+                title = "Celeste Live",
+                state = liveHudWindowState,
+                icon = remember { windowIcon() },
+                onPreviewKeyEvent = { event ->
+                    if (event.type != KeyEventType.KeyDown) {
+                        false
+                    } else when (event.key) {
+                        Key.F11 -> {
+                            toggleLiveFullscreen()
+                            true
+                        }
+                        Key.Escape -> {
+                            // First Escape leaves fullscreen; a second closes the window. The
+                            // on-screen close button is always there, so this is a convenience
+                            // rather than the only way out.
+                            if (liveHudWindowState.placement == WindowPlacement.Fullscreen) {
+                                toggleLiveFullscreen()
+                            } else {
+                                liveHudOpen = false
+                            }
+                            true
+                        }
+                        else -> false
+                    }
+                },
+            ) {
+                DisposableEffect(window) {
+                    val listener = object : java.awt.event.WindowAdapter() {
+                        override fun windowGainedFocus(e: java.awt.event.WindowEvent?) =
+                            reportWindowFocus("live", true)
+
+                        override fun windowLostFocus(e: java.awt.event.WindowEvent?) =
+                            reportWindowFocus("live", false)
+                    }
+                    window.addWindowListener(listener)
+                    reportWindowFocus("live", window.isFocused)
+                    onDispose {
+                        window.removeWindowListener(listener)
+                        reportWindowFocus("live", false)
+                    }
+                }
+
+                val darkTheme by service.darkTheme.collectAsState()
+                val desktopStyle by service.desktopStyle.collectAsState()
+                VoiceAssistantTheme(
+                    darkTheme = darkTheme,
+                    fontFamily = appFontFamily,
+                    desktopStyle = desktopStyle,
+                    gtkPalette = if (desktopStyle == DesktopStyle.GTK) gtkPaletteOnce else null,
+                ) {
+                    LiveHudContent(
+                        service = service,
+                        isFullscreen = liveHudWindowState.placement == WindowPlacement.Fullscreen,
+                        onToggleFullscreen = { toggleLiveFullscreen() },
+                        onClose = { liveHudOpen = false },
                     )
                 }
             }
@@ -653,6 +765,7 @@ private fun claimTheWindowClass(logger: AppLogger) {
 private fun applicationMenuBar(
     onSearch: () -> Unit,
     onToggleDarkTheme: () -> Unit,
+    onLiveHud: () -> Unit,
     onSettings: () -> Unit,
     onAbout: () -> Unit,
     onQuit: () -> Unit,
@@ -672,6 +785,14 @@ private fun applicationMenuBar(
         })
         add(JMenu("View").apply {
             add(item("Toggle dark theme", action = onToggleDarkTheme))
+            add(item(
+                "Live HUD",
+                KeyStroke.getKeyStroke(
+                    KeyEvent.VK_L,
+                    InputEvent.CTRL_DOWN_MASK or InputEvent.SHIFT_DOWN_MASK,
+                ),
+                onLiveHud,
+            ))
         })
         add(JMenu("Settings").apply {
             add(

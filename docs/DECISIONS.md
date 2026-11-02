@@ -1797,9 +1797,12 @@ dedicated window over restyling the main one. The Celestial UI remains unchanged
 established that a Compose desktop app can own several windows in one process (D1 is untouched),
 and the Settings/About windows are the precedent. A second window keeps the main conversation
 usable beside the HUD, can sit on another monitor, and avoids threading a window-placement flag
-through `MainVoiceScreen` only to hide the Scaffold's header and sidebar. Rejected: an in-place
-fullscreen mode (the user asked to keep Celestial as it is, and an immersive body would have been a
-third layout inside the same screen). Rejected: a separate executable or daemon protocol (D1).
+through `MainVoiceScreen` only to hide the Scaffold's header and sidebar. It opens at 1100x700,
+toggles true fullscreen with F11 or the on-screen control, and Esc leaves fullscreen before a
+second Esc closes it; `--live` and View → Live HUD (Ctrl+Shift+L) open the same window, so a
+desktop shortcut or hotkey can reach it. Rejected: an in-place fullscreen mode (the user asked to
+keep Celestial as it is, and an immersive body would have been a third layout inside the same
+screen). Rejected: a separate executable or daemon protocol (D1).
 
 **Decided: the header overflow menu's "Phone mode" item becomes "Live HUD".** The 2026-10-16
 source/sink record left the item in place but inert and explicitly flagged it for the user; the user

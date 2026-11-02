@@ -313,6 +313,8 @@ fun MainScreen(
     openSearchRequest: Long = 0L,
     /** Called after [openSearchRequest] has been honoured. */
     onOpenSearchHandled: () -> Unit = {},
+    /** M20: opens the Live HUD window — the header menu's replacement for the inert Phone mode. */
+    onOpenLiveHud: () -> Unit = {},
 ) {
     val focusManager = LocalFocusManager.current
     
@@ -365,7 +367,6 @@ fun MainScreen(
     var voiceDuration by remember { mutableIntStateOf(0) }
     var personaList by remember { mutableStateOf<List<Persona>>(emptyList()) }
     var sessionUsage by remember { mutableStateOf(UsageInfo()) }
-    var isEarpieceMode by remember { mutableStateOf(false) }
     var muted by remember { mutableStateOf(false) }
     var silenced by remember { mutableStateOf(false) }
     var handsFreeMode by remember { mutableStateOf(false) }
@@ -435,7 +436,6 @@ fun MainScreen(
             launch { service.voiceDuration.collect { voiceDuration = it } }
             launch { service.personas.collect { personaList = it } }
             launch { service.sessionUsage.collect { sessionUsage = it } }
-            launch { service.earpieceMode.collect { isEarpieceMode = it } }
             launch { service.micMuted.collect { muted = it } }
             launch { service.silenced.collect { silenced = it } }
             launch { service.handsFreeMode.collect { handsFreeMode = it } }
@@ -962,8 +962,7 @@ fun MainScreen(
                         onPersonaIconClick = {
                             requestSettings(currentPersona.name)
                         },
-                        onEarpieceToggle = { service?.toggleEarpieceMode() },
-                        isEarpieceMode = isEarpieceMode,
+                        onLiveHudClick = onOpenLiveHud,
                         onSettingsClick = { requestSettings(null) },
                         onTranslatorClick = {
                             // No local assignment: the button only ASKS the service to select.
@@ -1489,8 +1488,8 @@ fun Header(
     onPersonaClick: () -> Unit,
     /** Persona icon: open the editor for [currentPersona] (Settings > Personas > that row). */
     onPersonaIconClick: () -> Unit,
-    onEarpieceToggle: () -> Unit,
-    isEarpieceMode: Boolean,
+    /** M20: opens the Live HUD window. Replaces the Phone mode item, which was inert on Linux. */
+    onLiveHudClick: () -> Unit = {},
     onSettingsClick: () -> Unit,
     onTranslatorClick: () -> Unit,
     textModeOpen: Boolean = false,
@@ -1620,7 +1619,7 @@ fun Header(
                 ) {
                     Box(contentAlignment = Alignment.TopEnd) {
                         Icon(Icons.Default.Menu, contentDescription = "Menu", tint = MaterialTheme.colorScheme.onBackground)
-                        if (silenced || isEarpieceMode) {
+                        if (silenced) {
                             Box(
                                 modifier = Modifier
                                     .size(8.dp)
@@ -1671,11 +1670,11 @@ fun Header(
                         modifier = Modifier.heightIn(min = 48.dp)
                     )
                     DropdownMenuItem(
-                        text = { Text("Phone mode", color = if (isEarpieceMode) Color.Green else MaterialTheme.colorScheme.onSurface) },
-                        leadingIcon = { Icon(if (isEarpieceMode) Icons.Default.PhoneInTalk else Icons.Default.Phone, null, tint = if (isEarpieceMode) Color.Green else MaterialTheme.colorScheme.onSurface, modifier = Modifier.size(24.dp)) },
+                        text = { Text("Live HUD") },
+                        leadingIcon = { Icon(Icons.Default.OpenInFull, null, modifier = Modifier.size(24.dp)) },
                         onClick = {
                             menuExpanded = false
-                            onEarpieceToggle()
+                            onLiveHudClick()
                         },
                         modifier = Modifier.heightIn(min = 48.dp)
                     )

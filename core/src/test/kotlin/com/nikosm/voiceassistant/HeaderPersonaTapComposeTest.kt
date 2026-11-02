@@ -48,8 +48,7 @@ class HeaderPersonaTapComposeTest {
                         sessionUsage = UsageInfo(),
                         onPersonaClick = { nameTaps++ },
                         onPersonaIconClick = { iconTaps++ },
-                        onEarpieceToggle = {},
-                        isEarpieceMode = false,
+                        onLiveHudClick = {},
                         onSettingsClick = {},
                         onTranslatorClick = {}
                     )

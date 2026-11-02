@@ -2367,7 +2367,7 @@ approved call captures once, describes with the same question the user approved,
 description and audits it; the per-turn result budget still holds; a corrupt stored policy decodes
 to OFF; the policy never travels in a backup; a rename carries it and a delete drops it.
 
-**M20 — Live HUD (adopted 2026-11-02).** A second, immersive view of the same voice surface, at the
+**M20 — Live HUD (implemented 2026-11-02).** A second, immersive view of the same voice surface, at the
 user's request, while the Celestial UI stays exactly as it is. It is a **separate window**, not a
 fullscreen restyling of the main one — the same shape M17 gave Settings and About, and still D1's
 one process. It opens from the main header's overflow menu in place of the **Phone mode** item,
@@ -2391,7 +2391,11 @@ fullscreen and back with Esc/F11; the core reacts to mic and output separately; 
 finished turn leaves no held frame; system TTS still animates on its fallback cadence; the main and
 Live windows agree on focus for reply notifications; the Celestial UI is byte-identical in
 behaviour; `AudioEnvelopeTest` covers the tone mappings and malformed WAVs and
-`SpeechAmplitudeTest` covers the local/replay/stop wiring.
+`SpeechAmplitudeTest` covers the local/replay/stop wiring. The window is also reachable from
+View → Live HUD (Ctrl+Shift+L) and from `--live` at launch, so a desktop shortcut or hotkey can
+open it directly; `--live --listen` is the already-listening pair. **Scope, stated:** the Live HUD
+shows the single-chat persona surface; rooms keep their own screen in v1, the same deferred room
+slice that carries tools, lorebooks and prompt placeholders there.
 
 ## 11. Test strategy
 

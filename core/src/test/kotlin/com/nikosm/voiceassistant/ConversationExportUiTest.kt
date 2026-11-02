@@ -34,7 +34,10 @@ class ConversationExportUiTest {
         systemPrompt = "Export probe persona.",
     )
 
-    private fun ComposeUiTest.renderHeader(onExport: () -> Unit) {
+    private fun ComposeUiTest.renderHeader(
+        onExport: () -> Unit,
+        onLiveHud: () -> Unit = {},
+    ) {
         setContent {
             MaterialTheme {
                 Box(modifier = Modifier.size(360.dp, 200.dp)) {
@@ -43,8 +46,7 @@ class ConversationExportUiTest {
                         sessionUsage = UsageInfo(),
                         onPersonaClick = {},
                         onPersonaIconClick = {},
-                        onEarpieceToggle = {},
-                        isEarpieceMode = false,
+                        onLiveHudClick = onLiveHud,
                         onSettingsClick = {},
                         onTranslatorClick = {},
                         onExportClick = onExport,
@@ -58,12 +60,32 @@ class ConversationExportUiTest {
     @Test
     fun `the header menu reaches Export chat`() = runComposeUiTest {
         var exports = 0
-        renderHeader { exports++ }
+        renderHeader(onExport = { exports++ })
 
         onNodeWithContentDescription("Menu").performClick()
         onNodeWithText("Export chat…").performClick()
 
         runOnIdle { assertEquals("Export chat… must call its callback exactly once", 1, exports) }
+    }
+
+    @Test
+    fun `the header menu opens the Live HUD and no longer offers Phone mode`() = runComposeUiTest {
+        var liveHud = 0
+        renderHeader(onExport = {}, onLiveHud = { liveHud++ })
+
+        onNodeWithContentDescription("Menu").performClick()
+        onNodeWithText("Phone mode").assertDoesNotExist()
+        onNodeWithText("Live HUD").performClick()
+
+        runOnIdle { assertEquals("Live HUD must call its callback exactly once", 1, liveHud) }
+    }
+
+    @Test
+    fun `the inert Phone mode item is absent from the menu`() = runComposeUiTest {
+        renderHeader(onExport = {})
+
+        onNodeWithContentDescription("Menu").performClick()
+        onNodeWithText("Phone mode").assertDoesNotExist()
     }
 
     @Test
