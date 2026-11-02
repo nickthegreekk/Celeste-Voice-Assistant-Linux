@@ -128,7 +128,10 @@ internal val NEBULA_SKSL = """
         float2 res = max(u_resolution, float2(1.0));
         float2 p = (fragCoord - 0.5 * res) / min(res.x, res.y);
         float r = length(p);
-        float level = clamp(u_level, 0.0, 1.0);
+        // A raw RMS envelope is small even for loud speech; take the square root so a normal
+        // sentence visibly drives the cloud instead of nudging it. The 0.06 floor is the idle
+        // cadence, not a measurement, and must not light the cloud.
+        float level = sqrt(clamp((u_level - 0.06) / 0.94, 0.0, 1.0));
         float energy = clamp(u_energy, 0.0, 1.0);
 
         float2 drift = float2(
@@ -140,7 +143,7 @@ internal val NEBULA_SKSL = """
         float detail = valueNoise(q * 3.4 - float2(n1 * 0.85, n1 * 0.65) + drift * 2.1);
         float fine = valueNoise(q * 7.0 + float2(-n1 * 1.2, n1 * 1.1));
 
-        float reach = 0.40 + 0.04 * level;
+        float reach = 0.40 + 0.12 * level;
         float e = r / reach;
         float envelope = exp(-e * e);
         // The core canvas is square, so the cloud must fade out before r reaches the edge;
@@ -154,21 +157,27 @@ internal val NEBULA_SKSL = """
         float2 lobeP = p - float2(0.17, -0.12);
         float lobe = exp(-dot(lobeP, lobeP) / 0.055);
         density = clamp(density + lobe * (0.20 + 0.30 * detail), 0.0, 1.0);
-        density *= (0.85 + 0.15 * level) * edgeMask;
+        density *= (0.68 + 0.50 * level) * edgeMask;
 
-        float c = r / (0.155 + 0.035 * level);
-        float core = exp(-c * c) * (0.55 + 0.35 * level);
+        float c = r / (0.155 + 0.060 * level);
+        float core = exp(-c * c) * (0.50 + 0.75 * level);
 
         float g = r / 1.05;
         float glow = exp(-g * g);
+
+        // A speech-only wash over the body. It follows the same envelope but reaches wider than
+        // the hot core, so a syllable reads as the whole cloud swelling, not just the centre.
+        float ar = r / (0.45 + 0.10 * level);
+        float aura = level * exp(-ar * ar);
 
         float3 col = u_deep * (1.0 - density);
         col += u_primary * (density * 0.85);
         col += u_secondary * (0.30 * detail * density);
         col += u_white * core;
+        col += u_primary * (aura * 0.35);
         col += u_primary * (0.10 * glow * edgeMask);
 
-        float alpha = clamp(density * 1.25 + core * 0.55, 0.0, 1.0) * edgeMask;
+        float alpha = clamp(density * 1.25 + core * 0.55 + aura * 0.12, 0.0, 1.0) * edgeMask;
         return half4(half3(col * alpha), half(alpha));
     }
 """.trimIndent()

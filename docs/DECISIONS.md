@@ -1912,3 +1912,26 @@ perfect circle.
 
 → PLAN.md §10/M20; `LiveHud.kt`, `LiveHudPalette.kt`, `NebulaShader.kt`, `LiveHudTest.kt`, `NebulaShaderTest.kt`,
 `LiveHudRenderTest.kt`
+
+## 2026-11-02 — The Live HUD's transcript moves beside the cloud
+
+The first nebula HUD kept the phone-shaped stack: cloud above, transcript below. On a desktop window that left the
+reply in a short slot, and the teleprompter mapped playback fraction onto the whole scroll range, which is not where
+the spoken word is. The user asked for the text box on the right, "in parallel to the nebula box".
+
+**Decided: a right-hand transcript panel in the desktop layout.** The body is a row: cloud left, a full-height
+transcript right at 36% of content width (320–480 dp), stacking only below 900×640. The core measures a centred square
+stage inside its pane so the brackets and voice trace frame the cloud rather than a letterbox. Rejected: keeping the
+caption under the cloud on a wide window (the phone layout the user explicitly rejected).
+
+**Decided: the teleprompter measures the word, not the fraction.** `TextLayoutResult.getBoundingBox` on the active
+word sets the scroll so the word sits about a third of a viewport below the top. Rejected: `fraction *
+scroll.maxValue` — its mapping depends on wrapping and font, not voice duration, and was what pinned the box at the
+end.
+
+**Decided: compress the speech envelope in the shader.** SkSL takes `sqrt((level - 0.06) / 0.94)` of the smoothed
+level, so a normal RMS sentence visibly grows and brightens the cloud; the voice trace and the system-TTS fallback
+cadence follow the same level. Rejected: normalising the amplitude in the service — the measurement stays honest, and
+the visual gain is a display choice.
+
+→ PLAN.md §10/M20; `LiveHud.kt`, `NebulaShader.kt`, `docs/RELEASE-0.2.7.md`, `README.md`

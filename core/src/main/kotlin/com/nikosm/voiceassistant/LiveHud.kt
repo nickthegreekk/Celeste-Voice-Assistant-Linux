@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -20,7 +21,6 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -57,11 +57,12 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.skiaCanvas
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -258,9 +259,12 @@ internal fun LiveHudBody(
             .testTag("live_hud")
     ) {
         val compact = maxWidth < 900.dp || maxHeight < 640.dp
-        val coreSize = (minOf(maxWidth, maxHeight) * (if (compact) 0.58f else 0.66f))
-            .coerceIn(180.dp, 780.dp)
         val outerPadding = if (compact) 18.dp else 30.dp
+        val contentWidth = maxWidth - outerPadding * 2
+        // The HUD is a desktop window, so the transcript sits beside the cloud rather than under
+        // it. A third of the width is enough for a 70-character reading line; the cap keeps it
+        // from becoming the whole window on an ultrawide display.
+        val transcriptWidth = (contentWidth * 0.36f).coerceIn(320.dp, 480.dp)
 
         LiveBackdrop(
             palette = palette,
@@ -289,45 +293,83 @@ internal fun LiveHudBody(
                 onClose = onClose,
             )
 
-            Box(
-                modifier = Modifier.fillMaxWidth().weight(1f),
-                contentAlignment = Alignment.Center,
-            ) {
-                LiveCore(
+            val onCoreTap = {
+                if (state == AssistantState.IDLE || state == AssistantState.LISTENING) {
+                    onMicClick()
+                } else {
+                    onStopClick()
+                }
+            }
+
+            if (compact) {
+                Box(
+                    modifier = Modifier.fillMaxWidth().weight(1f),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    LiveCore(
+                        state = state,
+                        accent = accent,
+                        palette = palette,
+                        time = time,
+                        level = level,
+                        history = history,
+                        energy = energy,
+                        nebula = nebula,
+                        compact = true,
+                        onTap = onCoreTap,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                }
+                LiveTranscript(
                     state = state,
                     accent = accent,
                     palette = palette,
-                    time = time,
-                    level = level,
-                    history = history,
-                    energy = energy,
-                    nebula = nebula,
-                    compact = compact,
-                    onTap = {
-                        if (state == AssistantState.IDLE || state == AssistantState.LISTENING) {
-                            onMicClick()
-                        } else {
-                            onStopClick()
-                        }
-                    },
-                    modifier = Modifier.size(coreSize),
+                    messages = messages,
+                    voiceDuration = voiceDuration,
+                    ttsPlaybackFraction = ttsPlaybackFraction,
+                    ttsWordTimestamps = ttsWordTimestamps,
+                    compact = true,
+                    panel = false,
+                    modifier = Modifier.fillMaxWidth(),
                 )
+            } else {
+                Row(
+                    modifier = Modifier.fillMaxWidth().weight(1f),
+                    horizontalArrangement = Arrangement.spacedBy(24.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Box(
+                        modifier = Modifier.weight(1f).fillMaxHeight(),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        LiveCore(
+                            state = state,
+                            accent = accent,
+                            palette = palette,
+                            time = time,
+                            level = level,
+                            history = history,
+                            energy = energy,
+                            nebula = nebula,
+                            compact = false,
+                            onTap = onCoreTap,
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                    }
+                    LiveTranscript(
+                        state = state,
+                        accent = accent,
+                        palette = palette,
+                        messages = messages,
+                        voiceDuration = voiceDuration,
+                        ttsPlaybackFraction = ttsPlaybackFraction,
+                        ttsWordTimestamps = ttsWordTimestamps,
+                        compact = false,
+                        panel = true,
+                        modifier = Modifier.width(transcriptWidth).fillMaxHeight(),
+                    )
+                }
             }
-
-            LiveTranscript(
-                state = state,
-                accent = accent,
-                palette = palette,
-                messages = messages,
-                voiceDuration = voiceDuration,
-                ttsPlaybackFraction = ttsPlaybackFraction,
-                ttsWordTimestamps = ttsWordTimestamps,
-                compact = compact,
-                // A fullscreen line of 16 sp text is a wall: the first live run showed the reply
-                // spanning the whole 2560 px display. The 960 dp reading column is M17's own, so
-                // the HUD reads like the rest of the desktop app rather than like a terminal.
-                modifier = Modifier.widthIn(max = 960.dp).fillMaxWidth(),
-            )
 
             Spacer(Modifier.height(if (compact) 10.dp else 16.dp))
 
@@ -383,7 +425,7 @@ internal fun liveHudLevel(
         AssistantState.SPEAKING ->
             if (speech > 0.02f) speech else {
                 val cadence = (sin(timeSeconds * 9.3) * sin(timeSeconds * 3.1)).toFloat()
-                (0.20f + 0.18f * cadence).coerceIn(0.06f, 0.55f)
+                (0.26f + 0.22f * cadence).coerceIn(0.06f, 0.52f)
             }
     }
 }
@@ -664,24 +706,21 @@ private fun LiveTranscript(
     ttsPlaybackFraction: Float?,
     ttsWordTimestamps: String?,
     compact: Boolean,
+    panel: Boolean,
     modifier: Modifier,
 ) {
     val scroll = rememberScrollState()
     val lastAssistant = messages.lastOrNull { it.role == "assistant" && !it.isError }
     val lastUser = messages.lastOrNull { it.role == "user" }
     val speaking = state == AssistantState.SPEAKING
+    var textLayout by remember { mutableStateOf<TextLayoutResult?>(null) }
 
-    // Same split as the Celestial panel: arriving content jumps to the newest text, but while the
-    // player is driving a highlight the progress effect owns the scroll. Two owners fighting for
-    // the same scrollbar is how the spoken word ends up off-screen.
+    // Arriving content jumps to the newest text; while the player owns a highlight the
+    // teleprompter below owns the scrollbar instead. Two owners fighting for it is how the
+    // spoken word ends up off-screen.
     LaunchedEffect(messages.size, state) {
         if (speaking && ttsPlaybackFraction != null) return@LaunchedEffect
         if (scroll.maxValue > 0) scroll.scrollTo(scroll.maxValue)
-    }
-    LaunchedEffect(ttsPlaybackFraction, speaking) {
-        val fraction = ttsPlaybackFraction ?: return@LaunchedEffect
-        if (!speaking || scroll.isScrollInProgress) return@LaunchedEffect
-        if (scroll.maxValue > 0) scroll.scrollTo((fraction * scroll.maxValue).roundToInt())
     }
 
     val activeRange = if (speaking && lastAssistant != null && ttsPlaybackFraction != null) {
@@ -693,10 +732,48 @@ private fun LiveTranscript(
         )
     } else null
 
+    // The old version mapped the playback fraction onto the whole scroll range. That is not
+    // where the word is: a reply's scroll range depends on its font and wrapping, not on how long
+    // the voice takes, so the box stayed pinned at the end. Measure the highlighted word in the
+    // laid-out text and keep it a third of a viewport below the top.
+    LaunchedEffect(activeRange, speaking, textLayout) {
+        val range = activeRange ?: return@LaunchedEffect
+        val layout = textLayout ?: return@LaunchedEffect
+        if (!speaking || scroll.isScrollInProgress) return@LaunchedEffect
+        if (layout.layoutInput.text.text != lastAssistant?.text) return@LaunchedEffect
+        if (range.first !in 0 until layout.layoutInput.text.length) return@LaunchedEffect
+        if (scroll.maxValue <= 0 || scroll.viewportSize <= 0) return@LaunchedEffect
+        val wordTop = layout.getBoundingBox(range.first).top
+        val target = (wordTop - scroll.viewportSize / 3f).roundToInt()
+        scroll.scrollTo(target.coerceIn(0, scroll.maxValue))
+    }
+
+    val labelAlign = if (compact) TextAlign.Center else TextAlign.Start
+    val columnAlign = if (compact) Alignment.CenterHorizontally else Alignment.Start
+    val shape = RoundedCornerShape(if (compact) 12.dp else 18.dp)
+
     Column(
-        modifier = modifier,
-        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = modifier
+            .clip(shape)
+            .background(palette.deep.copy(alpha = 0.58f))
+            .border(1.dp, accent.copy(alpha = 0.18f), shape)
+            .padding(
+                horizontal = if (compact) 12.dp else 18.dp,
+                vertical = if (compact) 10.dp else 16.dp,
+            ),
+        horizontalAlignment = columnAlign,
     ) {
+        Text(
+            text = if (speaking) "TRANSCRIPT · SPEAKING" else "TRANSCRIPT",
+            fontFamily = FontFamily.Monospace,
+            fontSize = 8.sp,
+            letterSpacing = 3.sp,
+            color = if (speaking) accent.copy(alpha = 0.88f) else palette.muted.copy(alpha = 0.62f),
+            modifier = Modifier.fillMaxWidth(),
+            textAlign = labelAlign,
+        )
+        Spacer(Modifier.height(if (compact) 4.dp else 8.dp))
+
         if (lastUser != null) {
             Text(
                 text = "YOU · ${lastUser.text.replace('\n', ' ')}",
@@ -704,32 +781,39 @@ private fun LiveTranscript(
                 fontSize = if (compact) 8.sp else 9.sp,
                 letterSpacing = 1.5.sp,
                 color = palette.muted.copy(alpha = 0.55f),
-                maxLines = 1,
+                maxLines = if (panel) 2 else 1,
                 overflow = TextOverflow.Ellipsis,
-                textAlign = TextAlign.Center,
+                textAlign = labelAlign,
                 modifier = Modifier.fillMaxWidth(),
             )
-            Spacer(Modifier.height(6.dp))
+            Spacer(Modifier.height(if (compact) 6.dp else 12.dp))
         }
 
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .heightIn(min = 44.dp, max = if (compact) 110.dp else 170.dp)
+                .then(
+                    if (panel) {
+                        Modifier.weight(1f)
+                    } else {
+                        Modifier.heightIn(min = 44.dp, max = 110.dp)
+                    }
+                )
                 .verticalScroll(scroll),
         ) {
             when {
                 lastAssistant != null && lastAssistant.text.isNotBlank() -> Text(
                     text = highlightedAnnotated(lastAssistant.text, activeRange, accent),
                     fontFamily = FontFamily.Monospace,
-                    fontSize = if (compact) 13.sp else 16.sp,
-                    lineHeight = if (compact) 19.sp else 24.sp,
+                    fontSize = if (compact) 13.sp else 17.sp,
+                    lineHeight = if (compact) 19.sp else 26.sp,
                     color = if (state == AssistantState.IDLE) {
                         palette.hot.copy(alpha = 0.56f)
                     } else {
                         palette.hot.copy(alpha = 0.95f)
                     },
-                    textAlign = TextAlign.Center,
+                    textAlign = if (compact) TextAlign.Center else TextAlign.Start,
+                    onTextLayout = { textLayout = it },
                     modifier = Modifier.fillMaxWidth(),
                 )
                 state == AssistantState.THINKING -> Text(
@@ -739,7 +823,7 @@ private fun LiveTranscript(
                     letterSpacing = 3.sp,
                     color = accent.copy(alpha = 0.7f),
                     modifier = Modifier.fillMaxWidth(),
-                    textAlign = TextAlign.Center,
+                    textAlign = labelAlign,
                 )
                 state == AssistantState.LISTENING -> Text(
                     text = "LISTENING — SPEAK NOW",
@@ -748,7 +832,7 @@ private fun LiveTranscript(
                     letterSpacing = 3.sp,
                     color = accent.copy(alpha = 0.75f),
                     modifier = Modifier.fillMaxWidth(),
-                    textAlign = TextAlign.Center,
+                    textAlign = labelAlign,
                 )
                 else -> Text(
                     text = "STANDBY — AWAITING INPUT",
@@ -757,7 +841,7 @@ private fun LiveTranscript(
                     letterSpacing = 3.sp,
                     color = palette.muted.copy(alpha = 0.42f),
                     modifier = Modifier.fillMaxWidth(),
-                    textAlign = TextAlign.Center,
+                    textAlign = labelAlign,
                 )
             }
         }
@@ -901,45 +985,58 @@ private fun LiveCore(
             }
             if (!drawn) drawNebulaFallback(accent, palette, t, lvl)
 
+            // The stage is a centred square inside the left pane. The shader fades the cloud
+            // before the square's edge, and this is the square the brackets and the voice trace
+            // frame, so a wide window does not stretch the HUD's geometry into a letterbox.
+            val stage = minOf(size.width, size.height)
+            val stageLeft = (size.width - stage) / 2f
+            val stageTop = (size.height - stage) / 2f
+            val stageRight = stageLeft + stage
+            val stageBottom = stageTop + stage
+
             // A horizontal voice trace under the cloud. It is the shape a voice visualiser is
             // recognised by, and it keeps the audio interaction legible without turning the
-            // cloud into a ring.
+            // cloud into a ring. The amplitude follows the smoothed level so a spoken syllable
+            // visibly reaches the trace; silence leaves a nearly flat line.
             if (state != AssistantState.THINKING) {
                 val samples = 64
-                val waveY = size.height * 0.90f
-                val halfWidth = size.minDimension * 0.34f
+                val waveY = stageTop + stage * 0.86f
+                val halfWidth = stage * 0.38f
+                val amplitude = stage * (0.05f + 0.14f * lvl)
+                val minY = stageTop + stage * 0.02f
+                val maxY = stageBottom - stage * 0.02f
                 val path = Path()
                 for (i in 0 until samples) {
                     val v = history.at(i * 2)
                     val x = c.x - halfWidth + (i / (samples - 1f)) * halfWidth * 2f
-                    val y = waveY - v * size.minDimension * 0.075f
+                    val y = (waveY - v * amplitude).coerceIn(minY, maxY)
                     if (i == 0) path.moveTo(x, y) else path.lineTo(x, y)
                 }
                 drawPath(
                     path = path,
-                    color = accent.copy(alpha = 0.10f),
-                    style = Stroke(width = maxOf(2f, size.minDimension * 0.010f)),
+                    color = accent.copy(alpha = 0.16f + 0.20f * lvl),
+                    style = Stroke(width = maxOf(2f, stage * 0.012f)),
                 )
                 drawPath(
                     path = path,
-                    color = accent.copy(alpha = 0.62f),
-                    style = Stroke(width = maxOf(1f, size.minDimension * 0.0025f)),
+                    color = accent.copy(alpha = 0.72f),
+                    style = Stroke(width = maxOf(1f, stage * 0.0028f)),
                 )
             }
 
             // Four corner brackets: the HUD's frame, not an orbit.
-            val inset = size.minDimension * 0.035f
-            val bracket = size.minDimension * 0.10f
+            val inset = stage * 0.035f
+            val bracket = stage * 0.10f
             val cornerColor = accent.copy(alpha = 0.22f)
-            val lineWidth = maxOf(1f, size.minDimension * 0.0025f)
+            val lineWidth = maxOf(1f, stage * 0.0025f)
             fun bracketAt(x: Float, y: Float, dx: Float, dy: Float) {
                 drawLine(cornerColor, Offset(x, y), Offset(x + dx, y), lineWidth)
                 drawLine(cornerColor, Offset(x, y), Offset(x, y + dy), lineWidth)
             }
-            bracketAt(inset, inset, bracket, bracket)
-            bracketAt(size.width - inset, inset, -bracket, bracket)
-            bracketAt(inset, size.height - inset, bracket, -bracket)
-            bracketAt(size.width - inset, size.height - inset, -bracket, -bracket)
+            bracketAt(stageLeft + inset, stageTop + inset, bracket, bracket)
+            bracketAt(stageRight - inset, stageTop + inset, -bracket, bracket)
+            bracketAt(stageLeft + inset, stageBottom - inset, bracket, -bracket)
+            bracketAt(stageRight - inset, stageBottom - inset, -bracket, -bracket)
         }
 
         Column(
@@ -977,7 +1074,7 @@ private fun DrawScope.drawNebulaFallback(
     timeSeconds: Float,
     level: Float,
 ) {
-    val breath = 1f + 0.04f * sin(timeSeconds * 0.6f) + 0.08f * level
+    val breath = 1f + 0.04f * sin(timeSeconds * 0.6f) + 0.22f * level
     val radius = size.minDimension * 0.36f * breath
     val centre = center
     drawCircle(
@@ -1016,14 +1113,14 @@ private fun DrawScope.drawNebulaFallback(
     drawCircle(
         brush = Brush.radialGradient(
             colors = listOf(
-                palette.hot.copy(alpha = 0.90f),
-                accent.copy(alpha = 0.30f),
+                palette.hot.copy(alpha = 0.75f + 0.25f * level),
+                accent.copy(alpha = 0.30f + 0.25f * level),
                 Color.Transparent,
             ),
             center = centre,
-            radius = radius * 0.52f,
+            radius = radius * (0.52f + 0.10f * level),
         ),
-        radius = radius * 0.52f,
+        radius = radius * (0.52f + 0.10f * level),
         center = centre,
     )
 }
