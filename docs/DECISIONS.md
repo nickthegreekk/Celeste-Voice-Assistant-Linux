@@ -1881,3 +1881,34 @@ Rejected for the theme: keeping the concentric rings as the subject (the user's 
 speaks the conversation).
 
 → PLAN.md §10/M20; `LiveHud.kt`, `Main.kt` (`liveHudFocused`), `LiveHudTest.kt`, `LiveHudRenderTest.kt`
+
+## 2026-11-02 — The Live HUD is a persona-tinted nebula
+
+The warm-hologram decision above was made against the amber JARVIS reactor. The user then chose a nebula instead, and
+asked whether it could take the persona's colour. It can: `Persona.themeColor` is already the app's per-persona hue,
+so the HUD derives its whole palette from it rather than being the one fixed cinematic material. This reverses the
+warm entry's "not persona-tinted" rejection at the user's direction, not by drift.
+
+**Decided: hue is the persona's; state is brightness and turbulence.** IDLE is the banked value, LISTENING the plain
+persona colour, THINKING lifted toward the hot centre, TRANSMITTING the brightest. Turbulence is a separate shader
+input because the measured level already carries the audio meaning; spending hue on state as well would put two
+signals on one channel. Celeste's cyan is the default; switching persona re-tints the cloud and chrome.
+
+**Decided: the cloud is one SkSL fragment shader through Skiko's `RuntimeEffect`.** Skiko is already Compose Desktop's
+runtime, so this adds no dependency. The shader is compiled at runtime; a failed compile leaves `available == false`
+and `LiveCore` draws a layered-gradient fallback, which is why a Skiko upgrade cannot turn a visual regression into a
+crash. Rejected: drawing the cloud as thousands of Compose circles (CPU cost at 30 fps), a static bitmap (does not
+scale with the window or the level), and copying the Mark-LVI face/head (CC BY-NC, and the user rejected the
+direction). No third-party asset or code was used.
+
+**Decided: the palette adapts a theme colour for a near-black window.** A dark theme keeps its hue and is lifted in
+saturation/value; a neutral theme stays neutral rather than becoming red (grey's HSV hue is 0). Without that rule the
+shipped `#808080` "Custom LLM" persona produced a red cloud.
+
+**Decided: a soft circular mask on the square core canvas.** The first real render showed the cloud clipped at the
+square edge: the shader normalises by the smaller canvas side, so the edge midpoint sits at radius 0.5 while the cloud's
+envelope was still bright there. The mask fades before the edge, and noise on the boundary keeps it from reading as a
+perfect circle.
+
+→ PLAN.md §10/M20; `LiveHud.kt`, `LiveHudPalette.kt`, `NebulaShader.kt`, `LiveHudTest.kt`, `NebulaShaderTest.kt`,
+`LiveHudRenderTest.kt`

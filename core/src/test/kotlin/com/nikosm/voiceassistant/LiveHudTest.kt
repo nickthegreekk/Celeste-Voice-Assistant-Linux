@@ -1,5 +1,6 @@
 package com.nikosm.voiceassistant
 
+import androidx.compose.ui.graphics.Color
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
@@ -9,26 +10,62 @@ import org.junit.Test
  * The Live HUD's decisions, separated from its drawing.
  *
  * The drawing itself is exercised by [LiveHudRenderTest]; this class covers what the frame loop
- * decides: the warm state colours, the two measurements, the fallback cadence and the level
- * smoothing.
+ * decides: the persona-tinted state palette, the two measurements, the fallback cadence and the
+ * level smoothing.
  */
 class LiveHudTest {
 
-    @Test
-    fun `each state has its own warm signal colour`() {
-        val idle = liveHudAccent(AssistantState.IDLE)
-        val listening = liveHudAccent(AssistantState.LISTENING)
-        val thinking = liveHudAccent(AssistantState.THINKING)
-        val speaking = liveHudAccent(AssistantState.SPEAKING)
+    private fun luminance(color: Color): Float =
+        0.2126f * color.red + 0.7152f * color.green + 0.0722f * color.blue
 
-        // The reference image is the amber reactor, not a cool interface: every signal must be
-        // warm, and no two states may collapse to the same colour.
+    @Test
+    fun `each state is a distinct brightness of one persona hue`() {
+        val theme = Color.Cyan
+        val idle = liveHudAccent(AssistantState.IDLE, theme)
+        val listening = liveHudAccent(AssistantState.LISTENING, theme)
+        val thinking = liveHudAccent(AssistantState.THINKING, theme)
+        val speaking = liveHudAccent(AssistantState.SPEAKING, theme)
+
+        // The persona owns the hue; the state owns the brightness. A state that could only be
+        // told apart by hue would put two meanings on one channel.
         listOf(idle, listening, thinking, speaking).forEach { colour ->
-            assertTrue("${colour.value.toString(16)} is not warm", colour.red >= colour.green && colour.green >= colour.blue)
+            assertTrue(
+                "the cyan persona drifted to ${colour.value.toString(16)}",
+                colour.green > colour.red && colour.blue > colour.red,
+            )
         }
+        assertTrue(luminance(idle) < luminance(listening))
+        assertTrue(luminance(listening) < luminance(thinking))
+        assertTrue(luminance(thinking) < luminance(speaking))
         assertNotEquals(idle, listening)
         assertNotEquals(listening, thinking)
         assertNotEquals(thinking, speaking)
+    }
+
+    @Test
+    fun `a neutral persona stays neutral`() {
+        val palette = liveHudPalette(Color(0xFF808080))
+        listOf(palette.primary, palette.secondary).forEach { colour ->
+            assertTrue("${colour.value.toString(16)} invented a hue", kotlin.math.abs(colour.red - colour.green) < 0.03f)
+            assertTrue("${colour.value.toString(16)} invented a hue", kotlin.math.abs(colour.green - colour.blue) < 0.03f)
+        }
+        assertTrue("the grey cloud is too dark to see", luminance(palette.primary) > 0.55f)
+    }
+
+    @Test
+    fun `a dark theme is lifted but keeps its hue`() {
+        val dark = Color(0xFF101820)
+        val palette = liveHudPalette(dark)
+        assertTrue("a dark theme did not lift", luminance(palette.primary) > 0.35f)
+        assertTrue("the lifted theme lost its cool hue", palette.primary.blue > palette.primary.green)
+        assertTrue(palette.primary.green > palette.primary.red)
+    }
+
+    @Test
+    fun `computing is the most turbulent state`() {
+        assertTrue(liveHudEnergy(AssistantState.THINKING) > liveHudEnergy(AssistantState.SPEAKING))
+        assertTrue(liveHudEnergy(AssistantState.SPEAKING) > liveHudEnergy(AssistantState.LISTENING))
+        assertTrue(liveHudEnergy(AssistantState.LISTENING) > liveHudEnergy(AssistantState.IDLE))
     }
 
     @Test

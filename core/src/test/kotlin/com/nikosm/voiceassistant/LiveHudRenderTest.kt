@@ -1,5 +1,6 @@
 package com.nikosm.voiceassistant
 
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asSkiaBitmap
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.captureToImage
@@ -30,6 +31,7 @@ class LiveHudRenderTest {
                 LiveHudBody(
                     state = AssistantState.SPEAKING,
                     personaName = "Render Probe",
+                    personaColor = Color.Cyan,
                     usage = UsageInfo(totalTokens = 1_240),
                     messages = listOf(
                         ChatMessage("user", "A fabricated question."),
