@@ -25,7 +25,9 @@ its personas and its rooms, with the phone idioms replaced by desktop ones.
   log), MCP servers, and terminal commands that ask per command — off by default.
 - **Desktop-first.** A main window with a sidebar, Settings in its own window, a native menu bar
   and tray, desktop notifications, transcript search, Markdown export (images copied beside the
-  file), per-persona folders in your home, and a colour style that can follow your GTK theme.
+  file), per-persona folders in your home, a colour style that can follow your GTK theme, and a
+  full-screen **Live HUD** window whose ring reacts to your microphone while you speak and to the
+  assistant's own voice while it replies.
 - **Private by design.** No telemetry, no analytics, no automatic update check. It talks only to
   the servers you configure; About has a manual update check and links to the repository and
   releases page, and nothing is downloaded or installed from the app.
@@ -74,9 +76,15 @@ Then start **Celeste** from your application menu, or run `celeste-linux`.
 ```sh
 celeste-linux              # the window
 celeste-linux --listen     # start listening immediately (bind this to a hotkey)
+celeste-linux --live       # open the Live HUD window (F11 or the button toggles fullscreen)
+celeste-linux --live --listen  # the Live HUD, already listening
 celeste-linux --headless   # background process, reached through its tray icon
 celeste-linux --selftest   # paths, audio devices and the upstream commit, then exit
 ```
+
+The Live HUD is also under **View → Live HUD** (Ctrl+Shift+L) and in the main header's menu, where
+it replaced the old Phone mode item — that toggle was inert on Linux because a desktop has no
+earpiece route. Esc leaves fullscreen before a second Esc closes the window.
 
 Only one instance runs at a time. While a `--headless` process is up, launching the window says so
 and exits — stop the background process (its tray's Quit, or `systemctl --user stop
