@@ -2367,6 +2367,32 @@ approved call captures once, describes with the same question the user approved,
 description and audits it; the per-turn result budget still holds; a corrupt stored policy decodes
 to OFF; the policy never travels in a backup; a rename carries it and a delete drops it.
 
+**M20 — Live HUD (adopted 2026-11-02).** A second, immersive view of the same voice surface, at the
+user's request, while the Celestial UI stays exactly as it is. It is a **separate window**, not a
+fullscreen restyling of the main one — the same shape M17 gave Settings and About, and still D1's
+one process. It opens from the main header's overflow menu in place of the **Phone mode** item,
+which has been inert since M2 (`LinuxAudioDevices.earpiece()` returns null by decision; the
+2026-10-16 record flagged the visible affordance for the user, and the user has now asked for it to
+be replaced). The window opens windowed and toggles true fullscreen through Compose's
+`WindowPlacement.Fullscreen` (F11 or the on-screen control; Esc leaves fullscreen). Its body is a
+Compose canvas — an arc-reactor core with counter-rotating segmented rings, a tick ring, a
+radial waveform ring and a particle field — driven by the assistant's state:
+IDLE breathes slowly, LISTENING is driven by `micAmplitude`, THINKING runs a scanning arc, and
+SPEAKING is driven by the assistant's own voice with the existing karaoke highlight. The chrome is
+mono and thin: persona, state, model, token usage, clock, corner brackets, vignette.
+**The output-side measurement is in-process.** A new `AudioEnvelope` turns signed 16-bit PCM into a
+50 ms RMS curve; the service publishes `speechAmplitude` from the local engine's `SpeechSamples`,
+from each Gateway chunk's WAV, and from a replayed file — no player tap, no new seam, no network.
+System TTS owns its playback and exposes no samples, so the HUD falls back to its own cadence for
+that route and says nothing it did not measure. The amplitude is cleared on every end and every
+stop, and is gated by the TTS generation so a superseded callback cannot blank a newer turn.
+Acceptance: the Phone mode item is gone and Live HUD opens the window; the window toggles
+fullscreen and back with Esc/F11; the core reacts to mic and output separately; a stopped or
+finished turn leaves no held frame; system TTS still animates on its fallback cadence; the main and
+Live windows agree on focus for reply notifications; the Celestial UI is byte-identical in
+behaviour; `AudioEnvelopeTest` covers the tone mappings and malformed WAVs and
+`SpeechAmplitudeTest` covers the local/replay/stop wiring.
+
 ## 11. Test strategy
 
 - **Port the 45 JVM test files (8,066 lines) in M0/M1.** They are the executable specification for

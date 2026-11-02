@@ -345,6 +345,9 @@ fun AssistantService.speakTextOnDevice(text: String) {
     _ttsPlaybackFraction.value = null
     _ttsWordTimestamps.value = null
     _voiceDuration.value = 0
+    // The system engine owns its playback and exposes no samples; clearing here is what stops a
+    // previous local/Gateway turn's last frame from driving the Live HUD during this one.
+    _speechAmplitude.value = 0f
     if (!tts.systemReady || silenced.value) {
         // No-play bail: upstream also released the focus it had requested here.
         landInIdle()
@@ -368,6 +371,7 @@ fun AssistantService.speakTextOnDevice(text: String) {
         serviceScope.launch(Dispatchers.Main) {
             if (utteranceId != currentUtteranceId) return@launch
             currentUtteranceId = null
+            _speechAmplitude.value = 0f
             if (end !is PlaybackEnd.Finished) {
                 logger.w("AssistantService", "Device speech ended without finishing: $end")
             }
@@ -425,6 +429,13 @@ internal fun AssistantService.speakWithEspeak(text: String, persona: Persona) {
         // log now lives in the seam's implementation, which is where the voice is actually set;
         // a null result below means no audio at all, which is a different thing.
         val speech = tts.synthesizeLocal(text, voiceName)
+        // Measured here, on the IO coroutine that just produced the samples, rather than in
+        // playSynthesisedSpeech: that function runs on Main, and scanning a long reply's samples
+        // there would put the envelope's cost on the frame the playback starts. Null is fine —
+        // the HUD falls back to its own cadence when there is nothing to measure.
+        val envelope = speech
+            ?.takeIf { it.pcm.isNotEmpty() && it.sampleRate > 0 }
+            ?.let { pcm16Envelope(it.pcm, it.sampleRate) }
 
         withContext(Dispatchers.Main) {
             if (!isPlaybackGenerationCurrent(ttsGeneration, myGeneration)) return@withContext
@@ -443,7 +454,7 @@ internal fun AssistantService.speakWithEspeak(text: String, persona: Persona) {
             // is the arithmetic upstream did inline.
             _voiceDuration.value = speech.durationMs
 
-            playSynthesisedSpeech(speech)
+            playSynthesisedSpeech(speech, envelope)
         }
     }
 }
@@ -457,12 +468,18 @@ internal fun AssistantService.speakWithEspeak(text: String, persona: Persona) {
  * contract now — "finished" is the process exiting — so what is left is the state work that has to
  * happen on the service's side of the boundary.
  */
-private fun AssistantService.playSynthesisedSpeech(speech: SpeechSamples) {
+private fun AssistantService.playSynthesisedSpeech(
+    speech: SpeechSamples,
+    envelope: AudioEnvelope?,
+) {
     val generation = ttsGeneration
     val ended = AtomicBoolean(false)
     val handle = audioPlayback.playPcm(speech.pcm, speech.sampleRate, playbackTarget()) { end ->
         ended.set(true)
         serviceScope.launch(Dispatchers.Main) {
+            if (isPlaybackGenerationCurrent(ttsGeneration, generation)) {
+                _speechAmplitude.value = 0f
+            }
             if (end !is PlaybackEnd.Finished) {
                 logger.d("AssistantService", "Speak playback ended: $end")
             }
@@ -487,6 +504,7 @@ private fun AssistantService.playSynthesisedSpeech(speech: SpeechSamples) {
                 val position = handle.positionMs
                 _ttsPlaybackFraction.value =
                     (position.toFloat() / duration).coerceIn(0f, 1f)
+                _speechAmplitude.value = envelope?.levelAt(position) ?: 0f
                 if (position >= duration) break
                 delay(100)
             }
@@ -504,8 +522,14 @@ internal fun AssistantService.playAudioFile(file: Path) {
     _state.value = AssistantState.SPEAKING
     updateNotification("Speaking...")
 
-    audioPlayback.play(file, playbackTarget()) { end ->
+    val generation = ttsGeneration
+    val ended = AtomicBoolean(false)
+    val handle = audioPlayback.play(file, playbackTarget()) { end ->
+        ended.set(true)
         serviceScope.launch(Dispatchers.Main) {
+            if (isPlaybackGenerationCurrent(ttsGeneration, generation)) {
+                _speechAmplitude.value = 0f
+            }
             when (end) {
                 is PlaybackEnd.Failed -> logger.e("AssistantService", "playAudioFile: playback failed — ${end.reason}")
                 is PlaybackEnd.Stopped -> logger.d("AssistantService", "playAudioFile: stopped before the end")
@@ -515,6 +539,20 @@ internal fun AssistantService.playAudioFile(file: Path) {
                 _voiceDuration.value = 0
                 landInIdle()
             }
+        }
+    }
+
+    // A replay is an app-owned WAV, so the same measurement the live routes use is available.
+    // The read is the only part that belongs on IO; the loop itself stays on the service's Main
+    // scope, where every other state write in this file lives. A file that is not 16-bit PCM —
+    // or cannot be read — leaves the HUD on its fallback cadence rather than failing the replay.
+    serviceScope.launch {
+        val envelope = withContext(Dispatchers.IO) {
+            runCatching { wav16Envelope(Files.readAllBytes(file)) }.getOrNull()
+        } ?: return@launch
+        while (!ended.get() && assistantState.value == AssistantState.SPEAKING) {
+            _speechAmplitude.value = envelope.levelAt(handle.positionMs)
+            delay(100)
         }
     }
 }
@@ -538,6 +576,10 @@ fun AssistantService.stopAudio() {
     audioPlayback.stopAll()
     // A callback from the utterance this stop just cut off must not match the next turn's id.
     currentUtteranceId = null
+    // The output level belongs to the playback that was just stopped. Clearing it here, beside
+    // the generation bump, is what keeps a stopped turn's final frame from driving the Live HUD
+    // while the next turn is still preparing audio.
+    _speechAmplitude.value = 0f
     if (assistantState.value == AssistantState.SPEAKING) {
         landInIdle()
     }
@@ -708,9 +750,15 @@ internal suspend fun AssistantService.playChunkedTtsGateway(
     // against the new text.
     _ttsPlaybackFraction.value = null
     _ttsWordTimestamps.value = null
+    _speechAmplitude.value = 0f
 
     val accumulatedTimestamps = mutableListOf<Map<String, Any>>()  // [{word, start, end}] absolute
     var cumulativeAudioS = 0.0  // full AUDIO duration of prior chunks
+    // Built by the synthesis loop as each chunk's WAV arrives and read by onProgress. Both lambdas
+    // run on `serviceScope` (Main) — the sequencer launches them there and the synthesis lambda
+    // resumes there after `synthesizeWithGateway` — so this plain var needs no synchronisation.
+    // `append` returns a new immutable envelope, so a reader never observes a half-built one.
+    var speechEnvelope: AudioEnvelope? = null
 
     val sequence = chunkSequencer.start(
         chunks = chunks,
@@ -776,6 +824,15 @@ internal suspend fun AssistantService.playChunkedTtsGateway(
                 }
             }
 
+            // Envelope extraction is a linear scan of the chunk we are about to write anyway.
+            // Default rather than Main: the WAV is a few hundred kilobytes and the frame that
+            // starts the next chunk should not pay for the scan. A chunk the parser cannot read
+            // contributes nothing; the HUD then falls back to its own cadence for this reply.
+            val chunkEnvelope = withContext(Dispatchers.Default) { wav16Envelope(audioBytes) }
+            if (chunkEnvelope != null) {
+                speechEnvelope = speechEnvelope?.append(chunkEnvelope) ?: chunkEnvelope
+            }
+
             // Advance the audio clock by THIS chunk's full WAV duration so the
             // next chunk's words land at the correct absolute position.
             cumulativeAudioS += wavDurationSeconds(audioBytes)
@@ -809,6 +866,11 @@ internal suspend fun AssistantService.playChunkedTtsGateway(
             // what makes the reveal cover the full response rather than chunk 0's few seconds.
             // A zero means "not measured yet" and must not overwrite a real duration with it.
             if (estimatedTotalMs > 0) _voiceDuration.value = estimatedTotalMs
+            // Same clock as the karaoke fraction: elapsed audio is `fraction × estimate`, and
+            // the envelope was assembled on exactly that audio's duration, so the ring and the
+            // highlighted word are driven by one playback position rather than two estimates.
+            _speechAmplitude.value =
+                speechEnvelope?.levelAt((fraction * estimatedTotalMs).toLong()) ?: 0f
         },
         onEnd = { end ->
             // Only this generation may touch the state machine: a superseded sequence unwinding
@@ -819,6 +881,8 @@ internal suspend fun AssistantService.playChunkedTtsGateway(
                 // would be a lie about audio that never finished.
                 _ttsPlaybackFraction.value = if (end is PlaybackEnd.Finished) 1f else null
                 _ttsWordTimestamps.value = null
+                // The reply is over; a held last frame would keep the ring pulsing in IDLE.
+                _speechAmplitude.value = 0f
                 when (end) {
                     is PlaybackEnd.Failed -> logger.e("AssistantService", "Chunked playback failed — ${end.reason}")
                     is PlaybackEnd.Stopped -> logger.d("AssistantService", "Chunked playback stopped")

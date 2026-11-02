@@ -356,6 +356,16 @@ class AssistantService(
     val _micAmplitude = MutableStateFlow(0f)
     val micAmplitude = _micAmplitude.asStateFlow()
 
+    // Real-time assistant-voice amplitude (0.0 - 1.0), the output-side counterpart of
+    // [_micAmplitude], used by the Live HUD. It is measured from PCM this process already holds —
+    // the local engine's [SpeechSamples], the Gateway's per-chunk WAVs, a replayed file — rather
+    // than by tapping the `pw-play` subprocess (seam 2 plays a file and never hands samples back).
+    // The system TTS route owns its playback and exposes nothing to measure, so it stays at 0 and
+    // the HUD falls back to its own cadence; see [AudioEnvelope] for why that is an honest
+    // limitation rather than a second measurement path.
+    val _speechAmplitude = MutableStateFlow(0f)
+    val speechAmplitude = _speechAmplitude.asStateFlow()
+
     // Index of the in-flight Direct-Ollama streaming placeholder inside
     // _messages (appended on the stream's first chunk, replaced by the final
     // message at apply, removed if it ended up blank). Nullable — null when no

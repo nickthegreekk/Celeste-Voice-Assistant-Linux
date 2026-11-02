@@ -1787,3 +1787,50 @@ all three. Scheduled and spontaneous turns make no tool calls at all.
 `DocumentOcr.kt` (`resolveVisionTarget`/`visionPng`), `AssistantServiceChat.kt`,
 `AssistantServiceFsTools.kt`, `AssistantService.kt`, `SettingsManager.kt`, `SettingsScreens.kt`,
 `PersonaEditor.kt`, `MainVoiceScreen.kt`, `platform/.../LinuxScreenCapture.kt`
+
+## 2026-11-02 — The Live HUD is a second window, and Phone mode's visible affordance is gone
+
+The user asked for a "live" full-screen/window JARVIS-like, audio-interacting view and chose a
+dedicated window over restyling the main one. The Celestial UI remains unchanged by request.
+
+**Decided: a dedicated "Celeste Live" window, not fullscreen of the main window.** M17 already
+established that a Compose desktop app can own several windows in one process (D1 is untouched),
+and the Settings/About windows are the precedent. A second window keeps the main conversation
+usable beside the HUD, can sit on another monitor, and avoids threading a window-placement flag
+through `MainVoiceScreen` only to hide the Scaffold's header and sidebar. Rejected: an in-place
+fullscreen mode (the user asked to keep Celestial as it is, and an immersive body would have been a
+third layout inside the same screen). Rejected: a separate executable or daemon protocol (D1).
+
+**Decided: the header overflow menu's "Phone mode" item becomes "Live HUD".** The 2026-10-16
+source/sink record left the item in place but inert and explicitly flagged it for the user; the user
+has now asked for it to be replaced. Nothing is lost: `LinuxAudioDevices.earpiece()` returns null by
+decision, and the per-persona output device picker (the real substitution) is unaffected. The
+`AudioDevices.earpiece()` seam method, the `earpieceMode` flow and `toggleEarpieceMode()` stay in
+place: the seam is named in PLAN.md §5, and deleting it would be a plan contradiction rather than
+the removal of a user-visible affordance. The menu item's green-dot condition and its UI state
+collection go with the item.
+
+**Decided: output amplitude is measured from PCM the process already holds.** The local engine
+returns `SpeechSamples`, the Gateway path writes each chunk's WAV, and a replay is an app-owned
+file, so a new `AudioEnvelope` can build a 50 ms RMS curve without tapping `pw-play` or reading a
+second source of truth. The service publishes `speechAmplitude` alongside `micAmplitude`; the
+chunked path samples it on the same `fraction × estimatedTotal` clock the karaoke highlight uses,
+and the local/replay paths sample it against `PlaybackHandle.positionMs`. Rejected: changing seam
+2 to stream PCM through a pipe (a platform-only second implementation for a visual), and reading
+`pw-play`'s meters (a second truth with no test without a live server).
+
+**Decided: system TTS gets a fallback cadence, not a fake measurement.** Android's speech-dispatcher
+route owns its playback and exposes no samples. Publishing a synthetic level through
+`speechAmplitude` would make the HUD claim a measurement it did not take; the HUD decides by state
+when the flow is zero. Rejected: a second "estimated amplitude" flow (two flows for one visual, and
+the next reader would have to know which was real).
+
+**Decided: reply-notification focus is aggregated across the main and Live windows.** M14 has a
+single `setWindowFocused(Boolean)`; opening the Live HUD would otherwise make the main window report
+lost focus and notify a reply the user is watching in the HUD. `Main.kt` keeps the set of focused
+windows and publishes `set isNotEmpty()`. Settings and About keep their existing behaviour (they
+never reported focus).
+
+No new dependency, no COPY file touched, no network call added. → PLAN.md §10/M20;
+`AudioEnvelope.kt`, `LiveHud.kt`, `AssistantService.kt`, `AssistantServiceAudio.kt`,
+`MainVoiceScreen.kt`, `Main.kt`, `AudioEnvelopeTest.kt`, `SpeechAmplitudeTest.kt`
